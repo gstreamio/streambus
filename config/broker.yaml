@@ -1,0 +1,251 @@
+# StreamBus Broker Configuration
+
+# Server Configuration
+server:
+  # Broker ID (must be unique in cluster)
+  broker_id: 1
+
+  # Network address to bind
+  host: 0.0.0.0
+  port: 9092
+
+  # gRPC port for control plane
+  grpc_port: 9093
+
+  # HTTP port for metrics and health checks
+  http_port: 8080
+
+# Storage Configuration
+storage:
+  # Data directory
+  data_dir: /var/lib/streambus/data
+
+  # Write-Ahead Log configuration
+  wal:
+    # Segment size in bytes (default: 1GB)
+    segment_size: 1073741824
+
+    # Fsync policy: always, interval, never
+    fsync: interval
+
+    # Fsync interval in milliseconds (when fsync=interval)
+    fsync_interval_ms: 1000
+
+  # LSM Tree configuration
+  lsm:
+    # Memory table size before flush (default: 64MB)
+    memtable_size: 67108864
+
+    # Number of immutable memtables
+    num_memtables: 3
+
+    # Block size for SSTable files (default: 4KB)
+    block_size: 4096
+
+    # Bloom filter false positive rate
+    bloom_filter_fp_rate: 0.01
+
+  # Compaction configuration
+  compaction:
+    # Compaction strategy: leveled, size-tiered, time-window
+    strategy: leveled
+
+    # Max number of concurrent compactions
+    max_concurrent: 2
+
+    # Compaction trigger (size ratio for next level)
+    size_ratio: 10
+
+  # Cache configuration
+  cache:
+    # Block cache size in bytes (default: 256MB)
+    block_cache_size: 268435456
+
+    # Index cache size in bytes (default: 64MB)
+    index_cache_size: 67108864
+
+# Replication Configuration
+replication:
+  # Default replication factor for new topics
+  default_factor: 3
+
+  # Min in-sync replicas required for acks=all
+  min_isr: 2
+
+  # Replica fetch max bytes
+  fetch_max_bytes: 1048576
+
+  # Replica lag time before removal from ISR (ms)
+  replica_lag_time_max_ms: 10000
+
+  # Replica lag messages before removal from ISR
+  replica_lag_max_messages: 4000
+
+# Cluster Configuration
+cluster:
+  # Raft configuration
+  raft:
+    # Raft data directory
+    data_dir: /var/lib/streambus/raft
+
+    # Heartbeat interval (ms)
+    heartbeat_interval_ms: 1000
+
+    # Election timeout (ms)
+    election_timeout_ms: 3000
+
+    # Snapshot interval (number of logs)
+    snapshot_interval: 10000
+
+  # Initial cluster members (comma-separated broker_id:host:port)
+  peers:
+    - 1:broker-1:9093
+    - 2:broker-2:9093
+    - 3:broker-3:9093
+
+# Performance Configuration
+performance:
+  # Number of network threads
+  num_network_threads: 8
+
+  # Number of I/O threads
+  num_io_threads: 8
+
+  # Socket send buffer bytes
+  socket_send_buffer_bytes: 102400
+
+  # Socket receive buffer bytes
+  socket_receive_buffer_bytes: 102400
+
+  # Max request size
+  max_request_size: 104857600
+
+# Security Configuration
+security:
+  # Enable TLS
+  tls:
+    enabled: false
+    cert_file: /etc/streambus/tls/server.crt
+    key_file: /etc/streambus/tls/server.key
+    ca_file: /etc/streambus/tls/ca.crt
+
+  # SASL authentication
+  sasl:
+    enabled: false
+    mechanism: SCRAM-SHA-256
+
+  # ACL authorization
+  acl:
+    enabled: false
+
+# Observability Configuration
+observability:
+  # Logging
+  logging:
+    # Log level: debug, info, warn, error
+    level: info
+
+    # Log format: json, text
+    format: json
+
+    # Log output: stdout, file
+    output: stdout
+
+    # Log file path (when output=file)
+    file: /var/log/streambus/broker.log
+
+  # Metrics
+  metrics:
+    # Enable Prometheus metrics
+    enabled: true
+
+    # Metrics endpoint path
+    path: /metrics
+
+  # Tracing
+  tracing:
+    # Enable OpenTelemetry tracing
+    enabled: false
+
+    # OTLP endpoint
+    endpoint: http://localhost:4317
+
+    # Sampling rate (0.0-1.0)
+    sampling_rate: 0.1
+
+# Topic Configuration Defaults
+topics:
+  # Auto-create topics on first produce
+  auto_create: true
+
+  # Default number of partitions
+  default_partitions: 10
+
+  # Default replication factor
+  default_replication_factor: 3
+
+  # Retention policy
+  retention:
+    # Retention time in hours (-1 for unlimited)
+    time_hours: 168  # 7 days
+
+    # Retention size per partition in bytes (-1 for unlimited)
+    size_bytes: 107374182400  # 100GB
+
+  # Compaction
+  compaction:
+    # Enable log compaction by default
+    enabled: false
+
+# Consumer Group Configuration
+consumer_groups:
+  # Session timeout (ms)
+  session_timeout_ms: 30000
+
+  # Heartbeat interval (ms)
+  heartbeat_interval_ms: 3000
+
+  # Rebalance timeout (ms)
+  rebalance_timeout_ms: 60000
+
+  # Initial rebalance delay (ms)
+  initial_rebalance_delay_ms: 3000
+
+# Producer Configuration Defaults
+producers:
+  # Max batch size
+  batch_size: 16384
+
+  # Linger time (ms)
+  linger_ms: 5
+
+  # Compression codec: none, gzip, snappy, lz4, zstd
+  compression: lz4
+
+  # Max in-flight requests per connection
+  max_in_flight_requests: 5
+
+  # Idempotence
+  enable_idempotence: true
+
+# Consumer Configuration Defaults
+consumers:
+  # Fetch min bytes
+  fetch_min_bytes: 1
+
+  # Fetch max bytes
+  fetch_max_bytes: 52428800  # 50MB
+
+  # Fetch max wait (ms)
+  fetch_max_wait_ms: 500
+
+  # Max partition fetch bytes
+  max_partition_fetch_bytes: 1048576  # 1MB
+
+# Admin Configuration
+admin:
+  # Enable admin API
+  enabled: true
+
+  # Admin port (uses http_port if not specified)
+  # port: 8081
