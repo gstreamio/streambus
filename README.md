@@ -241,8 +241,8 @@ make benchmark-compare   # Compare current vs baseline
 - [Benchmarks](docs/BENCHMARKS.md) - Detailed performance benchmarks and methodology
 - [Examples](examples/README.md) - Producer and consumer example applications
 - [Project Plan](docs/PROJECT_PLAN.md) - Comprehensive project planning document
-- [Architecture Guide](docs/architecture.md) - Detailed architecture documentation
-- [Getting Started](docs/getting-started.md) - Step-by-step tutorial
+- [Architecture Guide](docs/ARCHITECTURE.md) - Detailed architecture documentation
+- [Getting Started](docs/GETTING_STARTED.md) - Step-by-step tutorial
 - [API Reference](docs/api-reference.md) - Complete API documentation
 - [Operations Guide](docs/operations.md) - Deployment and operations
 - [Migration Guide](docs/migration-from-kafka.md) - Migrating from Kafka
