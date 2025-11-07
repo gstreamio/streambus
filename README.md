@@ -238,9 +238,9 @@ make benchmark-compare   # Compare current vs baseline
 
 ## Documentation
 
-- [Benchmarks](BENCHMARKS.md) - Detailed performance benchmarks and methodology
+- [Benchmarks](docs/BENCHMARKS.md) - Detailed performance benchmarks and methodology
 - [Examples](examples/README.md) - Producer and consumer example applications
-- [Project Plan](PROJECT_PLAN.md) - Comprehensive project planning document
+- [Project Plan](docs/PROJECT_PLAN.md) - Comprehensive project planning document
 - [Architecture Guide](docs/architecture.md) - Detailed architecture documentation
 - [Getting Started](docs/getting-started.md) - Step-by-step tutorial
 - [API Reference](docs/api-reference.md) - Complete API documentation
@@ -274,7 +274,7 @@ StreamBus is currently in active development. Recent progress:
 - **Milestone 3.1**: Consumer groups
 - **Milestone 3.2**: Transactions
 
-See [PROJECT_PLAN.md](PROJECT_PLAN.md) for detailed roadmap.
+See [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) for detailed roadmap.
 
 ## Contributing
 
