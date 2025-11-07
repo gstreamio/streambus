@@ -85,6 +85,9 @@ type WAL interface {
 	// Truncate truncates the WAL before the given offset
 	Truncate(beforeOffset Offset) error
 
+	// NextOffset returns the next available offset
+	NextOffset() Offset
+
 	// Close closes the WAL
 	Close() error
 }

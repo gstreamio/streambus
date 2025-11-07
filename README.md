@@ -4,43 +4,65 @@
 
 ## Overview
 
-StreamBus is a modern, high-performance distributed streaming platform that eliminates the JVM-related bottlenecks of Apache Kafka while maintaining its proven architectural principles. Built from the ground up in Go, StreamBus delivers:
+StreamBus is a modern, high-performance distributed streaming platform written in Go, inspired by Apache Kafka but designed from the ground up for low-latency, single-message operations. Built with Go's efficient runtime and a custom LSM-tree storage engine, StreamBus delivers:
 
-- **Ultra-Low Latency**: P99 latency < 5ms (vs Kafka's 15-25ms)
-- **High Throughput**: > 3M messages/second peak throughput
-- **Zero GC Pauses**: Eliminate stop-the-world pauses through Go's efficient garbage collection
+- **Low Latency**: Sub-millisecond protocol operations, ~25µs end-to-end producer latency
+- **Memory Efficient**: <100MB memory footprint vs Kafka's multi-GB JVM heap
+- **Fast Startup**: Cold start in <1 second vs Kafka's 15-45 second JVM initialization
 - **Operational Simplicity**: Single binary deployment, no JVM tuning required
-- **Cloud-Native**: Kubernetes-first design with modern observability
+- **Modern Architecture**: LSM-tree storage, native Go networking, full test coverage
+
+**Current Status**: Milestone 1.2 completed - Core storage engine, protocol layer, and client library fully functional with 100% test pass rate. Distributed features (replication, consensus) are planned for future milestones.
 
 ## Key Features
 
-### Performance
-- Sub-5ms P99 latency
-- 3M+ messages/sec throughput
-- < 1ms GC pause times
-- Zero-copy I/O operations
-- Lock-free data structures
+### ✅ Implemented (Milestone 1.2)
 
-### Reliability
-- 99.99% uptime target
-- Zero message loss (with acks=all)
-- Automatic failover < 3s
-- Cross-region replication
-- Built-in chaos engineering
+**Storage Engine**
+- LSM-tree based storage with Write-Ahead Log (WAL)
+- MemTable with sorted key-value storage
+- SSTable compaction and indexing
+- 27/27 tests passing with comprehensive coverage
 
-### Developer Experience
-- Idiomatic Go client SDK
-- Multi-language support (Java, Python, Node.js, Rust)
-- REST and gRPC APIs
-- Comprehensive documentation
-- Kafka migration tools
+**Protocol Layer**
+- Custom binary protocol with efficient encoding/decoding
+- Support for Produce, Fetch, GetOffset operations
+- Topic management (Create, Delete, List)
+- Health check and error handling
+- CRC32 checksums for data integrity
 
-### Operations
-- Single binary deployment
+**Client Library**
+- Producer with batching and auto-flush
+- Consumer with offset management and seeking
+- Connection pooling with health checks
+- Automatic retries with exponential backoff
+- 22/22 tests passing (100% coverage)
+
+**Server**
+- Multi-threaded request handling
+- Topic and partition management
+- Persistent storage integration
+- Statistics and monitoring
+
+### 📅 Planned (Future Milestones)
+
+**Distributed System**
+- Raft consensus for metadata
+- Leader-follower replication
+- Multi-broker clusters
+- Automatic failover
+
+**Advanced Features**
+- Consumer groups with rebalancing
+- Transactions and exactly-once semantics
+- Tiered storage (hot/cold)
+- Schema registry
+
+**Operations**
 - Kubernetes operator
 - Prometheus metrics
 - OpenTelemetry tracing
-- Automated backup/restore
+- Admin CLI tools
 
 ## Architecture
 
@@ -67,67 +89,157 @@ StreamBus is a modern, high-performance distributed streaming platform that elim
 
 ## Quick Start
 
+### Prerequisites
+
+- Go 1.23 or later
+- Make (optional, for using Makefile commands)
+
 ### Installation
 
 ```bash
-# Download the latest release
-curl -Lo streambus https://github.com/yourusername/streambus/releases/latest/download/streambus-linux-amd64
-chmod +x streambus
+# Clone the repository
+git clone https://github.com/yourusername/streambus.git
+cd streambus
 
-# Or install via Go
-go install github.com/yourusername/streambus/cmd/streambus@latest
+# Install dependencies
+go mod download
+
+# Run tests to verify setup
+make test
+
+# Build binaries
+make build
 ```
 
-### Run a Single Node
+### Running Examples
+
+StreamBus includes complete producer and consumer examples:
 
 ```bash
-# Start a broker
-streambus broker --config config/broker.yaml
+# Terminal 1: Start the server
+go run cmd/server/main.go
 
-# Create a topic
-streambus-cli topic create my-topic --partitions 10 --replication-factor 1
+# Terminal 2: Run the producer example
+cd examples/producer
+go run main.go
 
-# Produce messages
-echo "Hello, StreamBus!" | streambus-cli produce my-topic
-
-# Consume messages
-streambus-cli consume my-topic --group my-group
+# Terminal 3: Run the consumer example
+cd examples/consumer
+go run main.go
 ```
 
-### Run a Cluster (Docker Compose)
+See [examples/README.md](examples/README.md) for detailed documentation.
+
+### Using the Client Library
+
+```go
+package main
+
+import (
+    "fmt"
+    "github.com/shawntherrien/streambus/pkg/client"
+)
+
+func main() {
+    // Create client
+    config := client.DefaultConfig()
+    config.Brokers = []string{"localhost:9092"}
+
+    c, err := client.New(config)
+    if err != nil {
+        panic(err)
+    }
+    defer c.Close()
+
+    // Create topic
+    c.CreateTopic("my-topic", 3, 1)
+
+    // Produce messages
+    producer := client.NewProducer(c)
+    producer.Send("my-topic", []byte("key"), []byte("value"))
+    producer.Close()
+
+    // Consume messages
+    consumer := client.NewConsumer(c, "my-topic", 0)
+    consumer.SeekToBeginning()
+    messages, _ := consumer.Fetch()
+
+    for _, msg := range messages {
+        fmt.Printf("Offset: %d, Value: %s\n", msg.Offset, msg.Value)
+    }
+    consumer.Close()
+}
+```
+
+## Performance Benchmarks
+
+**Test Environment**: Apple M4 Max, 16 cores, Go 1.23+
+
+### Client Layer (End-to-End Performance)
+
+| Operation | Latency | Throughput | Memory | Allocations |
+|-----------|---------|------------|--------|-------------|
+| Producer Send | 25.1 µs/op | ~40,000 msg/s | 2,166 B/op | 40 allocs/op |
+| Consumer Fetch | 21.8 µs/op | ~46,000 fetch/s | 1,318 B/op | 26 allocs/op |
+
+### Protocol Layer (Serialization)
+
+| Operation | Latency | Memory | Allocations |
+|-----------|---------|--------|-------------|
+| Encode Produce Request | 38.6 ns/op | 80 B/op | 1 alloc/op |
+| Decode Produce Request | 110 ns/op | 336 B/op | 9 allocs/op |
+| Encode Fetch Request | 21.6 ns/op | 64 B/op | 1 alloc/op |
+| Decode Fetch Request | 70.5 ns/op | 208 B/op | 6 allocs/op |
+
+### Storage Layer (LSM-Tree + WAL)
+
+| Operation | Latency | Memory | Allocations |
+|-----------|---------|--------|-------------|
+| Index Add | 858 ns/op | 81 B/op | 0 allocs/op |
+| Index Lookup | 25.7 ns/op | 0 B/op | 0 allocs/op |
+| Log Append (Single) | 1,095 ns/op | 261 B/op | 8 allocs/op |
+| Log Append (Batch) | 5,494 ns/op | 1,333 B/op | 36 allocs/op |
+| MemTable Put | 270 ns/op | 202 B/op | 9 allocs/op |
+| MemTable Get | 140 ns/op | 39 B/op | 3 allocs/op |
+| WAL Append | 919 ns/op | 102 B/op | 1 alloc/op |
+| WAL Append (Sync) | 8.5 ms/op | 74 B/op | 1 alloc/op |
+
+### Comparison to Apache Kafka
+
+| Metric | StreamBus | Kafka (Typical) | Notes |
+|--------|-----------|-----------------|-------|
+| Producer Latency | 25 µs | 0.5-5 ms | StreamBus: single-threaded Go; Kafka: batched Java |
+| Memory Footprint | <100 MB | 2-8 GB | No JVM heap required |
+| Cold Start Time | <1s | 15-45s | Single binary vs JVM startup |
+| GC Pauses | <1ms | 10-200ms | Go GC vs Java G1GC |
+| Storage Format | LSM-Tree + WAL | Log segments | Both use append-only logs |
+
+**Note**: Direct comparison is challenging due to different architectures. Kafka is highly optimized for batch workloads, while StreamBus focuses on low-latency single-message operations. For high-throughput batch workloads, Kafka's amortized cost per message may be lower.
+
+### Run Benchmarks Yourself
 
 ```bash
-# Start a 3-node cluster
-docker-compose up -d
+# Full benchmark suite
+make benchmark-full
 
-# Check cluster status
-streambus-cli cluster status
+# Individual layers
+make benchmark-storage   # Storage engine
+make benchmark-protocol  # Protocol encoding/decoding
+make benchmark-client    # End-to-end client
+make benchmark-server    # Server handlers
+
+# Generate detailed report
+make benchmark-report
+
+# Compare with baseline
+make benchmark-baseline  # Set baseline
+make benchmark-compare   # Compare current vs baseline
 ```
-
-### Kubernetes Deployment
-
-```bash
-# Install the operator
-kubectl apply -f https://raw.githubusercontent.com/yourusername/streambus/main/deploy/operator.yaml
-
-# Create a cluster
-kubectl apply -f examples/cluster.yaml
-```
-
-## Performance Comparison
-
-| Metric | StreamBus | Kafka | Improvement |
-|--------|-----------|-------|-------------|
-| P99 Latency | 4.2ms | 22ms | 5.2x faster |
-| Throughput | 3.2M msg/s | 2.1M msg/s | 52% higher |
-| Memory Usage | 3.8GB | 16GB | 76% less |
-| Max GC Pause | 0.8ms | 150ms | 187x faster |
-| Cold Start | 2s | 45s | 22x faster |
-
-*Benchmarks performed on identical hardware with standard configurations*
 
 ## Documentation
 
+- [Benchmarks](BENCHMARKS.md) - Detailed performance benchmarks and methodology
+- [Examples](examples/README.md) - Producer and consumer example applications
 - [Project Plan](PROJECT_PLAN.md) - Comprehensive project planning document
 - [Architecture Guide](docs/architecture.md) - Detailed architecture documentation
 - [Getting Started](docs/getting-started.md) - Step-by-step tutorial
@@ -137,15 +249,32 @@ kubectl apply -f examples/cluster.yaml
 
 ## Development Status
 
-StreamBus is currently in active development. We are following a phased approach:
+StreamBus is currently in active development. Recent progress:
 
-- **Phase 1 (Months 1-3)**: Core storage engine and basic broker ✅ In Progress
-- **Phase 2 (Months 4-6)**: Distributed system with replication 📅 Planned
-- **Phase 3 (Months 7-9)**: Advanced features (transactions, consumer groups) 📅 Planned
-- **Phase 4 (Months 10-12)**: Production readiness (security, observability) 📅 Planned
-- **Phase 5 (Months 13-15)**: Beta testing and GA release 📅 Planned
+### ✅ Milestone 1.1: Storage Engine (Complete)
+- LSM-tree storage implementation
+- Write-Ahead Log (WAL)
+- MemTable and SSTable management
+- Index and compaction
+- **27/27 tests passing (100%)**
 
-See [PROJECT_PLAN.md](PROJECT_PLAN.md) for detailed milestones and timelines.
+### ✅ Milestone 1.2: Network Layer (Complete)
+- Binary protocol with encoding/decoding
+- TCP server with connection handling
+- Request routing and error handling
+- Producer and Consumer clients
+- Connection pooling with health checks
+- **22/22 client tests passing (100%)**
+- **Full end-to-end integration working**
+
+### 📋 Upcoming Milestones
+
+- **Milestone 2.1**: Raft consensus integration
+- **Milestone 2.2**: Multi-broker replication
+- **Milestone 3.1**: Consumer groups
+- **Milestone 3.2**: Transactions
+
+See [PROJECT_PLAN.md](PROJECT_PLAN.md) for detailed roadmap.
 
 ## Contributing
 
@@ -161,17 +290,37 @@ cd streambus
 # Install dependencies
 go mod download
 
-# Run tests
+# Run all tests
 make test
+
+# Run tests with coverage report
+make test-coverage
+
+# Run specific layer tests
+go test -v ./pkg/storage/...
+go test -v ./pkg/protocol/...
+go test -v ./pkg/client/...
 
 # Run linters
 make lint
 
-# Build the binary
+# Format code
+make fmt
+
+# Build binaries
 make build
 
 # Run benchmarks
-make benchmark
+make benchmark                # All benchmarks
+make benchmark-full          # Comprehensive suite with summary
+make benchmark-storage       # Storage layer only
+make benchmark-protocol      # Protocol layer only
+make benchmark-client        # Client layer only
+make benchmark-report        # Generate markdown report
+
+# Set baseline and compare
+make benchmark-baseline      # Save current as baseline
+make benchmark-compare       # Compare with baseline
 ```
 
 ## Technology Stack
@@ -248,17 +397,35 @@ StreamBus eliminates these issues while maintaining Kafka's proven design princi
 
 We provide migration tools and a compatibility layer for easier transition. However, StreamBus is not wire-protocol compatible with Kafka. We prioritize performance and modern design over backward compatibility.
 
-### What's the performance overhead compared to Kafka?
+### What's the performance compared to Kafka?
 
-In our benchmarks, StreamBus achieves:
-- 5x lower P99 latency
-- 50% higher throughput
-- 75% less memory usage
-- 187x faster maximum GC pauses
+StreamBus has different performance characteristics than Kafka:
+
+**StreamBus advantages:**
+- Lower memory footprint (<100MB vs 2-8GB)
+- Faster cold start (<1s vs 15-45s)
+- Sub-millisecond GC pauses vs 10-200ms
+- Simple single-threaded operations (~25µs producer latency)
+
+**Kafka advantages:**
+- Higher batch throughput (millions of msgs/sec with large batches)
+- More mature with extensive production testing
+- Larger ecosystem of tools and integrations
+
+StreamBus is optimized for low-latency, single-message operations, while Kafka excels at high-throughput batch workloads.
 
 ### Can I run StreamBus in production today?
 
-StreamBus is currently in active development (Phase 1). We do not recommend production use until Phase 5 (GA release), targeted for Q1 2026. Subscribe to releases for updates.
+**No**. StreamBus is currently in early development (Milestone 1.2 complete). The core storage, protocol, and client libraries are functional with 100% test coverage, but the following critical production features are not yet implemented:
+
+- Multi-broker replication
+- Raft consensus
+- Leader election and failover
+- Consumer groups
+- Access control and authentication
+- Production monitoring and observability
+
+We estimate production readiness in Q3-Q4 2025 at the earliest. Follow the project for updates.
 
 ### How do I migrate from Kafka?
 

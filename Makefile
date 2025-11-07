@@ -71,12 +71,66 @@ test-integration: ## Run integration tests
 	@echo "Running integration tests..."
 	$(GOTEST) -v -tags=integration ./...
 
-benchmark: ## Run benchmarks
-	@echo "Running benchmarks..."
+benchmark: ## Run all benchmarks
+	@echo "Running all benchmarks..."
 	$(GOTEST) -bench=. -benchmem -run=^$$ ./...
+
+benchmark-storage: ## Run storage layer benchmarks
+	@echo "Running storage benchmarks..."
+	$(GOTEST) -bench=. -benchmem -benchtime=2s -run=^$$ ./pkg/storage/...
+
+benchmark-protocol: ## Run protocol layer benchmarks
+	@echo "Running protocol benchmarks..."
+	$(GOTEST) -bench=. -benchmem -benchtime=2s -run=^$$ ./pkg/protocol/...
+
+benchmark-client: ## Run client layer benchmarks
+	@echo "Running client benchmarks..."
+	$(GOTEST) -bench=. -benchmem -benchtime=2s -run=^$$ ./pkg/client/...
+
+benchmark-server: ## Run server layer benchmarks
+	@echo "Running server benchmarks..."
+	$(GOTEST) -bench=. -benchmem -benchtime=2s -run=^$$ ./pkg/server/...
+
+benchmark-full: ## Run comprehensive benchmark suite
+	@echo "=== StreamBus Benchmark Suite ==="
+	@echo ""
+	@echo "=== Storage Layer ==="
+	@$(GOTEST) -bench=. -benchmem -benchtime=2s -run=^$$ ./pkg/storage/... 2>&1 | grep -E "(^Benchmark|ns/op)"
+	@echo ""
+	@echo "=== Protocol Layer ==="
+	@$(GOTEST) -bench=. -benchmem -benchtime=2s -run=^$$ ./pkg/protocol/... 2>&1 | grep -E "(^Benchmark|ns/op)"
+	@echo ""
+	@echo "=== Client Layer (End-to-End) ==="
+	@$(GOTEST) -bench=. -benchmem -benchtime=2s -run=^$$ ./pkg/client/... 2>&1 | grep -E "(^Benchmark|ns/op)" || true
+	@echo ""
+	@echo "=== Benchmark Complete ==="
+
+benchmark-report: ## Generate formatted benchmark report
+	@echo "Generating benchmark report..."
+	@mkdir -p benchmarks
+	@echo "# StreamBus Performance Benchmark Report" > benchmarks/report.md
+	@echo "" >> benchmarks/report.md
+	@echo "Generated: $$(date)" >> benchmarks/report.md
+	@echo "" >> benchmarks/report.md
+	@echo "## Storage Layer" >> benchmarks/report.md
+	@echo '```' >> benchmarks/report.md
+	@$(GOTEST) -bench=. -benchmem -benchtime=2s -run=^$$ ./pkg/storage/... 2>&1 | grep -E "(^Benchmark|^goos|^goarch|^cpu)" >> benchmarks/report.md
+	@echo '```' >> benchmarks/report.md
+	@echo "" >> benchmarks/report.md
+	@echo "## Protocol Layer" >> benchmarks/report.md
+	@echo '```' >> benchmarks/report.md
+	@$(GOTEST) -bench=. -benchmem -benchtime=2s -run=^$$ ./pkg/protocol/... 2>&1 | grep -E "(^Benchmark|^goos|^goarch|^cpu)" >> benchmarks/report.md
+	@echo '```' >> benchmarks/report.md
+	@echo "" >> benchmarks/report.md
+	@echo "## Client Layer" >> benchmarks/report.md
+	@echo '```' >> benchmarks/report.md
+	@$(GOTEST) -bench=. -benchmem -benchtime=2s -run=^$$ ./pkg/client/... 2>&1 | grep -E "(^Benchmark|^goos|^goarch|^cpu)" >> benchmarks/report.md || true
+	@echo '```' >> benchmarks/report.md
+	@echo "Report saved to benchmarks/report.md"
 
 benchmark-compare: ## Run benchmarks and compare with baseline
 	@echo "Running benchmarks..."
+	@mkdir -p benchmarks
 	$(GOTEST) -bench=. -benchmem -run=^$$ ./... | tee benchmarks/new.txt
 	@if [ -f benchmarks/baseline.txt ]; then \
 		benchstat benchmarks/baseline.txt benchmarks/new.txt; \
