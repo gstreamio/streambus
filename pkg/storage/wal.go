@@ -145,6 +145,12 @@ func (w *walImpl) Truncate(beforeOffset Offset) error {
 	return nil
 }
 
+func (w *walImpl) NextOffset() Offset {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.nextOffset
+}
+
 func (w *walImpl) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -260,6 +266,7 @@ type walSegment struct {
 
 	file   *os.File
 	writer *bufio.Writer
+	index  Index
 
 	mu sync.RWMutex
 }
@@ -276,12 +283,21 @@ func createWALSegment(path string, baseOffset Offset) (*walSegment, error) {
 		return nil, err
 	}
 
+	// Create index file
+	indexPath := path + ".index"
+	index, err := NewIndex(indexPath)
+	if err != nil {
+		file.Close()
+		return nil, err
+	}
+
 	seg := &walSegment{
 		path:       path,
 		baseOffset: baseOffset,
 		nextOffset: baseOffset,
 		file:       file,
 		writer:     bufio.NewWriter(file),
+		index:      index,
 	}
 
 	return seg, nil
@@ -301,15 +317,25 @@ func openWALSegment(path string) (*walSegment, error) {
 		return nil, fmt.Errorf("invalid segment filename: %w", err)
 	}
 
+	// Open or create index
+	indexPath := path + ".index"
+	index, err := NewIndex(indexPath)
+	if err != nil {
+		file.Close()
+		return nil, err
+	}
+
 	seg := &walSegment{
 		path:       path,
 		baseOffset: baseOffset,
 		nextOffset: baseOffset,
 		file:       file,
 		writer:     bufio.NewWriter(file),
+		index:      index,
 	}
 
 	// Scan through file to find next offset and size
+	// This also rebuilds the index if needed
 	if err := seg.scan(); err != nil {
 		seg.close()
 		return nil, err
@@ -324,6 +350,9 @@ func (s *walSegment) append(offset Offset, data []byte) error {
 
 	length := uint32(len(data))
 	crc := crc32.Checksum(data, crc32.MakeTable(crc32.Castagnoli))
+
+	// Record current position for index
+	position := s.size
 
 	// Write header
 	header := make([]byte, recordHeaderSize)
@@ -343,6 +372,11 @@ func (s *walSegment) append(offset Offset, data []byte) error {
 	s.size += int64(recordHeaderSize + length)
 	s.nextOffset = offset + 1
 
+	// Add to index (every record for now; could be sparse)
+	if err := s.index.Add(offset, position); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -354,15 +388,22 @@ func (s *walSegment) read(offset Offset) ([]byte, error) {
 		return nil, ErrOffsetOutOfRange
 	}
 
-	// Seek to beginning and scan to find the offset
-	// In production, we'd use an index for faster lookups
-	if _, err := s.file.Seek(0, 0); err != nil {
+	// Use index to find approximate position
+	position, err := s.index.Lookup(offset)
+	if err != nil {
+		// Fall back to linear scan if index lookup fails
+		position = 0
+	}
+
+	// Seek to the indexed position
+	if _, err := s.file.Seek(position, 0); err != nil {
 		return nil, err
 	}
 
 	reader := bufio.NewReader(s.file)
 	header := make([]byte, recordHeaderSize)
 
+	// Scan from the indexed position
 	for {
 		if _, err := io.ReadFull(reader, header); err != nil {
 			if err == io.EOF {
@@ -388,6 +429,11 @@ func (s *walSegment) read(offset Offset) ([]byte, error) {
 			}
 			return data, nil
 		}
+
+		// Skip ahead if we haven't reached the target offset yet
+		if recordOffset > offset {
+			return nil, ErrOffsetOutOfRange
+		}
 	}
 }
 
@@ -399,7 +445,16 @@ func (s *walSegment) sync() error {
 		return err
 	}
 
-	return s.file.Sync()
+	if err := s.file.Sync(); err != nil {
+		return err
+	}
+
+	// Sync index
+	if err := s.index.Sync(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *walSegment) scan() error {
@@ -415,6 +470,8 @@ func (s *walSegment) scan() error {
 	position := int64(0)
 
 	for {
+		recordStart := position
+
 		n, err := io.ReadFull(reader, header)
 		if err != nil {
 			if err == io.EOF {
@@ -427,6 +484,11 @@ func (s *walSegment) scan() error {
 		length := binary.BigEndian.Uint32(header[0:4])
 		offset := Offset(binary.BigEndian.Uint64(header[4:12]))
 
+		// Rebuild index if it's empty
+		if s.index.(*indexImpl).Size() == 0 {
+			s.index.Add(offset, recordStart)
+		}
+
 		// Skip data
 		if _, err := reader.Discard(int(length)); err != nil {
 			return err
@@ -437,6 +499,12 @@ func (s *walSegment) scan() error {
 	}
 
 	s.size = position
+
+	// Sync index after rebuild
+	if err := s.index.Sync(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -448,5 +516,13 @@ func (s *walSegment) close() error {
 		return err
 	}
 
-	return s.file.Close()
+	if err := s.file.Close(); err != nil {
+		return err
+	}
+
+	if err := s.index.Close(); err != nil {
+		return err
+	}
+
+	return nil
 }
