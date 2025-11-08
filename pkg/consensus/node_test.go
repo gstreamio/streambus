@@ -102,7 +102,7 @@ func TestDefaultConfig(t *testing.T) {
 	require.NotNil(t, cfg)
 
 	assert.Equal(t, 100*time.Millisecond, cfg.TickInterval)
-	assert.Equal(t, 10, cfg.ElectionTick)
+	assert.Equal(t, 15, cfg.ElectionTick) // Increased to prevent premature elections
 	assert.Equal(t, 1, cfg.HeartbeatTick)
 	assert.Equal(t, uint64(1024*1024), cfg.MaxSizePerMsg)
 	assert.Equal(t, 256, cfg.MaxInflightMsgs)

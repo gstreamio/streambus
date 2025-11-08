@@ -35,7 +35,7 @@ func (s *Store) GetFSM() *FSM {
 	return s.fsm
 }
 
-// propose proposes an operation to the consensus layer.
+// propose proposes an operation to the consensus layer with retry logic.
 func (s *Store) propose(ctx context.Context, opType OperationType, opData interface{}) error {
 	// Encode operation data
 	data, err := json.Marshal(opData)
@@ -56,12 +56,49 @@ func (s *Store) propose(ctx context.Context, opType OperationType, opData interf
 		return fmt.Errorf("failed to encode operation: %w", err)
 	}
 
-	// Propose to consensus
-	if err := s.consensus.Propose(ctx, opBytes); err != nil {
-		return fmt.Errorf("failed to propose operation: %w", err)
+	// Retry with exponential backoff for transient failures
+	maxRetries := 10
+	backoff := 50 * time.Millisecond
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		// Check if we still have time
+		if ctx.Err() != nil {
+			return fmt.Errorf("context cancelled: %w", ctx.Err())
+		}
+
+		// Try to propose
+		err := s.consensus.Propose(ctx, opBytes)
+		if err == nil {
+			return nil // Success!
+		}
+
+		// Check if error is retriable
+		if err == context.DeadlineExceeded || err == context.Canceled {
+			return fmt.Errorf("proposal context error: %w", err)
+		}
+
+		// If this was the last attempt, return the error
+		if attempt == maxRetries {
+			return fmt.Errorf("failed to propose after %d attempts: %w", maxRetries+1, err)
+		}
+
+		// Wait before retrying with exponential backoff
+		select {
+		case <-time.After(backoff):
+			if backoff < 2*time.Second {
+				backoff *= 2
+			}
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled during retry: %w", ctx.Err())
+		}
+
+		// If we're not the leader anymore, wait for new leader
+		if !s.IsLeader() {
+			time.Sleep(200 * time.Millisecond)
+		}
 	}
 
-	return nil
+	return fmt.Errorf("failed to propose operation: max retries exceeded")
 }
 
 // RegisterBroker registers a new broker in the cluster.
@@ -125,6 +162,22 @@ func (s *Store) CreatePartition(ctx context.Context, partition *PartitionInfo) e
 		Partition: *partition,
 	}
 	return s.propose(ctx, OpCreatePartition, op)
+}
+
+// BatchCreatePartitions creates multiple partitions atomically in a single Raft proposal.
+// This is more efficient than calling CreatePartition multiple times and prevents
+// leadership instability under rapid operations.
+func (s *Store) BatchCreatePartitions(ctx context.Context, partitions []*PartitionInfo) error {
+	// Convert to []PartitionInfo (not pointers)
+	parts := make([]PartitionInfo, len(partitions))
+	for i, p := range partitions {
+		parts[i] = *p
+	}
+
+	op := BatchCreatePartitionsOp{
+		Partitions: parts,
+	}
+	return s.propose(ctx, OpBatchCreatePartitions, op)
 }
 
 // UpdatePartition updates a partition.

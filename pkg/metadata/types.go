@@ -315,6 +315,9 @@ const (
 	OpAddReplica        OperationType = "add_replica"
 	OpRemoveReplica     OperationType = "remove_replica"
 	OpUpdateReplicaList OperationType = "update_replica_list"
+
+	// Batch operations
+	OpBatchCreatePartitions OperationType = "batch_create_partitions"
 )
 
 // RegisterBrokerOp is the data for OpRegisterBroker.
@@ -384,6 +387,13 @@ type UpdateReplicaListOp struct {
 	Topic     string
 	Partition int
 	Replicas  []uint64
+}
+
+// BatchCreatePartitionsOp is the data for OpBatchCreatePartitions.
+// This allows creating multiple partitions in a single Raft proposal,
+// which is more efficient and prevents leadership instability.
+type BatchCreatePartitionsOp struct {
+	Partitions []PartitionInfo
 }
 
 // EncodeOperation encodes an operation to bytes.

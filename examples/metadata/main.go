@@ -12,7 +12,8 @@ import (
 
 func main() {
 	fmt.Println("StreamBus Metadata System Demo")
-	fmt.Println("================================\n")
+	fmt.Println("================================")
+	fmt.Println()
 
 	// Create temporary directory for Raft data
 	dir, err := os.MkdirTemp("", "streambus-demo-*")
@@ -52,7 +53,7 @@ func main() {
 	if !node.IsLeader() {
 		panic("Node failed to become leader")
 	}
-	fmt.Println("✓ Node elected as leader\n")
+	fmt.Println("✓ Node elected as leader")
 
 	// Create metadata store with the same FSM that's integrated with Raft
 	store := metadata.NewStore(fsm, node)
@@ -206,7 +207,7 @@ func main() {
 	newPartition, _ := store.GetPartition("user-events", 0)
 	fmt.Printf("  After:  Leader=%d, Epoch=%d, ISR=%v\n",
 		newPartition.Leader, newPartition.LeaderEpoch, newPartition.ISR)
-	fmt.Println("  ✓ Leader election completed\n")
+	fmt.Println("  ✓ Leader election completed")
 
 	// Step 7: Simulate ISR shrink (replica falling behind)
 	fmt.Println("Step 7: Simulating ISR shrink...")
@@ -225,7 +226,7 @@ func main() {
 
 	newPartition2, _ := store.GetPartition("order-events", 0)
 	fmt.Printf("  After:  ISR=%v\n", newPartition2.ISR)
-	fmt.Println("  ✓ ISR updated\n")
+	fmt.Println("  ✓ ISR updated")
 
 	// Step 8: Update broker status
 	fmt.Println("Step 8: Updating broker status...")
@@ -239,14 +240,14 @@ func main() {
 
 	broker1, _ := store.GetBroker(1)
 	fmt.Printf("  Broker 1 status: %s\n", broker1.Status)
-	fmt.Println("  ✓ Broker status updated\n")
+	fmt.Println("  ✓ Broker status updated")
 
 	// Step 9: Show final cluster state
 	fmt.Println("Step 9: Final cluster state...")
 	state := store.GetState()
 	fmt.Printf("\n  Cluster Version: %d\n", state.Version)
 	fmt.Printf("  Last Modified: %s\n", state.LastModified.Format(time.RFC3339))
-	fmt.Printf("\n  Summary:\n")
+	fmt.Printf("\n  Summary:")
 	fmt.Printf("    - Brokers: %d\n", len(state.Brokers))
 	fmt.Printf("    - Topics: %d\n", len(state.Topics))
 	fmt.Printf("    - Partitions: %d\n", len(state.Partitions))
@@ -259,11 +260,11 @@ func main() {
 		leadersPerBroker[p.Leader]++
 	}
 
-	fmt.Printf("\n  Partition Statistics:\n")
+	fmt.Printf("\n  Partition Statistics:")
 	fmt.Printf("    - Total partition replicas: %d\n", totalReplicas)
 	fmt.Printf("    - Average replicas per partition: %.1f\n",
 		float64(totalReplicas)/float64(len(state.Partitions)))
-	fmt.Printf("    - Leaders per broker:\n")
+	fmt.Printf("    - Leaders per broker:")
 	for brokerID := uint64(1); brokerID <= 3; brokerID++ {
 		count := leadersPerBroker[brokerID]
 		fmt.Printf("        Broker %d: %d partitions (%.1f%%)\n",

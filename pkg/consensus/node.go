@@ -3,6 +3,7 @@ package consensus
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -151,7 +152,21 @@ func (rn *RaftNode) Stop() error {
 
 // Propose proposes data to be appended to the Raft log.
 func (rn *RaftNode) Propose(ctx context.Context, data []byte) error {
-	return rn.node.Propose(ctx, data)
+	rn.mu.RLock()
+	isLeader := rn.raftState == StateLeader
+	leaderID := rn.lead
+	rn.mu.RUnlock()
+
+	log.Printf("[Node %d] Proposing data (len=%d), isLeader=%v, currentLeader=%d",
+		rn.config.NodeID, len(data), isLeader, leaderID)
+
+	err := rn.node.Propose(ctx, data)
+	if err != nil {
+		log.Printf("[Node %d] Proposal failed: %v", rn.config.NodeID, err)
+	} else {
+		log.Printf("[Node %d] Proposal submitted successfully", rn.config.NodeID)
+	}
+	return err
 }
 
 // IsLeader returns true if this node is currently the Raft leader.
@@ -166,6 +181,11 @@ func (rn *RaftNode) Leader() uint64 {
 	rn.mu.RLock()
 	defer rn.mu.RUnlock()
 	return rn.lead
+}
+
+// Status returns the current Raft status for debugging.
+func (rn *RaftNode) Status() raft.Status {
+	return rn.node.Status()
 }
 
 // AddNode adds a new node to the Raft cluster.
@@ -247,16 +267,20 @@ func (rn *RaftNode) run() {
 			// Send messages to other nodes
 			for _, msg := range rd.Messages {
 				if err := rn.transport.Send(msg); err != nil {
-					// Log error but continue
+					log.Printf("[Node %d] Failed to send message to %d: %v", rn.config.NodeID, msg.To, err)
 				}
 			}
 
 			// Apply committed entries to state machine
 			if len(rd.CommittedEntries) > 0 {
 				if err := rn.applyCommittedEntries(rd.CommittedEntries); err != nil {
+					log.Printf("[Node %d] Error applying committed entries: %v", rn.config.NodeID, err)
 					rn.errorCh <- fmt.Errorf("failed to apply entries: %w", err)
 					continue
 				}
+			} else if len(rd.Entries) > 0 {
+				// Log when we have entries but nothing committed yet
+				log.Printf("[Node %d] Have %d entries but none committed yet", rn.config.NodeID, len(rd.Entries))
 			}
 
 			// Check if snapshot is needed
@@ -266,12 +290,13 @@ func (rn *RaftNode) run() {
 				}
 			}
 
-			// Convert to our Ready type and send to channel
+			// Convert to our Ready type and send to channel (non-blocking)
 			ready := rn.convertReady(rd)
 			select {
 			case rn.readyCh <- ready:
-			case <-rn.stopCh:
-				return
+				// Sent successfully
+			default:
+				// Nobody listening, that's OK
 			}
 
 			// Notify Raft that we've processed this ready
@@ -298,23 +323,33 @@ func (rn *RaftNode) ticker() {
 // handleMessage handles incoming Raft messages from the transport.
 func (rn *RaftNode) handleMessage(msg raftpb.Message) {
 	if err := rn.node.Step(context.Background(), msg); err != nil {
-		// Log error
+		log.Printf("[Node %d] Failed to handle message from %d: %v",
+			rn.config.NodeID, msg.From, err)
 	}
 }
 
 // applyCommittedEntries applies committed entries to the state machine.
 func (rn *RaftNode) applyCommittedEntries(entries []raftpb.Entry) error {
+	log.Printf("[Node %d] Applying %d committed entries", rn.config.NodeID, len(entries))
+
 	for _, entry := range entries {
 		if entry.Index <= rn.appliedIndex {
 			continue
 		}
 
+		log.Printf("[Node %d] Applying entry: index=%d, term=%d, type=%v, dataLen=%d",
+			rn.config.NodeID, entry.Index, entry.Term, entry.Type, len(entry.Data))
+
 		switch entry.Type {
 		case raftpb.EntryNormal:
 			if len(entry.Data) > 0 && rn.stateMachine != nil {
 				if err := rn.stateMachine.Apply(entry.Data); err != nil {
+					log.Printf("[Node %d] Failed to apply entry %d: %v",
+						rn.config.NodeID, entry.Index, err)
 					return fmt.Errorf("failed to apply entry %d: %w", entry.Index, err)
 				}
+				log.Printf("[Node %d] Successfully applied entry %d to state machine",
+					rn.config.NodeID, entry.Index)
 			}
 
 		case raftpb.EntryConfChange:
@@ -343,6 +378,7 @@ func (rn *RaftNode) applyCommittedEntries(entries []raftpb.Entry) error {
 		rn.appliedIndex = entry.Index
 	}
 
+	log.Printf("[Node %d] Applied entries up to index %d", rn.config.NodeID, rn.appliedIndex)
 	return nil
 }
 
@@ -424,8 +460,26 @@ func (rn *RaftNode) updateSoftState(ss *raft.SoftState) {
 	rn.mu.Lock()
 	defer rn.mu.Unlock()
 
+	oldLead := rn.lead
+	oldState := rn.raftState
+
 	rn.lead = ss.Lead
 	rn.raftState = StateType(ss.RaftState)
+
+	// Log state changes
+	if oldLead != ss.Lead || oldState != StateType(ss.RaftState) {
+		stateStr := "Unknown"
+		switch StateType(ss.RaftState) {
+		case StateFollower:
+			stateStr = "Follower"
+		case StateCandidate:
+			stateStr = "Candidate"
+		case StateLeader:
+			stateStr = "Leader"
+		}
+		log.Printf("[Node %d] State change: %v->%v, Leader: %d->%d",
+			rn.config.NodeID, oldState, stateStr, oldLead, ss.Lead)
+	}
 }
 
 // convertReady converts raft.Ready to our Ready type.

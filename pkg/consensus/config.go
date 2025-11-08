@@ -76,7 +76,7 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		TickInterval:               100 * time.Millisecond,
-		ElectionTick:               10, // 1 second
+		ElectionTick:               15, // 1.5 seconds (increased to prevent premature elections)
 		HeartbeatTick:              1,  // 100ms
 		MaxSizePerMsg:              1024 * 1024,
 		MaxInflightMsgs:            256,

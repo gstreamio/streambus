@@ -164,11 +164,8 @@ func (t *BidirectionalTransport) ensureConnected(peer *bidirPeer) error {
 		return nil
 	}
 
-	// Only initiate connection if our ID is lower (prevents duplicate connections)
-	if t.nodeID > peer.id {
-		// Wait for incoming connection
-		return fmt.Errorf("waiting for peer %d to connect", peer.id)
-	}
+	// Try to establish connection
+	// Note: Both nodes can initiate connections; we'll handle duplicates when accepting
 
 	// Establish new connection
 	conn, err := net.DialTimeout("tcp", peer.addr, 5*time.Second)
@@ -217,7 +214,17 @@ func (t *BidirectionalTransport) senderLoop(peer *bidirPeer) {
 		case <-t.stopCh:
 			return
 		case msg := <-peer.sendCh:
-			if err := t.sendMessage(peer, msg); err != nil {
+			// Keep trying to send the message with backoff
+			maxRetries := 3
+			backoff := 10 * time.Millisecond
+
+			for attempt := 0; attempt <= maxRetries; attempt++ {
+				err := t.sendMessage(peer, msg)
+				if err == nil {
+					// Success!
+					break
+				}
+
 				// Connection failed, close it
 				peer.mu.Lock()
 				if peer.conn != nil {
@@ -225,7 +232,20 @@ func (t *BidirectionalTransport) senderLoop(peer *bidirPeer) {
 					peer.conn = nil
 				}
 				peer.mu.Unlock()
-				return
+
+				// If this was the last attempt, drop the message
+				if attempt == maxRetries {
+					// Log error but continue processing next messages
+					// rather than exiting the loop entirely
+					break
+				}
+
+				// Wait before retrying
+				time.Sleep(backoff)
+				backoff *= 2
+
+				// Try to reconnect
+				t.ensureConnected(peer)
 			}
 		}
 	}

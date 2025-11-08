@@ -6,11 +6,22 @@ type Request struct {
 	Payload interface{}
 }
 
+// AcksLevel represents the acknowledgment level for produce requests
+type AcksLevel int16
+
+const (
+	AcksNone AcksLevel = 0  // No acknowledgment (fire and forget)
+	AcksOne  AcksLevel = 1  // Acknowledgment from leader only
+	AcksAll  AcksLevel = -1 // Acknowledgment from all ISR members
+)
+
 // ProduceRequest represents a produce request
 type ProduceRequest struct {
 	Topic       string
 	PartitionID uint32
 	Messages    []Message
+	Acks        AcksLevel // Acknowledgment level (0, 1, or -1)
+	TimeoutMs   int32     // Timeout for acks=all (default: 30000)
 }
 
 // FetchRequest represents a fetch request
