@@ -3,6 +3,7 @@ package metadata
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 )
@@ -30,36 +31,52 @@ func (f *FSM) Apply(data []byte) error {
 		return fmt.Errorf("failed to decode operation: %w", err)
 	}
 
+	log.Printf("[FSM] Applying operation: type=%s, timestamp=%v", op.Type, op.Timestamp)
+
 	// Apply operation based on type
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	var applyErr error
 	switch op.Type {
 	case OpRegisterBroker:
-		return f.applyRegisterBroker(op.Data)
+		applyErr = f.applyRegisterBroker(op.Data)
 	case OpUnregisterBroker:
-		return f.applyUnregisterBroker(op.Data)
+		applyErr = f.applyUnregisterBroker(op.Data)
 	case OpUpdateBroker:
-		return f.applyUpdateBroker(op.Data)
+		applyErr = f.applyUpdateBroker(op.Data)
 	case OpCreateTopic:
-		return f.applyCreateTopic(op.Data)
+		applyErr = f.applyCreateTopic(op.Data)
 	case OpDeleteTopic:
-		return f.applyDeleteTopic(op.Data)
+		applyErr = f.applyDeleteTopic(op.Data)
 	case OpUpdateTopic:
-		return f.applyUpdateTopic(op.Data)
+		applyErr = f.applyUpdateTopic(op.Data)
 	case OpCreatePartition:
-		return f.applyCreatePartition(op.Data)
+		applyErr = f.applyCreatePartition(op.Data)
 	case OpUpdatePartition:
-		return f.applyUpdatePartition(op.Data)
+		applyErr = f.applyUpdatePartition(op.Data)
 	case OpUpdateLeader:
-		return f.applyUpdateLeader(op.Data)
+		applyErr = f.applyUpdateLeader(op.Data)
+		log.Printf("[FSM] Applied UpdateLeader operation, error=%v", applyErr)
 	case OpUpdateISR:
-		return f.applyUpdateISR(op.Data)
+		applyErr = f.applyUpdateISR(op.Data)
+		log.Printf("[FSM] Applied UpdateISR operation, error=%v", applyErr)
 	case OpUpdateReplicaList:
-		return f.applyUpdateReplicaList(op.Data)
+		applyErr = f.applyUpdateReplicaList(op.Data)
+	case OpBatchCreatePartitions:
+		applyErr = f.applyBatchCreatePartitions(op.Data)
 	default:
-		return fmt.Errorf("unknown operation type: %s", op.Type)
+		applyErr = fmt.Errorf("unknown operation type: %s", op.Type)
 	}
+
+	if applyErr != nil {
+		log.Printf("[FSM] Operation failed: type=%s, error=%v", op.Type, applyErr)
+	} else {
+		// Note: version is already incremented by individual operation handlers
+		log.Printf("[FSM] Operation succeeded: type=%s, new version=%d", op.Type, f.state.Version)
+	}
+
+	return applyErr
 }
 
 // Snapshot returns the current state as a snapshot.
@@ -339,6 +356,40 @@ func (f *FSM) applyCreatePartition(data []byte) error {
 	partition.LeaderEpoch = 1
 
 	f.state.Partitions[id] = partition
+	f.state.Version++
+	f.state.LastModified = time.Now()
+
+	return nil
+}
+
+// applyBatchCreatePartitions applies a batch create partitions operation.
+// This creates multiple partitions atomically in a single Raft proposal.
+func (f *FSM) applyBatchCreatePartitions(data []byte) error {
+	var op BatchCreatePartitionsOp
+	if err := json.Unmarshal(data, &op); err != nil {
+		return fmt.Errorf("failed to unmarshal batch create partitions op: %w", err)
+	}
+
+	now := time.Now()
+
+	// Validate all partitions first (fail fast if any are invalid)
+	for _, partition := range op.Partitions {
+		id := partition.PartitionID()
+		if _, exists := f.state.Partitions[id]; exists {
+			return fmt.Errorf("partition %s already exists", id)
+		}
+	}
+
+	// Create all partitions
+	for _, partition := range op.Partitions {
+		id := partition.PartitionID()
+		p := partition.Clone()
+		p.CreatedAt = now
+		p.ModifiedAt = now
+		p.LeaderEpoch = 1
+		f.state.Partitions[id] = p
+	}
+
 	f.state.Version++
 	f.state.LastModified = time.Now()
 

@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -135,8 +136,37 @@ func TestServer_ProduceRequest(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// Create produce request
 	codec := protocol.NewCodec()
+
+	// First, create the topic
+	createReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 1,
+			Type:      protocol.RequestTypeCreateTopic,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.CreateTopicRequest{
+			Topic:              "test-topic",
+			NumPartitions:      1,
+			ReplicationFactor:  1,
+		},
+	}
+
+	err = codec.EncodeRequest(conn, createReq)
+	if err != nil {
+		t.Fatalf("Failed to encode create topic request: %v", err)
+	}
+
+	createResp, err := codec.DecodeResponse(conn)
+	if err != nil {
+		t.Fatalf("Failed to decode create topic response: %v", err)
+	}
+
+	if createResp.Header.Status != protocol.StatusOK {
+		t.Fatalf("Failed to create topic: status=%v", createResp.Header.Status)
+	}
+
+	// Now create produce request
 	req := &protocol.Request{
 		Header: protocol.RequestHeader{
 			RequestID: 2,
@@ -174,7 +204,13 @@ func TestServer_ProduceRequest(t *testing.T) {
 		t.Errorf("RequestID mismatch: got %d, want %d", resp.Header.RequestID, req.Header.RequestID)
 	}
 	if resp.Header.Status != protocol.StatusOK {
-		t.Errorf("Expected StatusOK, got %v", resp.Header.Status)
+		errorMsg := ""
+		if resp.Payload != nil {
+			if errResp, ok := resp.Payload.(*protocol.ErrorResponse); ok {
+				errorMsg = fmt.Sprintf(" - ErrorCode: %v, Message: %s", errResp.ErrorCode, errResp.Message)
+			}
+		}
+		t.Errorf("Expected StatusOK, got %v%s", resp.Header.Status, errorMsg)
 	}
 }
 
@@ -204,11 +240,40 @@ func TestServer_FetchRequest(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// Create fetch request
 	codec := protocol.NewCodec()
+
+	// First, create the topic
+	createReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 1,
+			Type:      protocol.RequestTypeCreateTopic,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.CreateTopicRequest{
+			Topic:              "test-topic",
+			NumPartitions:      1,
+			ReplicationFactor:  1,
+		},
+	}
+
+	err = codec.EncodeRequest(conn, createReq)
+	if err != nil {
+		t.Fatalf("Failed to encode create topic request: %v", err)
+	}
+
+	createResp, err := codec.DecodeResponse(conn)
+	if err != nil {
+		t.Fatalf("Failed to decode create topic response: %v", err)
+	}
+
+	if createResp.Header.Status != protocol.StatusOK {
+		t.Fatalf("Failed to create topic: status=%v", createResp.Header.Status)
+	}
+
+	// Now create fetch request
 	req := &protocol.Request{
 		Header: protocol.RequestHeader{
-			RequestID: 3,
+			RequestID: 2,
 			Type:      protocol.RequestTypeFetch,
 			Version:   protocol.ProtocolVersion,
 			Flags:     protocol.FlagNone,
@@ -238,7 +303,13 @@ func TestServer_FetchRequest(t *testing.T) {
 		t.Errorf("RequestID mismatch: got %d, want %d", resp.Header.RequestID, req.Header.RequestID)
 	}
 	if resp.Header.Status != protocol.StatusOK {
-		t.Errorf("Expected StatusOK, got %v", resp.Header.Status)
+		errorMsg := ""
+		if resp.Payload != nil {
+			if errResp, ok := resp.Payload.(*protocol.ErrorResponse); ok {
+				errorMsg = fmt.Sprintf(" - ErrorCode: %v, Message: %s", errResp.ErrorCode, errResp.Message)
+			}
+		}
+		t.Errorf("Expected StatusOK, got %v%s", resp.Header.Status, errorMsg)
 	}
 }
 

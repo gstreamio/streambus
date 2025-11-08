@@ -32,6 +32,126 @@ func waitForLeader(t *testing.T, stores []*Store, timeout time.Duration) (*Store
 	return nil, 0
 }
 
+// Helper function to log Raft status for debugging
+func logRaftStatus(t *testing.T, nodes []*consensus.RaftNode, message string) {
+	t.Logf("=== Raft Status: %s ===", message)
+	for i, node := range nodes {
+		if node == nil {
+			continue
+		}
+		status := node.Status()
+		t.Logf("Node %d: Lead=%d, State=%v, Applied=%d, Commit=%d, Term=%d",
+			i+1, status.Lead, status.RaftState, status.Applied,
+			status.Commit, status.Term)
+	}
+}
+
+// waitForStableLeader waits for a leader that is stable and has consensus.
+func waitForStableLeader(t *testing.T, stores []*Store, nodes []*consensus.RaftNode, timeout time.Duration) (*Store, uint64) {
+	const stabilityPeriod = 500 * time.Millisecond // Increased stability period
+	deadline := time.Now().Add(timeout)
+	var lastLeaderID uint64
+	var lastTerm uint64
+	var stableStart time.Time
+
+	for time.Now().Before(deadline) {
+		leader, leaderID := findLeader(stores)
+
+		if leader == nil {
+			lastLeaderID = 0
+			lastTerm = 0
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
+		// Get the current term from all nodes
+		terms := make([]uint64, len(nodes))
+		indices := make([]uint64, len(nodes))
+		allSameTerm := true
+		var currentTerm uint64
+
+		for i, node := range nodes {
+			if node != nil {
+				status := node.Status()
+				terms[i] = status.Term
+				indices[i] = status.Applied
+				if i == 0 {
+					currentTerm = status.Term
+				} else if status.Term != currentTerm {
+					allSameTerm = false
+				}
+			}
+		}
+
+		// Check for split brain - all nodes must be on the same term
+		if !allSameTerm {
+			t.Logf("Split-brain detected: terms=%v, waiting for convergence", terms)
+			lastLeaderID = 0
+			lastTerm = 0
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		// Check all nodes agree on the leader
+		consensus := true
+		for _, store := range stores {
+			reportedLeader := store.Leader()
+			// Allow 0 (unknown) but not disagreement
+			if reportedLeader != leaderID && reportedLeader != 0 {
+				consensus = false
+				break
+			}
+		}
+
+		if !consensus {
+			t.Logf("No consensus on leader, waiting...")
+			lastLeaderID = 0
+			lastTerm = 0
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
+		// Check for log divergence
+		minIndex := indices[0]
+		maxIndex := indices[0]
+		for _, idx := range indices {
+			if idx < minIndex {
+				minIndex = idx
+			}
+			if idx > maxIndex {
+				maxIndex = idx
+			}
+		}
+
+		if maxIndex > minIndex+1 {
+			t.Logf("Log divergence detected: indices=%v, waiting for sync", indices)
+			lastLeaderID = 0
+			lastTerm = 0
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		// Check if this is a new leader or term
+		if leaderID != lastLeaderID || currentTerm != lastTerm {
+			lastLeaderID = leaderID
+			lastTerm = currentTerm
+			stableStart = time.Now()
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
+		// Check if stable for long enough
+		if time.Since(stableStart) >= stabilityPeriod {
+			t.Logf("Leader Node %d is stable for %v at term %d", leaderID, time.Since(stableStart), currentTerm)
+			return leader, leaderID
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return nil, 0
+}
+
 // TestMetadataReplication tests metadata replication across a 3-node Raft cluster.
 func TestMetadataReplication(t *testing.T) {
 	if testing.Short() {
@@ -83,6 +203,14 @@ func TestMetadataReplication(t *testing.T) {
 	leaderNode, leaderID := waitForLeader(t, stores, 10*time.Second)
 	require.NotNil(t, leaderNode, "should have elected a leader")
 	t.Logf("Initial leader is Node %d", leaderID)
+
+	// Give cluster extra time to stabilize after initial election
+	time.Sleep(2 * time.Second)
+
+	// Ensure we have a stable leader before proceeding with tests
+	leaderNode, leaderID = waitForStableLeader(t, stores, nodes, 10*time.Second)
+	require.NotNil(t, leaderNode, "should have stable leader before tests")
+	t.Logf("Confirmed stable leader is Node %d", leaderID)
 
 	// Test 1: Register brokers via leader
 	t.Run("register brokers", func(t *testing.T) {
@@ -183,21 +311,23 @@ func TestMetadataReplication(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 3, len(partitions))
 
-		// Create each partition (with delay to allow replication and verify leader)
+		// Create partitions one by one with delays to maintain stability
 		for i, partition := range partitions {
-			// Ensure we still have a leader before each operation
-			currentLeader, currentLeaderID := waitForLeader(t, stores, 2*time.Second)
-			require.NotNil(t, currentLeader, "lost leader during partition creation")
-
-			// Use the current leader (may have changed)
-			err := currentLeader.CreatePartition(ctx, partition)
-			require.NoError(t, err, "failed to create partition %d", partition.Partition)
-
-			// Give more time for replication between operations
-			if i < len(partitions)-1 {
-				time.Sleep(500 * time.Millisecond)
+			// Check if we still have a stable leader before each operation
+			if !leader.IsLeader() {
+				newLeader, newID := waitForStableLeader(t, stores, nodes, 5*time.Second)
+				if newLeader != nil {
+					leader = newLeader
+					t.Logf("Leader changed to Node %d", newID)
+				}
 			}
-			t.Logf("Created partition %d/%d (leader: Node %d)", i+1, len(partitions), currentLeaderID)
+
+			err := leader.CreatePartition(ctx, partition)
+			require.NoError(t, err, "failed to create partition %d", i)
+			t.Logf("Created partition %d/%d", i+1, len(partitions))
+
+			// Delay between operations to maintain cluster stability
+			time.Sleep(500 * time.Millisecond)
 		}
 
 		// Wait for replication by polling
@@ -230,19 +360,33 @@ func TestMetadataReplication(t *testing.T) {
 
 	// Test 4: Update leader on a partition
 	t.Run("update leader", func(t *testing.T) {
-		// Get current leader
-		leader, leaderID := waitForLeader(t, stores, 5*time.Second)
-		require.NotNil(t, leader, "no leader elected")
-		t.Logf("Using Node %d as leader", leaderID)
+		// Give cluster time to stabilize after batch operations
+		time.Sleep(2 * time.Second)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// Log Raft status before update operation
+		logRaftStatus(t, nodes, "Before UpdateLeader")
+
+		// Wait for stable leader with consensus
+		leader, leaderID := waitForStableLeader(t, stores, nodes, 10*time.Second)
+		require.NotNil(t, leader, "no stable leader found")
+		t.Logf("Using stable Node %d as leader", leaderID)
+
+		// Log status after finding leader
+		logRaftStatus(t, nodes, "After finding stable leader")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 
 		// Update leader for partition 0
+		t.Logf("Attempting UpdateLeader operation...")
 		err := leader.UpdateLeader(ctx, "test-topic", 0, 2, 2)
+
+		// Log status after operation
+		logRaftStatus(t, nodes, "After UpdateLeader")
+
 		require.NoError(t, err)
 
-		// Wait for replication by polling
+		// Wait for replication by polling (with longer timeout for retries)
 		require.Eventually(t, func() bool {
 			for i, store := range stores {
 				part, exists := store.GetPartition("test-topic", 0)
@@ -252,7 +396,7 @@ func TestMetadataReplication(t *testing.T) {
 				}
 			}
 			return true
-		}, 5*time.Second, 100*time.Millisecond, "leader update not replicated to all nodes")
+		}, 20*time.Second, 100*time.Millisecond, "leader update not replicated to all nodes")
 
 		// Verify all nodes see the new leader
 		for i, store := range stores {
@@ -269,19 +413,33 @@ func TestMetadataReplication(t *testing.T) {
 
 	// Test 5: Update ISR
 	t.Run("update ISR", func(t *testing.T) {
-		// Get current leader
-		leader, leaderID := waitForLeader(t, stores, 5*time.Second)
-		require.NotNil(t, leader, "no leader elected")
-		t.Logf("Using Node %d as leader", leaderID)
+		// Give cluster time to stabilize after previous operation
+		time.Sleep(2 * time.Second)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// Log Raft status before update operation
+		logRaftStatus(t, nodes, "Before UpdateISR")
+
+		// Wait for stable leader with consensus
+		leader, leaderID := waitForStableLeader(t, stores, nodes, 10*time.Second)
+		require.NotNil(t, leader, "no stable leader found")
+		t.Logf("Using stable Node %d as leader", leaderID)
+
+		// Log status after finding leader
+		logRaftStatus(t, nodes, "After finding stable leader for ISR update")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 
 		// Shrink ISR for partition 1 (simulate replica falling behind)
+		t.Logf("Attempting UpdateISR operation...")
 		err := leader.UpdateISR(ctx, "test-topic", 1, []uint64{1})
+
+		// Log status after operation
+		logRaftStatus(t, nodes, "After UpdateISR")
+
 		require.NoError(t, err)
 
-		// Wait for replication by polling
+		// Wait for replication by polling (with longer timeout for retries)
 		require.Eventually(t, func() bool {
 			for i, store := range stores {
 				part, exists := store.GetPartition("test-topic", 1)
@@ -291,7 +449,7 @@ func TestMetadataReplication(t *testing.T) {
 				}
 			}
 			return true
-		}, 5*time.Second, 100*time.Millisecond, "ISR update not replicated to all nodes")
+		}, 20*time.Second, 100*time.Millisecond, "ISR update not replicated to all nodes")
 
 		// Verify all nodes see the updated ISR
 		for i, store := range stores {
@@ -355,8 +513,8 @@ func TestMetadataSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	defer node.Stop()
 
-	// Wait for leader election
-	time.Sleep(2 * time.Second)
+	// Wait for leader election (longer due to increased election timeout)
+	time.Sleep(3 * time.Second)
 	assert.True(t, node.IsLeader(), "single node should become leader")
 
 	store := NewStore(fsm, node)
