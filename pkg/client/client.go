@@ -329,6 +329,61 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// Fetch fetches messages from a topic partition
+func (c *Client) Fetch(ctx context.Context, req *FetchRequest) (*FetchResponse, error) {
+	c.mu.RLock()
+	if c.closed {
+		c.mu.RUnlock()
+		return nil, ErrClientClosed
+	}
+	c.mu.RUnlock()
+
+	if req.Topic == "" {
+		return nil, ErrInvalidTopic
+	}
+
+	if req.Partition < 0 {
+		return nil, ErrInvalidPartition
+	}
+
+	if req.Offset < 0 {
+		return nil, ErrInvalidOffset
+	}
+
+	protocolReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			Type:    protocol.RequestTypeFetch,
+			Version: protocol.ProtocolVersion,
+			Flags:   protocol.FlagNone,
+		},
+		Payload: &protocol.FetchRequest{
+			Topic:       req.Topic,
+			PartitionID: uint32(req.Partition),
+			Offset:      req.Offset,
+			MaxBytes:    uint32(req.MaxBytes),
+		},
+	}
+
+	// Send to first broker
+	broker := c.config.Brokers[0]
+	resp, err := c.sendRequest(ctx, broker, protocolReq)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse response
+	if fetchResp, ok := resp.Payload.(*protocol.FetchResponse); ok {
+		return &FetchResponse{
+			Topic:         fetchResp.Topic,
+			Partition:     int32(fetchResp.PartitionID),
+			Messages:      fetchResp.Messages,
+			HighWaterMark: fetchResp.HighWaterMark,
+		}, nil
+	}
+
+	return nil, ErrInvalidResponse
+}
+
 // Stats returns client statistics
 func (c *Client) Stats() ClientStats {
 	c.mu.RLock()
@@ -352,4 +407,20 @@ type ClientStats struct {
 	BytesRead      int64
 	Uptime         time.Duration
 	PoolStats      PoolStats
+}
+
+// FetchRequest represents a fetch request
+type FetchRequest struct {
+	Topic     string
+	Partition int32
+	Offset    int64
+	MaxBytes  int32
+}
+
+// FetchResponse represents a fetch response
+type FetchResponse struct {
+	Topic         string
+	Partition     int32
+	Messages      []protocol.Message
+	HighWaterMark int64
 }
