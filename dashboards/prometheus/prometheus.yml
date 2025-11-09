@@ -1,0 +1,79 @@
+# Prometheus configuration for StreamBus monitoring
+
+global:
+  scrape_interval: 15s # Scrape targets every 15 seconds
+  evaluation_interval: 15s # Evaluate rules every 15 seconds
+  external_labels:
+    cluster: 'streambus-dev'
+    environment: 'development'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - alertmanager:9093
+
+# Load rules once and periodically evaluate them
+rule_files:
+  # - "alerts/*.yml"
+
+# Scrape configurations
+scrape_configs:
+  # StreamBus broker metrics
+  - job_name: 'streambus-broker'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['host.docker.internal:9090']
+        labels:
+          service: 'streambus-broker'
+          instance: 'broker-1'
+    # Use the following for multiple brokers:
+    # static_configs:
+    #   - targets:
+    #       - 'broker-1:9090'
+    #       - 'broker-2:9090'
+    #       - 'broker-3:9090'
+    #     labels:
+    #       service: 'streambus-broker'
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  # OpenTelemetry Collector metrics
+  - job_name: 'otel-collector'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['otel-collector:8888', 'otel-collector:8889']
+        labels:
+          service: 'otel-collector'
+
+  # Grafana metrics
+  - job_name: 'grafana'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['grafana:3000']
+        labels:
+          service: 'grafana'
+
+  # Jaeger metrics
+  - job_name: 'jaeger'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['jaeger:14269']
+        labels:
+          service: 'jaeger'
+
+# Optional: Remote write configuration for long-term storage
+# remote_write:
+#   - url: "http://cortex:9009/api/prom/push"
+#   - url: "http://thanos:19291/api/v1/receive"
+
+# Optional: Remote read configuration
+# remote_read:
+#   - url: "http://thanos:19291/api/v1/query"

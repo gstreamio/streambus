@@ -10,12 +10,16 @@ import (
 
 	"github.com/shawntherrien/streambus/pkg/cluster"
 	"github.com/shawntherrien/streambus/pkg/consensus"
+	"github.com/shawntherrien/streambus/pkg/consumer/group"
 	"github.com/shawntherrien/streambus/pkg/health"
 	"github.com/shawntherrien/streambus/pkg/logging"
 	"github.com/shawntherrien/streambus/pkg/metadata"
 	"github.com/shawntherrien/streambus/pkg/metrics"
+	"github.com/shawntherrien/streambus/pkg/schema"
+	"github.com/shawntherrien/streambus/pkg/security"
 	"github.com/shawntherrien/streambus/pkg/server"
 	"github.com/shawntherrien/streambus/pkg/storage"
+	"github.com/shawntherrien/streambus/pkg/transaction"
 )
 
 // Config holds broker configuration
@@ -39,6 +43,9 @@ type Config struct {
 	// Server configuration
 	Server *server.Config
 
+	// Security configuration
+	Security *security.SecurityConfig
+
 	// Logging
 	LogLevel string
 }
@@ -60,6 +67,18 @@ type Broker struct {
 	registry    *cluster.BrokerRegistry
 	coordinator *cluster.ClusterCoordinator
 	heartbeat   *cluster.HeartbeatService
+
+	// Consumer group coordinator
+	groupCoordinator *group.GroupCoordinator
+
+	// Transaction coordinator
+	txnCoordinator *transaction.TransactionCoordinator
+
+	// Schema registry
+	schemaRegistry *schema.SchemaRegistry
+
+	// Security
+	securityManager *security.Manager
 
 	// Observability
 	healthRegistry *health.Registry
@@ -151,6 +170,22 @@ func (b *Broker) Start() error {
 		return fmt.Errorf("failed to initialize cluster: %w", err)
 	}
 
+	if err := b.initConsumerGroups(); err != nil {
+		return fmt.Errorf("failed to initialize consumer groups: %w", err)
+	}
+
+	if err := b.initTransactions(); err != nil {
+		return fmt.Errorf("failed to initialize transactions: %w", err)
+	}
+
+	if err := b.initSchemaRegistry(); err != nil {
+		return fmt.Errorf("failed to initialize schema registry: %w", err)
+	}
+
+	if err := b.initSecurity(); err != nil {
+		return fmt.Errorf("failed to initialize security: %w", err)
+	}
+
 	if err := b.initServer(); err != nil {
 		return fmt.Errorf("failed to initialize server: %w", err)
 	}
@@ -172,6 +207,12 @@ func (b *Broker) Start() error {
 }
 
 // Stop stops the broker gracefully
+// SecurityManager returns the security manager
+func (b *Broker) SecurityManager() *security.Manager {
+	return b.securityManager
+}
+
+// Stop stops the broker
 func (b *Broker) Stop() error {
 	b.mu.Lock()
 	if b.status != StatusRunning {
@@ -198,8 +239,22 @@ func (b *Broker) Stop() error {
 		b.coordinator.Stop()
 	}
 
+	if b.groupCoordinator != nil {
+		b.groupCoordinator.Stop()
+	}
+
+	if b.txnCoordinator != nil {
+		b.txnCoordinator.Stop()
+	}
+
 	if b.server != nil {
 		b.server.Stop()
+	}
+
+	if b.securityManager != nil {
+		if err := b.securityManager.Close(); err != nil {
+			b.logger.Error("Failed to close security manager", err)
+		}
 	}
 
 	if b.raftNode != nil {
@@ -363,6 +418,87 @@ func (b *Broker) initCluster() error {
 	}
 
 	b.logger.Info("Cluster components initialized")
+
+	return nil
+}
+
+// initConsumerGroups initializes the consumer group coordinator
+func (b *Broker) initConsumerGroups() error {
+	b.logger.Info("Initializing consumer group coordinator")
+
+	// Create offset storage (using memory storage for now)
+	offsetStorage := group.NewMemoryOffsetStorage()
+
+	// Create coordinator configuration
+	coordinatorConfig := group.DefaultCoordinatorConfig()
+
+	// Create group coordinator
+	b.groupCoordinator = group.NewGroupCoordinator(offsetStorage, coordinatorConfig)
+
+	b.logger.Info("Consumer group coordinator initialized")
+
+	return nil
+}
+
+// initTransactions initializes the transaction coordinator
+func (b *Broker) initTransactions() error {
+	b.logger.Info("Initializing transaction coordinator")
+
+	// Create transaction log (using memory storage for now)
+	txnLog := transaction.NewMemoryTransactionLog()
+
+	// Create coordinator configuration
+	coordinatorConfig := transaction.DefaultCoordinatorConfig()
+
+	// Create transaction coordinator
+	b.txnCoordinator = transaction.NewTransactionCoordinator(txnLog, coordinatorConfig, b.logger)
+
+	b.logger.Info("Transaction coordinator initialized")
+
+	return nil
+}
+
+// initSchemaRegistry initializes the schema registry
+func (b *Broker) initSchemaRegistry() error {
+	b.logger.Info("Initializing schema registry")
+
+	// Create schema validator
+	validator := schema.NewDefaultValidator()
+
+	// Create schema registry
+	b.schemaRegistry = schema.NewSchemaRegistry(validator, b.logger)
+
+	b.logger.Info("Schema registry initialized")
+
+	return nil
+}
+
+// initSecurity initializes the security manager
+func (b *Broker) initSecurity() error {
+	b.logger.Info("Initializing security")
+
+	// Use default security config if none provided
+	securityConfig := b.config.Security
+	if securityConfig == nil {
+		securityConfig = security.DefaultSecurityConfig()
+		b.logger.Info("Using default security configuration (all security features disabled)")
+	}
+
+	// Create security manager
+	secManager, err := security.NewManager(securityConfig, b.logger)
+	if err != nil {
+		return fmt.Errorf("failed to create security manager: %w", err)
+	}
+
+	b.securityManager = secManager
+
+	// Log security configuration
+	b.logger.Info("Security manager initialized", logging.Fields{
+		"authentication": secManager.IsAuthenticationEnabled(),
+		"authorization":  secManager.IsAuthorizationEnabled(),
+		"audit":          secManager.IsAuditEnabled(),
+		"encryption":     secManager.IsEncryptionEnabled(),
+	})
 
 	return nil
 }
