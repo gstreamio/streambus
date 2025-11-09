@@ -19,6 +19,7 @@ import (
 	"github.com/shawntherrien/streambus/pkg/security"
 	"github.com/shawntherrien/streambus/pkg/server"
 	"github.com/shawntherrien/streambus/pkg/storage"
+	"github.com/shawntherrien/streambus/pkg/tenancy"
 	"github.com/shawntherrien/streambus/pkg/transaction"
 )
 
@@ -45,6 +46,9 @@ type Config struct {
 
 	// Security configuration
 	Security *security.SecurityConfig
+
+	// Multi-tenancy configuration
+	EnableMultiTenancy bool
 
 	// Logging
 	LogLevel string
@@ -79,6 +83,9 @@ type Broker struct {
 
 	// Security
 	securityManager *security.Manager
+
+	// Multi-tenancy
+	tenancyManager *tenancy.Manager
 
 	// Observability
 	healthRegistry *health.Registry
@@ -186,6 +193,10 @@ func (b *Broker) Start() error {
 		return fmt.Errorf("failed to initialize security: %w", err)
 	}
 
+	if err := b.initTenancy(); err != nil {
+		return fmt.Errorf("failed to initialize multi-tenancy: %w", err)
+	}
+
 	if err := b.initServer(); err != nil {
 		return fmt.Errorf("failed to initialize server: %w", err)
 	}
@@ -210,6 +221,11 @@ func (b *Broker) Start() error {
 // SecurityManager returns the security manager
 func (b *Broker) SecurityManager() *security.Manager {
 	return b.securityManager
+}
+
+// TenancyManager returns the tenancy manager
+func (b *Broker) TenancyManager() *tenancy.Manager {
+	return b.tenancyManager
 }
 
 // Stop stops the broker
@@ -503,14 +519,95 @@ func (b *Broker) initSecurity() error {
 	return nil
 }
 
+// initTenancy initializes the multi-tenancy manager
+func (b *Broker) initTenancy() error {
+	b.logger.Info("Initializing multi-tenancy")
+
+	if !b.config.EnableMultiTenancy {
+		b.logger.Info("Multi-tenancy disabled")
+		return nil
+	}
+
+	// Create tenancy manager
+	b.tenancyManager = tenancy.NewManager()
+
+	// Create default tenant for backward compatibility
+	defaultQuotas := tenancy.DefaultQuotas()
+	_, err := b.tenancyManager.CreateTenant("default", "Default Tenant", defaultQuotas)
+	if err != nil {
+		b.logger.Warn("Failed to create default tenant", logging.Fields{
+			"error": err.Error(),
+		})
+	}
+
+	b.logger.Info("Multi-tenancy initialized", logging.Fields{
+		"enabled": true,
+	})
+
+	// Start storage tracking goroutine
+	b.wg.Add(1)
+	go b.trackTenantStorage()
+
+	return nil
+}
+
+// trackTenantStorage periodically updates tenant storage usage
+func (b *Broker) trackTenantStorage() {
+	defer b.wg.Done()
+
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-b.ctx.Done():
+			return
+		case <-ticker.C:
+			b.updateTenantStorageUsage()
+		}
+	}
+}
+
+// updateTenantStorageUsage updates storage usage for all tenants
+func (b *Broker) updateTenantStorageUsage() {
+	if b.tenancyManager == nil {
+		return
+	}
+
+	// Get all tenants
+	tenants := b.tenancyManager.ListTenants()
+
+	for _, tenant := range tenants {
+		// TODO: Calculate actual storage usage from storage engine
+		// For now, we'll just log that we're tracking
+		// When storage integration is complete, this will be:
+		// storageBytes := b.storage.GetTenantUsage(tenant.ID)
+		// b.tenancyManager.UpdateStorageUsage(tenant.ID, storageBytes)
+
+		b.logger.Debug("Tracking storage for tenant", logging.Fields{
+			"tenant_id": tenant.ID,
+		})
+	}
+}
+
 // initServer initializes the network server
 func (b *Broker) initServer() error {
 	b.logger.Info("Initializing network server", logging.Fields{
 		"address": fmt.Sprintf("%s:%d", b.config.Host, b.config.Port),
 	})
 
-	// Create server handler
-	handler := server.NewHandler()
+	// Create base server handler
+	baseHandler := server.NewHandler()
+
+	// Wrap with tenancy handler if enabled
+	var handler server.RequestHandler
+	if b.config.EnableMultiTenancy && b.tenancyManager != nil {
+		tenancyHandler := server.NewTenancyHandler(baseHandler, b.tenancyManager, true)
+		handler = tenancyHandler
+		b.logger.Info("Multi-tenancy enabled for request handling")
+	} else {
+		handler = baseHandler
+	}
 
 	// Create server
 	serverConfig := b.config.Server
@@ -562,6 +659,9 @@ func (b *Broker) initObservability() error {
 		w.Header().Set("Content-Type", "text/plain")
 		w.Write([]byte("# Metrics endpoint placeholder\n"))
 	})
+
+	// Register tenancy management API endpoints
+	b.registerTenancyAPI(mux)
 
 	httpAddr := fmt.Sprintf(":%d", b.config.HTTPPort)
 	b.httpServer = &http.Server{

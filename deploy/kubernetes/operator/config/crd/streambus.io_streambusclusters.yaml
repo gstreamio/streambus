@@ -1,0 +1,281 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: streambusclusters.streambus.io
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.13.0
+spec:
+  group: streambus.io
+  names:
+    kind: StreamBusCluster
+    listKind: StreamBusClusterList
+    plural: streambusclusters
+    singular: streambuscluster
+    shortNames:
+      - sbc
+      - streambus
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: StreamBusCluster is the Schema for the StreamBus cluster API
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              description: StreamBusClusterSpec defines the desired state of StreamBusCluster
+              properties:
+                replicas:
+                  type: integer
+                  description: Number of broker replicas
+                  minimum: 1
+                  default: 3
+                version:
+                  type: string
+                  description: StreamBus version to deploy
+                  default: "latest"
+                image:
+                  type: object
+                  description: Container image configuration
+                  properties:
+                    repository:
+                      type: string
+                      default: "streambus/broker"
+                    tag:
+                      type: string
+                      default: "latest"
+                    pullPolicy:
+                      type: string
+                      enum: ["Always", "IfNotPresent", "Never"]
+                      default: "IfNotPresent"
+                    pullSecrets:
+                      type: array
+                      items:
+                        type: string
+                resources:
+                  type: object
+                  description: Resource requirements for broker pods
+                  properties:
+                    requests:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                          default: "500m"
+                        memory:
+                          type: string
+                          default: "512Mi"
+                    limits:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                          default: "2000m"
+                        memory:
+                          type: string
+                          default: "2Gi"
+                storage:
+                  type: object
+                  description: Storage configuration
+                  properties:
+                    class:
+                      type: string
+                      description: StorageClass name
+                      default: "standard"
+                    size:
+                      type: string
+                      description: Volume size
+                      default: "10Gi"
+                    raftSize:
+                      type: string
+                      description: Raft data volume size
+                      default: "5Gi"
+                config:
+                  type: object
+                  description: StreamBus configuration
+                  properties:
+                    logLevel:
+                      type: string
+                      enum: ["debug", "info", "warn", "error"]
+                      default: "info"
+                    port:
+                      type: integer
+                      description: Broker port
+                      default: 9092
+                    httpPort:
+                      type: integer
+                      description: HTTP/metrics port
+                      default: 8081
+                    grpcPort:
+                      type: integer
+                      description: gRPC port
+                      default: 9093
+                security:
+                  type: object
+                  description: Security configuration
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: false
+                    tls:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: false
+                        secretName:
+                          type: string
+                          description: Secret containing TLS certificates
+                    authentication:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: false
+                        sasl:
+                          type: object
+                          properties:
+                            mechanism:
+                              type: string
+                              enum: ["PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"]
+                              default: "SCRAM-SHA-256"
+                            secretName:
+                              type: string
+                              description: Secret containing SASL credentials
+                multiTenancy:
+                  type: object
+                  description: Multi-tenancy configuration
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: false
+                observability:
+                  type: object
+                  description: Observability configuration
+                  properties:
+                    metrics:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        serviceMonitor:
+                          type: boolean
+                          description: Create Prometheus ServiceMonitor
+                          default: false
+                    tracing:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: false
+                        endpoint:
+                          type: string
+                          description: OTLP endpoint for traces
+                affinity:
+                  type: object
+                  description: Pod affinity rules
+                  x-kubernetes-preserve-unknown-fields: true
+                tolerations:
+                  type: array
+                  description: Pod tolerations
+                  items:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                nodeSelector:
+                  type: object
+                  description: Node selector
+                  additionalProperties:
+                    type: string
+                podAnnotations:
+                  type: object
+                  description: Pod annotations
+                  additionalProperties:
+                    type: string
+                podLabels:
+                  type: object
+                  description: Pod labels
+                  additionalProperties:
+                    type: string
+              required:
+                - replicas
+            status:
+              type: object
+              description: StreamBusClusterStatus defines the observed state of StreamBusCluster
+              properties:
+                phase:
+                  type: string
+                  description: Current phase of the cluster
+                  enum:
+                    - Pending
+                    - Creating
+                    - Running
+                    - Updating
+                    - Degraded
+                    - Failed
+                conditions:
+                  type: array
+                  description: Current cluster conditions
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                        description: Condition type
+                      status:
+                        type: string
+                        description: Status of the condition (True, False, Unknown)
+                        enum: ["True", "False", "Unknown"]
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                replicas:
+                  type: integer
+                  description: Number of ready replicas
+                readyReplicas:
+                  type: integer
+                  description: Number of ready replicas
+                observedGeneration:
+                  type: integer
+                  description: Most recent generation observed by the operator
+                endpoints:
+                  type: object
+                  description: Cluster endpoints
+                  properties:
+                    brokers:
+                      type: string
+                      description: Comma-separated list of broker addresses
+                    http:
+                      type: string
+                      description: HTTP endpoint for management
+                    metrics:
+                      type: string
+                      description: Metrics endpoint
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Replicas
+          type: integer
+          jsonPath: .spec.replicas
+        - name: Ready
+          type: integer
+          jsonPath: .status.readyReplicas
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
