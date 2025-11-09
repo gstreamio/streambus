@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # StreamBus Broker Node 1
+  broker1:
+    image: streambus:dev
+    container_name: streambus-broker1
+    hostname: broker1
+    ports:
+      - "9001:9000"  # Broker communication
+    volumes:
+      - broker1-data:/data
+    environment:
+      - STREAMBUS_SERVER_BROKER_ID=1
+      - STREAMBUS_SERVER_HOST=broker1
+      - STREAMBUS_SERVER_PORT=9000
+      - STREAMBUS_STORAGE_DATA_DIR=/data
+    command: ["--broker-id=1", "--host=broker1", "--port=9000", "--data-dir=/data"]
+    networks:
+      - streambus-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # StreamBus Broker Node 2
+  broker2:
+    image: streambus:dev
+    container_name: streambus-broker2
+    hostname: broker2
+    ports:
+      - "9002:9000"  # Broker communication
+    volumes:
+      - broker2-data:/data
+    environment:
+      - STREAMBUS_SERVER_BROKER_ID=2
+      - STREAMBUS_SERVER_HOST=broker2
+      - STREAMBUS_SERVER_PORT=9000
+      - STREAMBUS_STORAGE_DATA_DIR=/data
+    command: ["--broker-id=2", "--host=broker2", "--port=9000", "--data-dir=/data"]
+    networks:
+      - streambus-network
+    restart: unless-stopped
+    depends_on:
+      - broker1
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # StreamBus Broker Node 3
+  broker3:
+    image: streambus:dev
+    container_name: streambus-broker3
+    hostname: broker3
+    ports:
+      - "9003:9000"  # Broker communication
+    volumes:
+      - broker3-data:/data
+    environment:
+      - STREAMBUS_SERVER_BROKER_ID=3
+      - STREAMBUS_SERVER_HOST=broker3
+      - STREAMBUS_SERVER_PORT=9000
+      - STREAMBUS_STORAGE_DATA_DIR=/data
+    command: ["--broker-id=3", "--host=broker3", "--port=9000", "--data-dir=/data"]
+    networks:
+      - streambus-network
+    restart: unless-stopped
+    depends_on:
+      - broker1
+      - broker2
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  streambus-network:
+    driver: bridge
+    name: streambus-network
+
+volumes:
+  broker1-data:
+    driver: local
+  broker2-data:
+    driver: local
+  broker3-data:
+    driver: local
