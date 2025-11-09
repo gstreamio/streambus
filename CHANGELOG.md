@@ -8,11 +8,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### In Progress
-- Multi-tenancy with quota management
 - Cross-datacenter replication
-- Admin CLI tool
 - Web management UI
 - Kubernetes operator
+
+## [0.6.0] - 2025-01-09
+
+### Added - Phase 4.3: Multi-Tenancy
+
+#### Tenant Management
+- Complete multi-tenancy implementation with resource isolation (`pkg/tenancy/`)
+- Tenant data model with ID, name, quotas, status, and metadata
+- Tenant lifecycle management (create, update, delete, suspend, activate)
+- In-memory tenant store with thread-safe operations
+- Support for unlimited quotas (-1 values)
+
+#### Quota Management & Enforcement
+- Comprehensive quota tracking for all resource types:
+  - Throughput quotas (bytes/sec, messages/sec)
+  - Storage quotas (bytes)
+  - Connection limits
+  - Topic and partition limits
+  - Producer and consumer limits
+  - Consumer group limits
+  - Request rate limits
+  - Retention limits
+- Real-time quota enforcement with sliding window rate limiting
+- QuotaTracker with O(1) quota checks and updates
+- Per-tenant usage tracking and utilization reporting
+- Detailed quota error reporting with tenant context
+- 48 comprehensive tests for quota tracking
+
+#### Broker Integration
+- Seamless broker integration with multi-tenancy support
+- TenancyHandler middleware for request-level quota enforcement
+- Automatic tenant ID extraction from message headers
+- Quota enforcement for produce, fetch, and topic creation requests
+- Background storage tracking (1-minute intervals)
+- Backward compatibility with default tenant
+
+#### REST API
+- Complete tenant management REST API:
+  - `GET /api/v1/tenants` - List all tenants
+  - `POST /api/v1/tenants` - Create new tenant
+  - `GET /api/v1/tenants/:id` - Get tenant details
+  - `PUT /api/v1/tenants/:id` - Update tenant
+  - `DELETE /api/v1/tenants/:id` - Delete tenant (with force option)
+  - `GET /api/v1/tenants/:id/stats` - Get comprehensive tenant statistics
+- JSON request/response format
+- HTTP status codes for all operations
+- Error handling with detailed messages
+
+#### Admin CLI Commands
+- streambus-admin tenant commands:
+  - `tenant list` - List all tenants with table output
+  - `tenant create` - Create tenant with customizable quotas
+  - `tenant get` - Get tenant details (JSON output)
+  - `tenant update` - Update tenant configuration
+  - `tenant delete` - Delete tenant (with --force flag)
+  - `tenant stats` - Get usage statistics and utilization
+- 11 quota configuration flags for tenant creation
+- Pretty-printed JSON output for detailed views
+- Force delete option for tenants with active connections
+
+#### Documentation & Testing
+- Comprehensive README.md with:
+  - Architecture overview with diagrams
+  - API reference for all methods
+  - Integration guide for broker/storage/API
+  - Best practices (quota tiers, monitoring, graceful degradation)
+  - Complete working examples
+  - Troubleshooting guide
+- Integration tests for tenant management and quota enforcement
+- Performance metrics (~1 KB memory per tenant, O(1) operations)
 
 ## [0.5.0] - 2025-01-09
 

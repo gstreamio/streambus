@@ -11,11 +11,16 @@ import (
 	"github.com/shawntherrien/streambus/pkg/protocol"
 )
 
+// RequestHandler defines the interface for handling requests
+type RequestHandler interface {
+	Handle(req *protocol.Request) *protocol.Response
+}
+
 // Server represents a TCP server
 type Server struct {
 	config   *Config
 	listener net.Listener
-	handler  *Handler
+	handler  RequestHandler
 	codec    *protocol.Codec
 
 	// Connection tracking
@@ -37,7 +42,7 @@ type Server struct {
 }
 
 // New creates a new server
-func New(config *Config, handler *Handler) (*Server, error) {
+func New(config *Config, handler RequestHandler) (*Server, error) {
 	if config == nil {
 		config = DefaultConfig()
 	}

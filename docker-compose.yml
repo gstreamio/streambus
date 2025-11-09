@@ -3,24 +3,36 @@ version: '3.8'
 services:
   # StreamBus Broker Node 1
   broker1:
-    image: streambus:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+        COMMIT: ${COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    image: streambus/broker:${VERSION:-dev}
     container_name: streambus-broker1
     hostname: broker1
     ports:
-      - "9001:9000"  # Broker communication
+      - "9092:9092"  # Broker port
+      - "8081:8081"  # HTTP/Metrics port
+      - "9093:9093"  # gRPC port
     volumes:
       - broker1-data:/data
+      - broker1-raft:/data/raft
+      - ./deploy/docker/configs/broker1.yaml:/config/broker.yaml:ro
     environment:
-      - STREAMBUS_SERVER_BROKER_ID=1
-      - STREAMBUS_SERVER_HOST=broker1
-      - STREAMBUS_SERVER_PORT=9000
-      - STREAMBUS_STORAGE_DATA_DIR=/data
-    command: ["--broker-id=1", "--host=broker1", "--port=9000", "--data-dir=/data"]
+      - STREAMBUS_DATA_DIR=/data
+      - STREAMBUS_PORT=9092
+      - STREAMBUS_HTTP_PORT=8081
+      - STREAMBUS_GRPC_PORT=9093
+      - STREAMBUS_BROKER_ID=1
+      - STREAMBUS_LOG_LEVEL=info
     networks:
       - streambus-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/live"]
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health/live"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -28,26 +40,39 @@ services:
 
   # StreamBus Broker Node 2
   broker2:
-    image: streambus:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+        COMMIT: ${COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    image: streambus/broker:${VERSION:-dev}
     container_name: streambus-broker2
     hostname: broker2
     ports:
-      - "9002:9000"  # Broker communication
+      - "9192:9092"  # Broker port
+      - "8181:8081"  # HTTP/Metrics port
+      - "9193:9093"  # gRPC port
     volumes:
       - broker2-data:/data
+      - broker2-raft:/data/raft
+      - ./deploy/docker/configs/broker2.yaml:/config/broker.yaml:ro
     environment:
-      - STREAMBUS_SERVER_BROKER_ID=2
-      - STREAMBUS_SERVER_HOST=broker2
-      - STREAMBUS_SERVER_PORT=9000
-      - STREAMBUS_STORAGE_DATA_DIR=/data
-    command: ["--broker-id=2", "--host=broker2", "--port=9000", "--data-dir=/data"]
+      - STREAMBUS_DATA_DIR=/data
+      - STREAMBUS_PORT=9092
+      - STREAMBUS_HTTP_PORT=8081
+      - STREAMBUS_GRPC_PORT=9093
+      - STREAMBUS_BROKER_ID=2
+      - STREAMBUS_LOG_LEVEL=info
     networks:
       - streambus-network
     restart: unless-stopped
     depends_on:
-      - broker1
+      broker1:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/live"]
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health/live"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -55,31 +80,83 @@ services:
 
   # StreamBus Broker Node 3
   broker3:
-    image: streambus:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+        COMMIT: ${COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    image: streambus/broker:${VERSION:-dev}
     container_name: streambus-broker3
     hostname: broker3
     ports:
-      - "9003:9000"  # Broker communication
+      - "9292:9092"  # Broker port
+      - "8281:8081"  # HTTP/Metrics port
+      - "9293:9093"  # gRPC port
     volumes:
       - broker3-data:/data
+      - broker3-raft:/data/raft
+      - ./deploy/docker/configs/broker3.yaml:/config/broker.yaml:ro
     environment:
-      - STREAMBUS_SERVER_BROKER_ID=3
-      - STREAMBUS_SERVER_HOST=broker3
-      - STREAMBUS_SERVER_PORT=9000
-      - STREAMBUS_STORAGE_DATA_DIR=/data
-    command: ["--broker-id=3", "--host=broker3", "--port=9000", "--data-dir=/data"]
+      - STREAMBUS_DATA_DIR=/data
+      - STREAMBUS_PORT=9092
+      - STREAMBUS_HTTP_PORT=8081
+      - STREAMBUS_GRPC_PORT=9093
+      - STREAMBUS_BROKER_ID=3
+      - STREAMBUS_LOG_LEVEL=info
     networks:
       - streambus-network
     restart: unless-stopped
     depends_on:
-      - broker1
-      - broker2
+      broker1:
+        condition: service_healthy
+      broker2:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/live"]
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health/live"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  # Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: streambus-prometheus
+    hostname: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/docker/configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - streambus-network
+    restart: unless-stopped
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: streambus-grafana
+    hostname: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deploy/docker/configs/grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      - streambus-network
+    restart: unless-stopped
+    depends_on:
+      - prometheus
 
 networks:
   streambus-network:
@@ -89,7 +166,17 @@ networks:
 volumes:
   broker1-data:
     driver: local
+  broker1-raft:
+    driver: local
   broker2-data:
     driver: local
+  broker2-raft:
+    driver: local
   broker3-data:
+    driver: local
+  broker3-raft:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
     driver: local

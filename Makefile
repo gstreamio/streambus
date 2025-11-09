@@ -37,6 +37,12 @@ build: ## Build all binaries
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(CLI_BINARY) ./cmd/cli
 	@echo "Build complete!"
 
+build-operator: ## Build operator binary
+	@echo "Building operator..."
+	@mkdir -p $(BUILD_DIR)
+	cd deploy/kubernetes/operator && CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o ../../../$(BUILD_DIR)/streambus-operator ./main.go
+	@echo "Operator build complete!"
+
 build-linux: ## Build Linux binaries
 	@echo "Building for Linux..."
 	@mkdir -p $(BUILD_DIR)
@@ -175,19 +181,40 @@ clean: ## Clean build artifacts
 	@rm -f coverage.txt
 	@rm -f *.prof
 
-docker-build: ## Build Docker image
-	@echo "Building Docker image..."
-	docker build -t streambus:$(VERSION) .
-	docker tag streambus:$(VERSION) streambus:latest
+docker-build: docker-broker docker-operator ## Build all Docker images
+
+docker-broker: ## Build broker Docker image
+	@echo "Building broker Docker image..."
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg BUILD_TIME=$(BUILD_TIME) \
+		-t streambus/broker:$(VERSION) \
+		-t streambus/broker:latest \
+		-f Dockerfile .
+
+docker-operator: ## Build operator Docker image
+	@echo "Building operator Docker image..."
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg BUILD_TIME=$(BUILD_TIME) \
+		-t streambus/operator:$(VERSION) \
+		-t streambus/operator:latest \
+		-f deploy/kubernetes/operator/Dockerfile \
+		deploy/kubernetes/operator
 
 docker-build-dev: ## Build Docker dev image
 	@echo "Building Docker dev image..."
 	docker build -f Dockerfile.dev -t streambus:dev .
 
-docker-push: ## Push Docker image
-	@echo "Pushing Docker image..."
-	docker push streambus:$(VERSION)
-	docker push streambus:latest
+docker-push: ## Push all Docker images
+	@echo "Pushing broker image..."
+	docker push streambus/broker:$(VERSION)
+	docker push streambus/broker:latest
+	@echo "Pushing operator image..."
+	docker push streambus/operator:$(VERSION)
+	docker push streambus/operator:latest
 
 run-broker: build ## Run broker locally
 	@echo "Starting broker..."
@@ -199,7 +226,12 @@ run-cluster: ## Run 3-node cluster with docker-compose
 
 stop-cluster: ## Stop docker-compose cluster
 	@echo "Stopping cluster..."
-	docker-compose down
+	docker-compose down -v
+
+restart-cluster: stop-cluster run-cluster ## Restart docker-compose cluster
+
+cluster-logs: ## Show cluster logs
+	docker-compose logs -f
 
 proto: ## Generate protobuf code
 	@echo "Generating protobuf code..."
@@ -238,6 +270,36 @@ tools: ## Install development tools
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 	go install golang.org/x/perf/cmd/benchstat@latest
+
+k8s-install-operator: ## Install operator to Kubernetes cluster
+	@echo "Installing operator..."
+	kubectl apply -f deploy/kubernetes/operator/config/crd/
+	kubectl apply -f deploy/kubernetes/operator/config/rbac/
+	kubectl apply -f deploy/kubernetes/operator/config/manager/
+
+k8s-uninstall-operator: ## Uninstall operator from Kubernetes cluster
+	@echo "Uninstalling operator..."
+	kubectl delete -f deploy/kubernetes/operator/config/manager/ || true
+	kubectl delete -f deploy/kubernetes/operator/config/rbac/ || true
+	kubectl delete -f deploy/kubernetes/operator/config/crd/ || true
+
+k8s-deploy-minimal: ## Deploy minimal cluster to Kubernetes
+	@echo "Deploying minimal cluster..."
+	kubectl apply -f deploy/kubernetes/examples/minimal-cluster.yaml
+
+helm-package: ## Package Helm chart
+	@echo "Packaging Helm chart..."
+	helm package deploy/kubernetes/helm/streambus-operator
+
+helm-install: ## Install Helm chart locally
+	@echo "Installing Helm chart..."
+	helm install streambus-operator deploy/kubernetes/helm/streambus-operator \
+		--namespace streambus-system \
+		--create-namespace
+
+helm-uninstall: ## Uninstall Helm chart
+	@echo "Uninstalling Helm chart..."
+	helm uninstall streambus-operator --namespace streambus-system
 
 version: ## Print version
 	@echo "Version: $(VERSION)"

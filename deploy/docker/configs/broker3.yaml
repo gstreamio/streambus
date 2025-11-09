@@ -1,0 +1,44 @@
+server:
+  brokerId: 3
+  host: broker3
+  port: 9092
+  httpPort: 8081
+  grpcPort: 9093
+
+storage:
+  dataDir: /data
+  raftDir: /data/raft
+
+cluster:
+  nodes:
+    - id: 1
+      host: broker1
+      port: 9092
+    - id: 2
+      host: broker2
+      port: 9092
+    - id: 3
+      host: broker3
+      port: 9092
+
+raft:
+  enabled: true
+  heartbeatTimeout: 1s
+  electionTimeout: 3s
+  snapshotInterval: 60s
+  snapshotThreshold: 10000
+
+logging:
+  level: info
+  format: json
+  output: stdout
+
+metrics:
+  enabled: true
+  port: 8081
+  path: /metrics
+
+health:
+  enabled: true
+  livenessPath: /health/live
+  readinessPath: /health/ready

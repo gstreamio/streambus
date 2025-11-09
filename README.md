@@ -68,6 +68,7 @@ Perfect for microservices, event sourcing, log aggregation, real-time analytics,
 - **Consumer Groups**: Automatic partition rebalancing with multiple strategies
 - **Transactions**: Exactly-once semantics with atomic multi-partition writes
 - **Schema Registry**: Built-in schema validation for Avro, Protobuf, and JSON Schema
+- **Multi-Tenancy**: Resource isolation and quota management for multiple tenants
 
 ---
 
