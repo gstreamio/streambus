@@ -606,3 +606,210 @@ func BenchmarkLog_AppendBatch(b *testing.B) {
 		}
 	}
 }
+
+func TestLog_Compact(t *testing.T) {
+	dir := t.TempDir()
+	
+	config := Config{
+		DataDir: dir,
+		WAL: WALConfig{
+			SegmentSize:   1024 * 1024,
+			FsyncPolicy:   FsyncNever,
+			FsyncInterval: time.Second,
+		},
+		MemTable: MemTableConfig{
+			MaxSize:      1024 * 1024,
+			NumImmutable: 2,
+		},
+	}
+	
+	log, err := NewLog(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create log: %v", err)
+	}
+	defer log.Close()
+	
+	// Compact should not error (even though it's a no-op)
+	err = log.Compact()
+	if err != nil {
+		t.Errorf("Compact failed: %v", err)
+	}
+}
+
+func TestLog_Compact_Closed(t *testing.T) {
+	dir := t.TempDir()
+	
+	config := Config{
+		DataDir: dir,
+		WAL: WALConfig{
+			SegmentSize:   1024 * 1024,
+			FsyncPolicy:   FsyncNever,
+			FsyncInterval: time.Second,
+		},
+		MemTable: MemTableConfig{
+			MaxSize:      1024 * 1024,
+			NumImmutable: 2,
+		},
+	}
+	
+	log, err := NewLog(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create log: %v", err)
+	}
+	
+	log.Close()
+	
+	// Compact on closed log should return error
+	err = log.Compact()
+	if err != ErrLogClosed {
+		t.Errorf("Expected ErrLogClosed, got %v", err)
+	}
+}
+
+func TestLogImpl_SerializeBatch(t *testing.T) {
+	dir := t.TempDir()
+	
+	config := Config{
+		DataDir: dir,
+		WAL: WALConfig{
+			SegmentSize:   1024 * 1024,
+			FsyncPolicy:   FsyncNever,
+			FsyncInterval: time.Second,
+		},
+		MemTable: MemTableConfig{
+			MaxSize:      1024 * 1024,
+			NumImmutable: 2,
+		},
+	}
+	
+	logInst, err := NewLog(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create log: %v", err)
+	}
+	defer logInst.Close()
+	
+	// Cast to implementation to access private method
+	impl := logInst.(*logImpl)
+	
+	// Create a batch with messages
+	batch := &MessageBatch{
+		Messages: []Message{
+			{
+				Offset: 100,
+				Key:    []byte("key1"),
+				Value:  []byte("value1"),
+			},
+			{
+				Offset: 101,
+				Key:    []byte("key2"),
+				Value:  []byte("value2"),
+			},
+		},
+	}
+	
+	// Serialize
+	data, err := impl.serializeBatch(batch)
+	if err != nil {
+		t.Fatalf("serializeBatch failed: %v", err)
+	}
+	
+	if len(data) == 0 {
+		t.Error("Expected non-empty serialized data")
+	}
+}
+
+func TestLogImpl_DeserializeBatch(t *testing.T) {
+	dir := t.TempDir()
+	
+	config := Config{
+		DataDir: dir,
+		WAL: WALConfig{
+			SegmentSize:   1024 * 1024,
+			FsyncPolicy:   FsyncNever,
+			FsyncInterval: time.Second,
+		},
+		MemTable: MemTableConfig{
+			MaxSize:      1024 * 1024,
+			NumImmutable: 2,
+		},
+	}
+	
+	logInst, err := NewLog(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create log: %v", err)
+	}
+	defer logInst.Close()
+	
+	impl := logInst.(*logImpl)
+	
+	// Create a batch
+	originalBatch := &MessageBatch{
+		Messages: []Message{
+			{
+				Offset: 200,
+				Key:    []byte("testkey"),
+				Value:  []byte("testvalue"),
+			},
+		},
+	}
+	
+	// Serialize
+	data, err := impl.serializeBatch(originalBatch)
+	if err != nil {
+		t.Fatalf("serializeBatch failed: %v", err)
+	}
+	
+	// Deserialize
+	deserializedBatch, err := impl.deserializeBatch(data)
+	if err != nil {
+		t.Fatalf("deserializeBatch failed: %v", err)
+	}
+	
+	if len(deserializedBatch.Messages) != 1 {
+		t.Errorf("Expected 1 message, got %d", len(deserializedBatch.Messages))
+	}
+	
+	msg := deserializedBatch.Messages[0]
+	if msg.Offset != 200 {
+		t.Errorf("Offset = %d, want 200", msg.Offset)
+	}
+	
+	if string(msg.Key) != "testkey" {
+		t.Errorf("Key = %s, want testkey", msg.Key)
+	}
+	
+	if string(msg.Value) != "testvalue" {
+		t.Errorf("Value = %s, want testvalue", msg.Value)
+	}
+}
+
+func TestLogImpl_DeserializeBatch_InvalidData(t *testing.T) {
+	dir := t.TempDir()
+	
+	config := Config{
+		DataDir: dir,
+		WAL: WALConfig{
+			SegmentSize:   1024 * 1024,
+			FsyncPolicy:   FsyncNever,
+			FsyncInterval: time.Second,
+		},
+		MemTable: MemTableConfig{
+			MaxSize:      1024 * 1024,
+			NumImmutable: 2,
+		},
+	}
+	
+	logInst, err := NewLog(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create log: %v", err)
+	}
+	defer logInst.Close()
+	
+	impl := logInst.(*logImpl)
+	
+	// Test with too-short data
+	_, err = impl.deserializeBatch([]byte{0, 1})
+	if err == nil {
+		t.Error("Expected error for invalid data, got nil")
+	}
+}
