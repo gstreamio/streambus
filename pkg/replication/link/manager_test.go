@@ -374,3 +374,186 @@ func TestManager_Close(t *testing.T) {
 		t.Error("Expected error when creating link after close")
 	}
 }
+
+func TestManager_checkAllLinksHealth(t *testing.T) {
+	storage := NewMemoryStorage()
+	manager := NewManager(storage).(*manager)
+	defer manager.Close()
+
+	// Create and add some links
+	link1 := createTestLink("link1", "Link 1")
+	link1.Status = ReplicationStatusActive
+	link1.Health = &HealthStatus{
+		SourceClusterReachable: true,
+		TargetClusterReachable: true,
+	}
+	
+	link2 := createTestLink("link2", "Link 2")
+	link2.Status = ReplicationStatusActive
+	link2.Health = &HealthStatus{
+		SourceClusterReachable: true,
+		TargetClusterReachable: true,
+	}
+
+	link3 := createTestLink("link3", "Link 3")
+	link3.Status = ReplicationStatusPaused
+	link3.Health = &HealthStatus{
+		SourceClusterReachable: true,
+		TargetClusterReachable: true,
+	}
+
+	manager.CreateLink(link1)
+	manager.CreateLink(link2)
+	manager.CreateLink(link3)
+
+	// Should not panic with active links
+	manager.checkAllLinksHealth()
+}
+
+func TestManager_checkLinkHealth_NoLink(t *testing.T) {
+	storage := NewMemoryStorage()
+	manager := NewManager(storage).(*manager)
+	defer manager.Close()
+
+	// Should not panic for non-existent link
+	manager.checkLinkHealth("non-existent")
+}
+
+func TestManager_checkLinkHealth_NoHandler(t *testing.T) {
+	storage := NewMemoryStorage()
+	manager := NewManager(storage).(*manager)
+	defer manager.Close()
+
+	link := createTestLink("test-link", "Test Link")
+	link.Status = ReplicationStatusActive
+	manager.CreateLink(link)
+
+	// Should not panic when handler doesn't exist
+	manager.checkLinkHealth("test-link")
+}
+
+func TestManager_checkAutomaticFailover_NilMetrics(t *testing.T) {
+	storage := NewMemoryStorage()
+	manager := NewManager(storage).(*manager)
+	defer manager.Close()
+
+	link := createTestLink("test-link", "Test Link")
+	link.Metrics = nil
+	link.Health = &HealthStatus{
+		SourceClusterReachable: true,
+	}
+	link.FailoverConfig = &FailoverConfig{
+		Enabled: true,
+	}
+
+	// Should return early when metrics are nil
+	manager.checkAutomaticFailover("test-link", link)
+}
+
+func TestManager_checkAutomaticFailover_NilHealth(t *testing.T) {
+	storage := NewMemoryStorage()
+	manager := NewManager(storage).(*manager)
+	defer manager.Close()
+
+	link := createTestLink("test-link", "Test Link")
+	link.Metrics = &ReplicationMetrics{
+		ReplicationLag: 100,
+	}
+	link.Health = nil
+	link.FailoverConfig = &FailoverConfig{
+		Enabled: true,
+	}
+
+	// Should return early when health is nil
+	manager.checkAutomaticFailover("test-link", link)
+}
+
+func TestManager_checkAutomaticFailover_NilConfig(t *testing.T) {
+	storage := NewMemoryStorage()
+	manager := NewManager(storage).(*manager)
+	defer manager.Close()
+
+	link := createTestLink("test-link", "Test Link")
+	link.Metrics = &ReplicationMetrics{
+		ReplicationLag: 100,
+	}
+	link.Health = &HealthStatus{
+		SourceClusterReachable: true,
+	}
+	link.FailoverConfig = nil
+
+	// Should return early when failover config is nil
+	manager.checkAutomaticFailover("test-link", link)
+}
+
+func TestManager_checkAutomaticFailover_NoTrigger(t *testing.T) {
+	storage := NewMemoryStorage()
+	manager := NewManager(storage).(*manager)
+	defer manager.Close()
+
+	link := createTestLink("test-link", "Test Link")
+	link.Metrics = &ReplicationMetrics{
+		ReplicationLag:       100,
+		ConsecutiveFailures:  1,
+	}
+	link.Health = &HealthStatus{
+		SourceClusterReachable: true,
+		TargetClusterReachable: true,
+	}
+	link.FailoverConfig = &FailoverConfig{
+		Enabled:                 true,
+		FailoverThreshold:       1000, // Higher than current lag
+		MaxConsecutiveFailures:  5,    // Higher than current failures
+	}
+
+	// Should not trigger failover when conditions aren't met
+	manager.checkAutomaticFailover("test-link", link)
+}
+
+func TestManager_scheduleAutoFailback(t *testing.T) {
+	storage := NewMemoryStorage()
+	manager := NewManager(storage).(*manager)
+	defer manager.Close()
+
+	link := createTestLink("test-link", "Test Link")
+	link.Status = ReplicationStatusActive
+	link.Health = &HealthStatus{
+		SourceClusterReachable: true,
+		TargetClusterReachable: true,
+	}
+	manager.CreateLink(link)
+
+	// Should not panic with minimal delay
+	done := make(chan bool)
+	go func() {
+		manager.scheduleAutoFailback("test-link", 1) // 1ms delay
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Success
+	case <-time.After(100 * time.Millisecond):
+		t.Error("scheduleAutoFailback took too long")
+	}
+}
+
+func TestManager_scheduleAutoFailback_NonExistentLink(t *testing.T) {
+	storage := NewMemoryStorage()
+	manager := NewManager(storage).(*manager)
+	defer manager.Close()
+
+	// Should not panic for non-existent link
+	done := make(chan bool)
+	go func() {
+		manager.scheduleAutoFailback("non-existent", 1)
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Success
+	case <-time.After(100 * time.Millisecond):
+		t.Error("scheduleAutoFailback took too long")
+	}
+}
