@@ -128,17 +128,38 @@ func (ss *StickyStrategy) Rebalance(
 	}
 
 	// Final pass: ensure no removed brokers remain in any partition
+	finalPartitionsToReassign := make(map[string]PartitionInfo)
 	for key, replicas := range newAssignment.Partitions {
 		filtered := ss.filterReplicas(replicas, removedBrokers)
 		if len(filtered) != len(replicas) {
+			topic, partitionID := parsePartitionKey(key)
+			originalLen := len(replicas)
+
 			newAssignment.Partitions[key] = filtered
 			if len(filtered) > 0 {
 				newAssignment.Leaders[key] = filtered[0]
+			}
+
+			// Track partitions that lost replicas and need reassignment
+			finalPartitionsToReassign[key] = PartitionInfo{
+				Topic:       topic,
+				PartitionID: partitionID,
+				Replicas:    originalLen,
 			}
 		}
 	}
 
 	// Recompute broker load to ensure consistency
+	newAssignment.RecomputeBrokerLoad()
+
+	// Reassign any partitions that lost replicas in the final pass
+	if len(finalPartitionsToReassign) > 0 {
+		if err := ss.reassignPartitions(newAssignment, finalPartitionsToReassign, availableBrokers, constraints); err != nil {
+			return nil, fmt.Errorf("failed to reassign partitions after final cleanup: %w", err)
+		}
+	}
+
+	// Final recompute after reassignment
 	newAssignment.RecomputeBrokerLoad()
 
 	// Validate final assignment

@@ -3,250 +3,217 @@ package tracing
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/jaeger"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
-// Tracer manages OpenTelemetry tracing
+// Tracer wraps OpenTelemetry tracer
 type Tracer struct {
 	config   *Config
-	provider *sdktrace.TracerProvider
 	tracer   trace.Tracer
-	exporter sdktrace.SpanExporter
-	mu       sync.RWMutex
-	shutdown bool
+	provider *sdktrace.TracerProvider
 }
 
-// NewTracer creates a new tracer
-func NewTracer(config *Config) (*Tracer, error) {
-	if config == nil {
-		config = DefaultConfig()
-	}
-
-	// Validate configuration
-	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
-	}
-
-	// If tracing is disabled, return a no-op tracer
-	if !config.Enabled {
+// New creates a new tracer with the given configuration
+func New(cfg *Config) (*Tracer, error) {
+	if !cfg.Enabled {
 		return &Tracer{
-			config:   config,
-			provider: nil,
-			tracer:   trace.NewNoopTracerProvider().Tracer(config.ServiceName),
+			config: cfg,
+			tracer: otel.Tracer(cfg.ServiceName),
 		}, nil
 	}
 
-	t := &Tracer{
-		config: config,
-	}
-
-	// Initialize exporter
-	exporter, err := t.createExporter()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create exporter: %w", err)
-	}
-	t.exporter = exporter
-
 	// Create resource
-	res, err := t.createResource()
+	res, err := resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceName(cfg.ServiceName),
+			semconv.ServiceVersion(cfg.ServiceVersion),
+			semconv.DeploymentEnvironment(cfg.Environment),
+		),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
 
-	// Create sampler
-	sampler := t.createSampler()
+	// Add custom resource attributes
+	if len(cfg.ResourceAttributes) > 0 {
+		attrs := make([]attribute.KeyValue, 0, len(cfg.ResourceAttributes))
+		for k, v := range cfg.ResourceAttributes {
+			attrs = append(attrs, attribute.String(k, v))
+		}
+		res, err = resource.Merge(res, resource.NewWithAttributes(semconv.SchemaURL, attrs...))
+		if err != nil {
+			return nil, fmt.Errorf("failed to merge custom attributes: %w", err)
+		}
+	}
+
+	// Create exporter
+	var exporter sdktrace.SpanExporter
+	switch cfg.Exporter.Type {
+	case ExporterTypeJaeger:
+		if cfg.Exporter.Jaeger.CollectorEndpoint != "" {
+			exporter, err = jaeger.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(cfg.Exporter.Jaeger.CollectorEndpoint)))
+		} else if cfg.Exporter.Jaeger.AgentEndpoint != "" {
+			exporter, err = jaeger.New(jaeger.WithAgentEndpoint(jaeger.WithAgentHost(cfg.Exporter.Jaeger.AgentEndpoint)))
+		} else {
+			return nil, fmt.Errorf("jaeger exporter requires either collector endpoint or agent endpoint")
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to create jaeger exporter: %w", err)
+		}
+	case ExporterTypeOTLP:
+		ctx := context.Background()
+		clientOpts := []otlptracegrpc.Option{
+			otlptracegrpc.WithEndpoint(cfg.Exporter.OTLP.Endpoint),
+		}
+		if cfg.Exporter.OTLP.Insecure {
+			clientOpts = append(clientOpts, otlptracegrpc.WithInsecure())
+		}
+		if len(cfg.Exporter.OTLP.Headers) > 0 {
+			clientOpts = append(clientOpts, otlptracegrpc.WithHeaders(cfg.Exporter.OTLP.Headers))
+		}
+		client := otlptracegrpc.NewClient(clientOpts...)
+		exporter, err = otlptrace.New(ctx, client)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create otlp exporter: %w", err)
+		}
+	case ExporterTypeNone, ExporterTypeStdout:
+		// No exporter or stdout exporter
+		return &Tracer{
+			config: cfg,
+			tracer: otel.Tracer(cfg.ServiceName),
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported exporter type: %s", cfg.Exporter.Type)
+	}
 
 	// Create tracer provider
-	provider := sdktrace.NewTracerProvider(
+	sampler := sdktrace.TraceIDRatioBased(cfg.Sampling.SamplingRate)
+	if cfg.Sampling.ParentBased {
+		sampler = sdktrace.ParentBased(sampler)
+	}
+
+	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sampler),
 	)
-	t.provider = provider
 
 	// Set global tracer provider
-	otel.SetTracerProvider(provider)
+	otel.SetTracerProvider(tp)
 
-	// Set global propagator
-	t.setPropagators()
+	// Set global propagator for context propagation
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
 
-	// Create tracer
-	t.tracer = provider.Tracer(
-		config.ServiceName,
-		trace.WithInstrumentationVersion(config.ServiceVersion),
-	)
-
-	return t, nil
+	return &Tracer{
+		config:   cfg,
+		tracer:   tp.Tracer(cfg.ServiceName),
+		provider: tp,
+	}, nil
 }
 
-// createExporter creates the appropriate span exporter based on configuration
-func (t *Tracer) createExporter() (sdktrace.SpanExporter, error) {
-	switch t.config.Exporter.Type {
-	case ExporterTypeOTLP:
-		return t.createOTLPExporter()
-	case ExporterTypeStdout:
-		return t.createStdoutExporter()
-	case ExporterTypeNone:
-		return &noopExporter{}, nil
-	default:
-		return nil, fmt.Errorf("unsupported exporter type: %s", t.config.Exporter.Type)
+// Start starts a new span
+func (t *Tracer) Start(ctx context.Context, spanName string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+	if !t.config.Enabled {
+		return ctx, trace.SpanFromContext(ctx)
 	}
+	return t.tracer.Start(ctx, spanName, opts...)
 }
 
-// createOTLPExporter creates an OTLP exporter
-func (t *Tracer) createOTLPExporter() (sdktrace.SpanExporter, error) {
-	ctx := context.Background()
-	config := t.config.Exporter.OTLP
-
-	// Create gRPC options
-	opts := []otlptracegrpc.Option{
-		otlptracegrpc.WithEndpoint(config.Endpoint),
-		otlptracegrpc.WithTimeout(config.Timeout),
+// StartWithAttributes starts a new span with attributes
+func (t *Tracer) StartWithAttributes(ctx context.Context, spanName string, attrs map[string]interface{}) (context.Context, trace.Span) {
+	spanOpts := []trace.SpanStartOption{
+		trace.WithAttributes(convertAttributes(attrs)...),
 	}
-
-	// Add insecure option if specified
-	if config.Insecure {
-		opts = append(opts, otlptracegrpc.WithTLSCredentials(insecure.NewCredentials()))
-	}
-
-	// Add headers
-	if len(config.Headers) > 0 {
-		opts = append(opts, otlptracegrpc.WithHeaders(config.Headers))
-	}
-
-	// Add compression
-	if config.Compression == "gzip" {
-		opts = append(opts, otlptracegrpc.WithDialOption(grpc.WithDefaultCallOptions(grpc.UseCompressor("gzip"))))
-	}
-
-	// Create exporter
-	client := otlptracegrpc.NewClient(opts...)
-	exporter, err := otlptrace.New(ctx, client)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
-	}
-
-	return exporter, nil
+	return t.Start(ctx, spanName, spanOpts...)
 }
 
-// createStdoutExporter creates a stdout exporter for debugging
-func (t *Tracer) createStdoutExporter() (sdktrace.SpanExporter, error) {
-	exporter, err := stdouttrace.New(
-		stdouttrace.WithPrettyPrint(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stdout exporter: %w", err)
-	}
-	return exporter, nil
-}
-
-// createResource creates the resource for the tracer
-func (t *Tracer) createResource() (*resource.Resource, error) {
-	return resource.New(
-		context.Background(),
-		resource.WithAttributes(t.config.ToResourceAttributes()...),
-	)
-}
-
-// createSampler creates the sampler based on configuration
-func (t *Tracer) createSampler() sdktrace.Sampler {
-	samplingRate := t.config.Sampling.SamplingRate
-
-	var baseSampler sdktrace.Sampler
-	if samplingRate >= 1.0 {
-		baseSampler = sdktrace.AlwaysSample()
-	} else if samplingRate <= 0.0 {
-		baseSampler = sdktrace.NeverSample()
-	} else {
-		baseSampler = sdktrace.TraceIDRatioBased(samplingRate)
-	}
-
-	// Use parent-based sampling if configured
-	if t.config.Sampling.ParentBased {
-		return sdktrace.ParentBased(baseSampler)
-	}
-
-	return baseSampler
-}
-
-// setPropagators sets the global propagators
-func (t *Tracer) setPropagators() {
-	propagators := []propagation.TextMapPropagator{}
-
-	for _, p := range t.config.Propagators {
-		switch p {
-		case "tracecontext":
-			propagators = append(propagators, propagation.TraceContext{})
-		case "baggage":
-			propagators = append(propagators, propagation.Baggage{})
-		}
-	}
-
-	if len(propagators) > 0 {
-		otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagators...))
+// AddEvent adds an event to the current span
+func (t *Tracer) AddEvent(ctx context.Context, name string, attrs map[string]interface{}) {
+	span := trace.SpanFromContext(ctx)
+	if span.IsRecording() {
+		span.AddEvent(name, trace.WithAttributes(convertAttributes(attrs)...))
 	}
 }
 
-// Tracer returns the OpenTelemetry tracer
-func (t *Tracer) Tracer() trace.Tracer {
-	return t.tracer
+// RecordError records an error in the current span
+func (t *Tracer) RecordError(ctx context.Context, err error, attrs map[string]interface{}) {
+	span := trace.SpanFromContext(ctx)
+	if span.IsRecording() {
+		span.RecordError(err, trace.WithAttributes(convertAttributes(attrs)...))
+	}
 }
 
-// Provider returns the tracer provider
-func (t *Tracer) Provider() *sdktrace.TracerProvider {
-	return t.provider
+// SetAttributes sets attributes on the current span
+func (t *Tracer) SetAttributes(ctx context.Context, attrs map[string]interface{}) {
+	span := trace.SpanFromContext(ctx)
+	if span.IsRecording() {
+		span.SetAttributes(convertAttributes(attrs)...)
+	}
 }
 
-// Shutdown shuts down the tracer and flushes any remaining spans
+// Shutdown shuts down the tracer provider
 func (t *Tracer) Shutdown(ctx context.Context) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.shutdown {
-		return nil
-	}
-
-	var errs []error
-
-	// Shutdown provider
 	if t.provider != nil {
-		if err := t.provider.Shutdown(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("provider shutdown: %w", err))
+		return t.provider.Shutdown(ctx)
+	}
+	return nil
+}
+
+// convertAttributes converts map to OpenTelemetry attributes
+func convertAttributes(attrs map[string]interface{}) []attribute.KeyValue {
+	result := make([]attribute.KeyValue, 0, len(attrs))
+	for k, v := range attrs {
+		switch val := v.(type) {
+		case string:
+			result = append(result, attribute.String(k, val))
+		case int:
+			result = append(result, attribute.Int(k, val))
+		case int64:
+			result = append(result, attribute.Int64(k, val))
+		case float64:
+			result = append(result, attribute.Float64(k, val))
+		case bool:
+			result = append(result, attribute.Bool(k, val))
+		case []string:
+			result = append(result, attribute.StringSlice(k, val))
+		default:
+			result = append(result, attribute.String(k, fmt.Sprintf("%v", val)))
 		}
 	}
+	return result
+}
 
-	t.shutdown = true
-
-	if len(errs) > 0 {
-		return fmt.Errorf("shutdown errors: %v", errs)
+// Extract extracts the trace context from a carrier
+func (t *Tracer) Extract(ctx context.Context, carrier propagation.TextMapCarrier) context.Context {
+	if !t.config.Enabled {
+		return ctx
 	}
+	return otel.GetTextMapPropagator().Extract(ctx, carrier)
+}
 
-	return nil
+// Inject injects the trace context into a carrier
+func (t *Tracer) Inject(ctx context.Context, carrier propagation.TextMapCarrier) {
+	if t.config.Enabled {
+		otel.GetTextMapPropagator().Inject(ctx, carrier)
+	}
 }
 
 // IsEnabled returns whether tracing is enabled
 func (t *Tracer) IsEnabled() bool {
 	return t.config.Enabled
-}
-
-// noopExporter is a no-op span exporter
-type noopExporter struct{}
-
-func (e *noopExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {
-	return nil
-}
-
-func (e *noopExporter) Shutdown(ctx context.Context) error {
-	return nil
 }

@@ -1,0 +1,89 @@
+---
+# Headless service for StatefulSet DNS
+apiVersion: v1
+kind: Service
+metadata:
+  name: streambus-broker
+  labels:
+    app: streambus
+    component: broker
+spec:
+  clusterIP: None
+  selector:
+    app: streambus
+    component: broker
+  ports:
+    - name: client
+      port: 9092
+      targetPort: 9092
+    - name: cluster
+      port: 9093
+      targetPort: 9093
+
+---
+# Client-facing service with load balancing
+apiVersion: v1
+kind: Service
+metadata:
+  name: streambus-client
+  labels:
+    app: streambus
+    component: client-service
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+spec:
+  type: LoadBalancer
+  selector:
+    app: streambus
+    component: broker
+  ports:
+    - name: client
+      port: 9092
+      targetPort: 9092
+      protocol: TCP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800  # 3 hours
+
+---
+# Metrics service for Prometheus
+apiVersion: v1
+kind: Service
+metadata:
+  name: streambus-metrics
+  labels:
+    app: streambus
+    component: metrics
+spec:
+  selector:
+    app: streambus
+    component: broker
+  ports:
+    - name: http-metrics
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+
+---
+# Profiling service (internal only)
+apiVersion: v1
+kind: Service
+metadata:
+  name: streambus-profiling
+  labels:
+    app: streambus
+    component: profiling
+  annotations:
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "false"
+spec:
+  type: ClusterIP
+  selector:
+    app: streambus
+    component: broker
+  ports:
+    - name: pprof
+      port: 6060
+      targetPort: 6060
+      protocol: TCP

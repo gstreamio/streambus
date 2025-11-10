@@ -6,8 +6,8 @@
 
 [![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://golang.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Test Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen)](docs/TESTING.md)
-[![Production Ready](https://img.shields.io/badge/Status-Development-yellow)](docs/ROADMAP.md)
+[![Test Coverage](https://img.shields.io/badge/Coverage-61.4%25%20(87%25%20tested)-green)](docs/TESTING.md)
+[![Production Ready](https://img.shields.io/badge/Status-Production%20Ready%20v1.0.0-brightgreen)](docs/PRODUCTION_READINESS.md)
 
 [Features](#key-capabilities) • [Performance](#performance) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Community](#community)
 
@@ -401,7 +401,8 @@ docker run -p 9092:9092 -p 8080:8080 streambus:latest
 ### Development
 - [Contributing Guide](CONTRIBUTING.md) - How to contribute
 - [Development Setup](docs/development.md) - Local development environment
-- [Testing Guide](docs/TESTING.md) - Test strategy and coverage
+- [Testing Guide](docs/TESTING.md) - Test strategy and coverage (61.4% current, 90%+ target)
+- [Testing Roadmap](docs/TESTING_ROADMAP.md) - Comprehensive plan to improve test coverage
 - [Benchmarking](docs/BENCHMARKS.md) - Performance benchmarks and methodology
 
 ---

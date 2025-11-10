@@ -3,6 +3,8 @@ package cluster
 import (
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 )
 
 // RoundRobinStrategy assigns partitions in round-robin fashion across brokers
@@ -250,8 +252,14 @@ func (rr *RoundRobinStrategy) Rebalance(
 
 // parsePartitionKey parses a partition key into topic and partition ID
 func parsePartitionKey(key string) (string, int) {
-	var topic string
-	var partitionID int
-	fmt.Sscanf(key, "%[^:]:%d", &topic, &partitionID)
+	parts := strings.SplitN(key, ":", 2)
+	if len(parts) != 2 {
+		return "", 0
+	}
+	topic := parts[0]
+	partitionID, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return "", 0
+	}
 	return topic, partitionID
 }
