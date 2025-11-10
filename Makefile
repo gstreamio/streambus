@@ -62,9 +62,27 @@ install: ## Install binaries to $GOPATH/bin
 	$(GOCMD) install $(LDFLAGS) ./cmd/broker
 	$(GOCMD) install $(LDFLAGS) ./cmd/cli
 
-test: ## Run tests
-	@echo "Running tests..."
+test: ## Run all tests (unit + integration)
+	@echo "Running all tests..."
 	$(GOTEST) -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+test-unit: ## Run unit tests only (with -short flag)
+	@echo "Running unit tests..."
+	$(GOTEST) -v -short -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+test-integration: ## Run integration tests
+	@echo "Running integration tests..."
+	@echo "Note: Requires broker to be running on localhost:9092"
+	$(GOTEST) -v -run 'TestE2E|TestIntegration' ./tests/integration/...
+
+test-e2e: test-integration ## Alias for integration tests
+
+test-chaos: ## Run chaos engineering tests
+	@echo "Running chaos tests..."
+	@echo "Note: Requires broker to be running on localhost:9092"
+	$(GOTEST) -v -timeout 15m ./tests/chaos/...
+
+test-all: test-unit test-integration test-chaos ## Run all test types
 
 test-coverage: ## Run tests with coverage report
 	@echo "Running tests with coverage..."
@@ -73,9 +91,13 @@ test-coverage: ## Run tests with coverage report
 	$(GOCMD) tool cover -html=$(COVERAGE_DIR)/coverage.out -o $(COVERAGE_DIR)/coverage.html
 	@echo "Coverage report generated at $(COVERAGE_DIR)/coverage.html"
 
-test-integration: ## Run integration tests
-	@echo "Running integration tests..."
-	$(GOTEST) -v -tags=integration ./...
+coverage-analysis: ## Run comprehensive coverage analysis
+	@echo "Running coverage analysis..."
+	@./scripts/test-coverage.sh --html
+
+coverage-report: ## Generate coverage report for CI
+	@echo "Generating coverage report..."
+	@./scripts/test-coverage.sh --format json
 
 benchmark: ## Run all benchmarks
 	@echo "Running all benchmarks..."
@@ -148,6 +170,28 @@ benchmark-baseline: ## Set current benchmark as baseline
 	@echo "Setting benchmark baseline..."
 	@mkdir -p benchmarks
 	$(GOTEST) -bench=. -benchmem -run=^$$ ./... | tee benchmarks/baseline.txt
+
+loadtest: ## Run load tests with default settings
+	@echo "Running load tests..."
+	@./scripts/run-benchmarks.sh --duration 30s
+
+loadtest-latency: ## Run latency-focused load test
+	@echo "Running latency load test..."
+	@./scripts/run-benchmarks.sh --duration 60s --focus latency
+
+loadtest-throughput: ## Run throughput-focused load test
+	@echo "Running throughput load test..."
+	@./scripts/run-benchmarks.sh --duration 60s --focus throughput
+
+loadtest-stress: ## Run stress test with high load
+	@echo "Running stress test..."
+	@./scripts/run-benchmarks.sh --duration 120s --stress
+
+ci: test-unit lint ## Run CI checks (unit tests + lint)
+	@echo "CI checks passed!"
+
+ci-full: clean test-all lint benchmark ## Run full CI suite
+	@echo "Full CI suite passed!"
 
 lint: ## Run linters
 	@echo "Running linters..."

@@ -1,0 +1,101 @@
+---
+# ServiceMonitor for Prometheus Operator
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: streambus-broker
+  labels:
+    app: streambus
+    component: broker
+spec:
+  selector:
+    matchLabels:
+      app: streambus
+      component: metrics
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+
+---
+# PodMonitor (alternative to ServiceMonitor)
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: streambus-broker
+  labels:
+    app: streambus
+spec:
+  selector:
+    matchLabels:
+      app: streambus
+      component: broker
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+
+---
+# PrometheusRule for alerting
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: streambus-alerts
+  labels:
+    app: streambus
+    role: alert-rules
+spec:
+  groups:
+    - name: streambus
+      interval: 30s
+      rules:
+        # Broker down
+        - alert: StreamBusBrokerDown
+          expr: up{job="streambus-broker"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "StreamBus broker {{ $labels.pod }} is down"
+            description: "Broker {{ $labels.pod }} in namespace {{ $labels.namespace }} has been down for more than 1 minute"
+
+        # High latency
+        - alert: StreamBusHighLatency
+          expr: histogram_quantile(0.99, rate(request_duration_seconds_bucket{job="streambus-broker"}[5m])) > 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High latency detected on {{ $labels.pod }}"
+            description: "P99 latency is {{ $value }}s on pod {{ $labels.pod }}"
+
+        # High error rate
+        - alert: StreamBusHighErrorRate
+          expr: rate(errors_total{job="streambus-broker"}[5m]) > 10
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High error rate on {{ $labels.pod }}"
+            description: "Error rate is {{ $value }}/sec on pod {{ $labels.pod }}"
+
+        # Disk space low
+        - alert: StreamBusDiskSpaceLow
+          expr: (disk_free{job="streambus-broker"} / disk_total{job="streambus-broker"}) < 0.2
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Low disk space on {{ $labels.pod }}"
+            description: "Only {{ $value | humanizePercentage }} disk space remaining on {{ $labels.pod }}"
+
+        # High memory usage
+        - alert: StreamBusHighMemoryUsage
+          expr: (process_resident_memory_bytes{job="streambus-broker"} / process_virtual_memory_max_bytes{job="streambus-broker"}) > 0.9
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High memory usage on {{ $labels.pod }}"
+            description: "Memory usage is {{ $value | humanizePercentage }} on {{ $labels.pod }}"

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 
 	"github.com/shawntherrien/streambus/pkg/protocol"
@@ -61,7 +62,7 @@ func (h *SecurityHandler) Handle(req *protocol.Request) *protocol.Response {
 	if h.securityManager.IsAuditEnabled() {
 		h.securityManager.AuditAction(ctx, principal, action, resource, map[string]string{
 			"request_type": req.Header.Type.String(),
-			"request_id":   string(req.Header.RequestID),
+			"request_id":   fmt.Sprintf("%d", req.Header.RequestID),
 		})
 	}
 
