@@ -1,6 +1,6 @@
 server:
   broker_id: 1
-  host: broker1
+  host: 0.0.0.0
   port: 9092
   http_port: 8081
   grpc_port: 9093

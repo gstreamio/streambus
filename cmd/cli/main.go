@@ -1,9 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
+	"github.com/shawntherrien/streambus/pkg/client"
+	"github.com/shawntherrien/streambus/pkg/protocol"
 	"github.com/spf13/cobra"
 )
 
@@ -45,12 +51,24 @@ var topicCreateCmd = &cobra.Command{
 		partitions, _ := cmd.Flags().GetInt("partitions")
 		replication, _ := cmd.Flags().GetInt("replication-factor")
 
+		brokers, _ := cmd.Flags().GetStringSlice("brokers")
+
 		fmt.Printf("Creating topic '%s' with %d partitions and replication factor %d\n",
 			topicName, partitions, replication)
 
-		// TODO: Implement topic creation
-		// client := streambus.NewClient(brokers)
-		// err := client.CreateTopic(topicName, partitions, replication)
+		// Create client
+		config := client.DefaultConfig()
+		config.Brokers = brokers
+		c, err := client.New(config)
+		if err != nil {
+			return fmt.Errorf("failed to create client: %w", err)
+		}
+		defer c.Close()
+
+		// Create topic (using administrative API)
+		if err := c.CreateTopic(topicName, uint32(partitions), uint16(replication)); err != nil {
+			return fmt.Errorf("failed to create topic: %w", err)
+		}
 
 		fmt.Println("Topic created successfully!")
 		return nil
@@ -63,11 +81,33 @@ var topicListCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println("Listing topics...")
 
-		// TODO: Implement topic listing
-		// client := streambus.NewClient(brokers)
-		// topics, err := client.ListTopics()
+		brokers, _ := cmd.Flags().GetStringSlice("brokers")
 
-		fmt.Println("No topics found")
+		// Create client
+		config := client.DefaultConfig()
+		config.Brokers = brokers
+		c, err := client.New(config)
+		if err != nil {
+			return fmt.Errorf("failed to create client: %w", err)
+		}
+		defer c.Close()
+
+		// List topics
+		topics, err := c.ListTopics()
+		if err != nil {
+			return fmt.Errorf("failed to list topics: %w", err)
+		}
+
+		if len(topics) == 0 {
+			fmt.Println("No topics found")
+			return nil
+		}
+
+		fmt.Printf("\nFound %d topic(s):\n", len(topics))
+		for _, topicName := range topics {
+			fmt.Printf("  - %s\n", topicName)
+		}
+
 		return nil
 	},
 }
@@ -80,14 +120,43 @@ var produceCmd = &cobra.Command{
 		topic := args[0]
 		message, _ := cmd.Flags().GetString("message")
 		key, _ := cmd.Flags().GetString("key")
+		brokers, _ := cmd.Flags().GetStringSlice("brokers")
+
+		// Read from stdin if no message provided
+		if message == "" {
+			scanner := bufio.NewScanner(os.Stdin)
+			if scanner.Scan() {
+				message = scanner.Text()
+			}
+		}
 
 		fmt.Printf("Producing message to topic '%s'\n", topic)
 		fmt.Printf("  Key: %s\n", key)
 		fmt.Printf("  Message: %s\n", message)
 
-		// TODO: Implement produce
-		// producer := streambus.NewProducer(brokers)
-		// offset, err := producer.Produce(topic, key, message)
+		// Create client
+		config := client.DefaultConfig()
+		config.Brokers = brokers
+		c, err := client.New(config)
+		if err != nil {
+			return fmt.Errorf("failed to create client: %w", err)
+		}
+		defer c.Close()
+
+		// Create producer
+		producer := client.NewProducer(c)
+		defer producer.Close()
+
+		// Send message
+		err = producer.Send(topic, []byte(key), []byte(message))
+		if err != nil {
+			return fmt.Errorf("failed to send message: %w", err)
+		}
+
+		// Flush
+		if err := producer.Flush(topic); err != nil {
+			return fmt.Errorf("failed to flush: %w", err)
+		}
 
 		fmt.Println("Message produced successfully!")
 		return nil
@@ -101,21 +170,65 @@ var consumeCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		topic := args[0]
 		group, _ := cmd.Flags().GetString("group")
-		offset, _ := cmd.Flags().GetString("offset")
+		offsetStr, _ := cmd.Flags().GetString("offset")
+		maxMessages, _ := cmd.Flags().GetInt("max-messages")
+		brokers, _ := cmd.Flags().GetStringSlice("brokers")
 
 		fmt.Printf("Consuming from topic '%s'\n", topic)
 		fmt.Printf("  Consumer Group: %s\n", group)
-		fmt.Printf("  Starting Offset: %s\n", offset)
+		fmt.Printf("  Starting Offset: %s\n", offsetStr)
 
-		// TODO: Implement consume
-		// consumer := streambus.NewConsumer(brokers, group)
-		// consumer.Subscribe(topic)
-		// for msg := range consumer.Messages() {
-		//     fmt.Printf("Offset: %d, Key: %s, Value: %s\n", msg.Offset, msg.Key, msg.Value)
-		// }
+		// Create client
+		config := client.DefaultConfig()
+		config.Brokers = brokers
+		c, err := client.New(config)
+		if err != nil {
+			return fmt.Errorf("failed to create client: %w", err)
+		}
+		defer c.Close()
+
+		// Create consumer (consumer will handle offset internally)
+		consumer := client.NewConsumer(c, group, 0)
+		defer consumer.Close()
 
 		fmt.Println("Consuming messages... (Press Ctrl+C to stop)")
-		return nil
+
+		// Set up signal handling
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+		messagesConsumed := 0
+
+		// Poll for messages
+		for {
+			select {
+			case <-sigChan:
+				fmt.Printf("\n\nConsumed %d messages\n", messagesConsumed)
+				return nil
+			default:
+				err := consumer.Poll(1*time.Second, func(messages []protocol.Message) error {
+					for _, msg := range messages {
+						fmt.Printf("Offset: %d, Key: %s, Value: %s\n",
+							msg.Offset, string(msg.Key), string(msg.Value))
+						messagesConsumed++
+
+						if maxMessages > 0 && messagesConsumed >= maxMessages {
+							return fmt.Errorf("reached max messages")
+						}
+					}
+					return nil
+				})
+
+				if err != nil {
+					if err.Error() == "reached max messages" {
+						fmt.Printf("\nConsumed %d messages\n", messagesConsumed)
+						return nil
+					}
+					// Ignore timeout errors
+					continue
+				}
+			}
+		}
 	},
 }
 

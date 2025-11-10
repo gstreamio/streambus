@@ -122,6 +122,8 @@ func (s *Server) acceptLoop() {
 			}
 		}
 
+		fmt.Printf("✓ New connection accepted from %s\n", conn.RemoteAddr())
+
 		// Check connection limit
 		if atomic.LoadInt64(&s.connCount) >= int64(s.config.MaxConnections) {
 			fmt.Println("Max connections reached, rejecting connection")
@@ -184,9 +186,11 @@ func (s *Server) handleConnection(conn net.Conn) {
 				continue
 			}
 			// Connection closed or other error
+			fmt.Printf("Connection closed or decode error: %v\n", err)
 			return
 		}
 
+		fmt.Printf("✓ Received request: type=%d, id=%d\n", req.Header.Type, req.Header.RequestID)
 		atomic.AddInt64(&s.totalRequests, 1)
 
 		// Update read deadline
