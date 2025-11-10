@@ -169,6 +169,12 @@ func (b *Broker) Start() error {
 		return fmt.Errorf("failed to initialize storage: %w", err)
 	}
 
+	// Start observability (HTTP/health endpoints) early so Docker health checks work
+	// This must happen before initCluster() which may block waiting for Raft consensus
+	if err := b.initObservability(); err != nil {
+		return fmt.Errorf("failed to initialize observability: %w", err)
+	}
+
 	if err := b.initConsensus(); err != nil {
 		return fmt.Errorf("failed to initialize consensus: %w", err)
 	}
@@ -199,10 +205,6 @@ func (b *Broker) Start() error {
 
 	if err := b.initServer(); err != nil {
 		return fmt.Errorf("failed to initialize server: %w", err)
-	}
-
-	if err := b.initObservability(); err != nil {
-		return fmt.Errorf("failed to initialize observability: %w", err)
 	}
 
 	b.mu.Lock()
@@ -597,7 +599,7 @@ func (b *Broker) initServer() error {
 	})
 
 	// Create base server handler
-	baseHandler := server.NewHandler()
+	baseHandler := server.NewHandlerWithDataDir(b.config.DataDir)
 
 	// Wrap with tenancy handler if enabled
 	var handler server.RequestHandler
