@@ -316,3 +316,210 @@ func TestTracer_TraceWithRetry(t *testing.T) {
 		})
 	}
 }
+
+func TestTracer_AddEvent(t *testing.T) {
+	tracer, err := New(&Config{
+		Enabled:     false,
+		ServiceName: "test-service",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create tracer: %v", err)
+	}
+
+	ctx := context.Background()
+	ctx, _ = tracer.Start(ctx, "test-operation")
+
+	tracer.AddEvent(ctx, "test-event", map[string]interface{}{
+		"key": "value",
+	})
+
+	// No return value to check, but function should not panic
+}
+
+func TestTracer_RecordError(t *testing.T) {
+	tracer, err := New(&Config{
+		Enabled:     false,
+		ServiceName: "test-service",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create tracer: %v", err)
+	}
+
+	ctx := context.Background()
+	ctx, _ = tracer.Start(ctx, "test-operation")
+
+	testErr := errors.New("test error")
+	tracer.RecordError(ctx, testErr, map[string]interface{}{
+		"error.code": 500,
+	})
+
+	// No return value to check, but function should not panic
+}
+
+func TestTracer_SetAttributes(t *testing.T) {
+	tracer, err := New(&Config{
+		Enabled:     false,
+		ServiceName: "test-service",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create tracer: %v", err)
+	}
+
+	ctx := context.Background()
+	ctx, _ = tracer.Start(ctx, "test-operation")
+
+	tracer.SetAttributes(ctx, map[string]interface{}{
+		"attr1": "value1",
+		"attr2": 42,
+	})
+
+	// No return value to check, but function should not panic
+}
+
+func TestTracer_Shutdown(t *testing.T) {
+	tracer, err := New(&Config{
+		Enabled:     false,
+		ServiceName: "test-service",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create tracer: %v", err)
+	}
+
+	err = tracer.Shutdown(context.Background())
+	if err != nil {
+		t.Errorf("Shutdown() unexpected error: %v", err)
+	}
+}
+
+func TestTracer_Extract(t *testing.T) {
+	tracer, err := New(&Config{
+		Enabled:     false,
+		ServiceName: "test-service",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create tracer: %v", err)
+	}
+
+	headers := map[string]string{
+		"traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+	}
+
+	ctx := tracer.ExtractTraceContext(context.Background(), headers)
+	if ctx == nil {
+		t.Error("ExtractTraceContext() returned nil context")
+	}
+}
+
+func TestTracer_Inject(t *testing.T) {
+	tracer, err := New(&Config{
+		Enabled:     false,
+		ServiceName: "test-service",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create tracer: %v", err)
+	}
+
+	ctx := context.Background()
+	ctx, _ = tracer.Start(ctx, "test-operation")
+
+	headers := make(map[string]string)
+	tracer.InjectTraceContext(ctx, headers)
+
+	// No specific assertion, but function should not panic
+}
+
+func TestTracer_IsEnabled(t *testing.T) {
+	// Test disabled tracer
+	tracer, err := New(&Config{
+		Enabled:     false,
+		ServiceName: "test-service",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create disabled tracer: %v", err)
+	}
+
+	if tracer.IsEnabled() != false {
+		t.Errorf("IsEnabled() = %v, want false", tracer.IsEnabled())
+	}
+}
+
+func TestTracer_TraceStorageOperation(t *testing.T) {
+	tracer, err := New(&Config{
+		Enabled:     false,
+		ServiceName: "test-service",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create tracer: %v", err)
+	}
+
+	ctx := context.Background()
+	ctx, span := tracer.TraceStorageOperation(ctx, "write", "messages")
+	defer span.End()
+
+	if ctx == nil {
+		t.Error("TraceStorageOperation() returned nil context")
+	}
+	if span == nil {
+		t.Error("TraceStorageOperation() returned nil span")
+	}
+}
+
+func TestTracer_TraceRaftOperation(t *testing.T) {
+	tracer, err := New(&Config{
+		Enabled:     false,
+		ServiceName: "test-service",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create tracer: %v", err)
+	}
+
+	ctx := context.Background()
+	ctx, span := tracer.TraceRaftOperation(ctx, "append", 5, 1234)
+	defer span.End()
+
+	if ctx == nil {
+		t.Error("TraceRaftOperation() returned nil context")
+	}
+	if span == nil {
+		t.Error("TraceRaftOperation() returned nil span")
+	}
+}
+
+func TestTracer_TraceNetworkRequest(t *testing.T) {
+	tracer, err := New(&Config{
+		Enabled:     false,
+		ServiceName: "test-service",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create tracer: %v", err)
+	}
+
+	ctx := context.Background()
+	ctx, span := tracer.TraceNetworkRequest(ctx, "GET", "localhost:9092")
+	defer span.End()
+
+	if ctx == nil {
+		t.Error("TraceNetworkRequest() returned nil context")
+	}
+	if span == nil {
+		t.Error("TraceNetworkRequest() returned nil span")
+	}
+}
+
+func TestTracer_RecordMetric(t *testing.T) {
+	tracer, err := New(&Config{
+		Enabled:     false,
+		ServiceName: "test-service",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create tracer: %v", err)
+	}
+
+	ctx := context.Background()
+	ctx, span := tracer.Start(ctx, "test-operation")
+	defer span.End()
+
+	tracer.RecordMetric(ctx, "test.metric", 42.0, "bytes")
+
+	// No return value to check, but function should not panic
+}
