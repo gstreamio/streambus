@@ -6,8 +6,8 @@
 
 [![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://golang.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Test Coverage](https://img.shields.io/badge/Coverage-61.4%25%20(87%25%20tested)-green)](docs/TESTING.md)
-[![Production Ready](https://img.shields.io/badge/Status-Production%20Ready%20v1.0.0-brightgreen)](docs/PRODUCTION_READINESS.md)
+[![Test Coverage](https://img.shields.io/badge/Coverage-56.1%25%20(target%2090%25)-yellow)](docs/TESTING.md)
+[![Production Ready](https://img.shields.io/badge/Status-Beta-blue)](docs/PRODUCTION_READINESS.md)
 
 [Features](#key-capabilities) • [Performance](#performance) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Community](#community)
 
@@ -369,8 +369,18 @@ spec:
 # Build
 docker build -t streambus:latest .
 
-# Run
+# Run single broker
 docker run -p 9092:9092 -p 8080:8080 streambus:latest
+
+# Run local cluster with Docker Compose
+docker-compose up -d
+
+# This starts a 3-broker cluster with:
+# - Broker 1: localhost:9092 (leader)
+# - Broker 2: localhost:9093
+# - Broker 3: localhost:9094
+# - Prometheus: localhost:9090
+# - Grafana: localhost:3000
 ```
 
 ---
@@ -401,7 +411,7 @@ docker run -p 9092:9092 -p 8080:8080 streambus:latest
 ### Development
 - [Contributing Guide](CONTRIBUTING.md) - How to contribute
 - [Development Setup](docs/development.md) - Local development environment
-- [Testing Guide](docs/TESTING.md) - Test strategy and coverage (61.4% current, 90%+ target)
+- [Testing Guide](docs/TESTING.md) - Test strategy and coverage (56.1% current, 90%+ target)
 - [Testing Roadmap](docs/TESTING_ROADMAP.md) - Comprehensive plan to improve test coverage
 - [Benchmarking](docs/BENCHMARKS.md) - Performance benchmarks and methodology
 
@@ -449,20 +459,31 @@ StreamBus is currently in **active development** with production-ready core comp
 - ✅ OpenTelemetry distributed tracing
 - ✅ Grafana dashboards and observability stack
 
-**Total: 532/536 tests passing (99.3% - 4 edge cases in rebalancing being fixed)**
+**Test Status: 1065/1072 tests passing (99.3%)**
+
+**Recent Test Coverage Improvements:**
+- Protocol package: 58.2% → 93.8%
+- Health package: 49.6% → 91.4%
+- Replication package: 43.2% → 82.2%
+- Resilience package: 75.3% → 91.5%
+- Tenancy package: 72.1% → 90.8%
 
 ### 🚧 In Progress
 
 **Phase 4: Enterprise Features**
-- 🔄 Multi-tenancy with quota management
-- 🔄 Cross-datacenter replication
+- 🔄 Cross-datacenter replication framework (config validation complete, implementation in progress)
 - 🔄 Disaster recovery and backup/restore
 
 **Phase 5: Ecosystem & Tools**
-- 📅 Admin CLI tool
+- 🔄 Admin CLI tool (tenant management complete, additional commands in progress)
 - 📅 Web management UI
 - 📅 Kubernetes operator
 - 📅 Kafka compatibility layer
+
+**Phase 6: Test Coverage & Quality**
+- 🔄 Improving test coverage from 56.1% to 90%+ target
+- 🔄 Integration testing for multi-broker scenarios
+- 🔄 Performance benchmarking and optimization
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the complete roadmap.
 
@@ -561,20 +582,22 @@ StreamBus has completed core distributed system features, advanced streaming cap
 - [x] **Advanced Features**: Consumer groups, transactions, schema registry, exactly-once semantics
 - [x] **Monitoring**: Prometheus metrics, OpenTelemetry tracing, Grafana dashboards
 - [x] **Reliability**: Circuit breakers, health checks, structured logging, timeout management
-- [x] **Test Coverage**: 532/536 tests passing (99.3%)
+- [x] **Multi-tenancy**: Resource isolation, quota management, tenant administration API
+- [x] **Test Coverage**: 1065/1072 tests passing (99.3%), 56.1% code coverage (targeting 90%+)
 
 ### 🚧 In Progress for Production
-- [ ] **Multi-tenancy**: Quota management and tenant isolation
 - [ ] **Cross-datacenter replication**: Geo-replication and disaster recovery
 - [ ] **Operational tools**: Admin CLI, web UI, Kubernetes operator
+- [ ] **Test coverage improvements**: Targeting 90%+ code coverage across all packages
 - [ ] **Large-scale testing**: Performance validation at production scale
 - [ ] **Complete documentation**: Operational runbooks and best practices
 
 ### Estimated Timeline
-- **Q1 2025**: Multi-tenancy and advanced replication ✅ **AHEAD OF SCHEDULE**
-- **Q2 2025**: Tooling and ecosystem
-- **Q3 2025**: Public beta testing program
-- **Q4 2025**: Production-ready v1.0 release
+- **Q1 2025**: Multi-tenancy and advanced replication ✅ **COMPLETED**
+- **Q2 2025**: Cross-datacenter replication and tooling ecosystem (in progress)
+- **Q3 2025**: Test coverage improvements and performance validation
+- **Q4 2025**: Public beta testing program
+- **Q1 2026**: Production-ready v1.0 release
 
 **Want to help?** Join our [beta testing program](docs/beta-testing.md)!
 
