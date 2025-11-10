@@ -270,7 +270,15 @@ run-cluster: ## Run 3-node cluster with docker-compose
 
 stop-cluster: ## Stop docker-compose cluster
 	@echo "Stopping cluster..."
-	docker-compose down -v
+	docker-compose down
+
+kill-processes: ## Kill all lingering StreamBus processes
+	@echo "Killing lingering StreamBus processes..."
+	@pkill -9 streambus-broker 2>/dev/null || echo "No streambus-broker processes found"
+	@pkill -9 streambus-cli 2>/dev/null || echo "No streambus-cli processes found"
+	@pkill -9 broker 2>/dev/null || echo "No broker processes found"
+	@pkill -9 cli 2>/dev/null || echo "No cli processes found"
+	@echo "Done!"
 
 restart-cluster: stop-cluster run-cluster ## Restart docker-compose cluster
 
