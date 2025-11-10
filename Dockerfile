@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile for StreamBus Broker
 # Stage 1: Builder
-FROM golang:1.21-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git make ca-certificates tzdata
@@ -53,9 +53,12 @@ RUN mkdir -p /data /data/raft /config && \
 USER streambus
 
 # Expose ports
-EXPOSE 9092  # Broker port
-EXPOSE 8081  # HTTP/Metrics port
-EXPOSE 9093  # gRPC port
+# Broker port
+EXPOSE 9092
+# HTTP/Metrics port
+EXPOSE 8081
+# gRPC port
+EXPOSE 9093
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

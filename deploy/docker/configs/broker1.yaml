@@ -1,44 +1,21 @@
 server:
-  brokerId: 1
+  broker_id: 1
   host: broker1
   port: 9092
-  httpPort: 8081
-  grpcPort: 9093
+  http_port: 8081
+  grpc_port: 9093
 
 storage:
-  dataDir: /data
-  raftDir: /data/raft
+  data_dir: /data
 
 cluster:
-  nodes:
-    - id: 1
-      host: broker1
-      port: 9092
-    - id: 2
-      host: broker2
-      port: 9092
-    - id: 3
-      host: broker3
-      port: 9092
+  raft:
+    data_dir: /data/raft
+  peers:
+    - "1:broker1:9093"
+    - "2:broker2:9093"
+    - "3:broker3:9093"
 
-raft:
-  enabled: true
-  heartbeatTimeout: 1s
-  electionTimeout: 3s
-  snapshotInterval: 60s
-  snapshotThreshold: 10000
-
-logging:
-  level: info
-  format: json
-  output: stdout
-
-metrics:
-  enabled: true
-  port: 8081
-  path: /metrics
-
-health:
-  enabled: true
-  livenessPath: /health/live
-  readinessPath: /health/ready
+observability:
+  logging:
+    level: info
