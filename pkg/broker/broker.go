@@ -663,6 +663,9 @@ func (b *Broker) initObservability() error {
 	// Register tenancy management API endpoints
 	b.registerTenancyAPI(mux)
 
+	// Register admin management API endpoints
+	b.registerAdminAPI(mux)
+
 	httpAddr := fmt.Sprintf(":%d", b.config.HTTPPort)
 	b.httpServer = &http.Server{
 		Addr:    httpAddr,
