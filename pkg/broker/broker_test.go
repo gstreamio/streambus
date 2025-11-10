@@ -497,3 +497,141 @@ func TestBrokerStatus_String(t *testing.T) {
 		})
 	}
 }
+
+func TestConvertUint64SliceToInt32(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []uint64
+		expected []int32
+	}{
+		{
+			name:     "empty slice",
+			input:    []uint64{},
+			expected: []int32{},
+		},
+		{
+			name:     "single element",
+			input:    []uint64{42},
+			expected: []int32{42},
+		},
+		{
+			name:     "multiple elements",
+			input:    []uint64{1, 2, 3, 4, 5},
+			expected: []int32{1, 2, 3, 4, 5},
+		},
+		{
+			name:     "large numbers",
+			input:    []uint64{1000, 2000, 3000},
+			expected: []int32{1000, 2000, 3000},
+		},
+		{
+			name:     "zero values",
+			input:    []uint64{0, 0, 0},
+			expected: []int32{0, 0, 0},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertUint64SliceToInt32(tt.input)
+
+			if len(result) != len(tt.expected) {
+				t.Fatalf("Length mismatch: got %d, want %d", len(result), len(tt.expected))
+			}
+
+			for i := range result {
+				if result[i] != tt.expected[i] {
+					t.Errorf("Element %d: got %d, want %d", i, result[i], tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestConvertUint64SliceToInt32_Nil(t *testing.T) {
+	result := convertUint64SliceToInt32(nil)
+
+	if result == nil {
+		t.Error("Expected non-nil result for nil input")
+	}
+
+	if len(result) != 0 {
+		t.Errorf("Expected empty slice, got length %d", len(result))
+	}
+}
+
+func TestBroker_UpdateTenantStorageUsage_NoTenancyManager(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	broker := &Broker{
+		ctx:            ctx,
+		cancel:         cancel,
+		logger:         newTestLogger(),
+		tenancyManager: nil, // No tenancy manager
+		status:         StatusRunning,
+	}
+
+	// Should not panic when tenancyManager is nil
+	broker.updateTenantStorageUsage()
+}
+
+func TestBroker_UpdateTenantStorageUsage_WithTenants(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Create tenancy manager
+	tenancyMgr := tenancy.NewManager()
+
+	// Create a test tenant with quotas
+	quotas := &tenancy.Quotas{
+		MaxTopics:       100,
+		MaxPartitions:   1000,
+		MaxStorageBytes: 1024 * 1024 * 1024, // 1GB
+	}
+
+	_, err := tenancyMgr.CreateTenant("test-tenant", "Test Tenant", quotas)
+	if err != nil {
+		t.Fatalf("Failed to create tenant: %v", err)
+	}
+
+	broker := &Broker{
+		ctx:            ctx,
+		cancel:         cancel,
+		logger:         newTestLogger(),
+		tenancyManager: tenancyMgr,
+		status:         StatusRunning,
+	}
+
+	// Should not panic and should iterate through tenants
+	broker.updateTenantStorageUsage()
+
+	// Verify tenant still exists (function should not delete it)
+	retrievedTenant, err := tenancyMgr.GetTenant("test-tenant")
+	if err != nil {
+		t.Errorf("Tenant should still exist after updateTenantStorageUsage: %v", err)
+	}
+
+	if retrievedTenant == nil {
+		t.Error("Tenant should not be nil")
+	}
+}
+
+func TestBroker_UpdateTenantStorageUsage_EmptyTenantsList(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Create tenancy manager with no tenants
+	tenancyMgr := tenancy.NewManager()
+
+	broker := &Broker{
+		ctx:            ctx,
+		cancel:         cancel,
+		logger:         newTestLogger(),
+		tenancyManager: tenancyMgr,
+		status:         StatusRunning,
+	}
+
+	// Should not panic with empty tenant list
+	broker.updateTenantStorageUsage()
+}
