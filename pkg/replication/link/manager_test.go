@@ -383,21 +383,21 @@ func TestManager_checkAllLinksHealth(t *testing.T) {
 	// Create and add some links
 	link1 := createTestLink("link1", "Link 1")
 	link1.Status = ReplicationStatusActive
-	link1.Health = &HealthStatus{
+	link1.Health = &ReplicationHealth{
 		SourceClusterReachable: true,
 		TargetClusterReachable: true,
 	}
 	
 	link2 := createTestLink("link2", "Link 2")
 	link2.Status = ReplicationStatusActive
-	link2.Health = &HealthStatus{
+	link2.Health = &ReplicationHealth{
 		SourceClusterReachable: true,
 		TargetClusterReachable: true,
 	}
 
 	link3 := createTestLink("link3", "Link 3")
 	link3.Status = ReplicationStatusPaused
-	link3.Health = &HealthStatus{
+	link3.Health = &ReplicationHealth{
 		SourceClusterReachable: true,
 		TargetClusterReachable: true,
 	}
@@ -439,7 +439,7 @@ func TestManager_checkAutomaticFailover_NilMetrics(t *testing.T) {
 
 	link := createTestLink("test-link", "Test Link")
 	link.Metrics = nil
-	link.Health = &HealthStatus{
+	link.Health = &ReplicationHealth{
 		SourceClusterReachable: true,
 	}
 	link.FailoverConfig = &FailoverConfig{
@@ -477,7 +477,7 @@ func TestManager_checkAutomaticFailover_NilConfig(t *testing.T) {
 	link.Metrics = &ReplicationMetrics{
 		ReplicationLag: 100,
 	}
-	link.Health = &HealthStatus{
+	link.Health = &ReplicationHealth{
 		SourceClusterReachable: true,
 	}
 	link.FailoverConfig = nil
@@ -496,7 +496,7 @@ func TestManager_checkAutomaticFailover_NoTrigger(t *testing.T) {
 		ReplicationLag:       100,
 		ConsecutiveFailures:  1,
 	}
-	link.Health = &HealthStatus{
+	link.Health = &ReplicationHealth{
 		SourceClusterReachable: true,
 		TargetClusterReachable: true,
 	}
@@ -517,7 +517,7 @@ func TestManager_scheduleAutoFailback(t *testing.T) {
 
 	link := createTestLink("test-link", "Test Link")
 	link.Status = ReplicationStatusActive
-	link.Health = &HealthStatus{
+	link.Health = &ReplicationHealth{
 		SourceClusterReachable: true,
 		TargetClusterReachable: true,
 	}
