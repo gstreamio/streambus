@@ -343,3 +343,24 @@ func (p *Principal) IsExpired() bool {
 	}
 	return time.Now().After(*p.ExpiresAt)
 }
+
+// EncryptionConfig holds encryption configuration for data at rest
+type EncryptionConfig struct {
+	// Enable encryption at rest
+	Enabled bool
+
+	// Encryption algorithm (AES-256-GCM, AES-128-GCM, etc.)
+	Algorithm string
+
+	// Key management service type (local, aws-kms, gcp-kms, vault)
+	KMSType string
+
+	// Master key ID (for KMS)
+	MasterKeyID string
+
+	// Key rotation interval
+	KeyRotationInterval time.Duration
+
+	// Local key file path (for local key management)
+	KeyFile string
+}
