@@ -609,6 +609,19 @@ func (b *Broker) initServer() error {
 		handler = baseHandler
 	}
 
+	// Wrap with security handler if security is enabled
+	if b.securityManager != nil {
+		securityEnabled := b.securityManager.IsAuthenticationEnabled() || b.securityManager.IsAuthorizationEnabled()
+		securityHandler := server.NewSecurityHandler(handler, b.securityManager, securityEnabled)
+		handler = securityHandler
+		if securityEnabled {
+			b.logger.Info("Security enabled for request handling", logging.Fields{
+				"authentication": b.securityManager.IsAuthenticationEnabled(),
+				"authorization":  b.securityManager.IsAuthorizationEnabled(),
+			})
+		}
+	}
+
 	// Create server
 	serverConfig := b.config.Server
 	if serverConfig == nil {

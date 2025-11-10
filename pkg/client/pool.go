@@ -2,8 +2,11 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -179,9 +182,35 @@ func (p *ConnectionPool) createConnection(broker string) (*connection, error) {
 		KeepAlive: p.config.KeepAlivePeriod,
 	}
 
-	conn, err := dialer.DialContext(p.ctx, "tcp", broker)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to %s: %w", broker, err)
+	var conn net.Conn
+	var err error
+
+	// Check if TLS is enabled
+	if p.config.Security != nil && p.config.Security.TLS != nil && p.config.Security.TLS.Enabled {
+		// Create TLS config
+		tlsConfig, err := p.buildTLSConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to build TLS config: %w", err)
+		}
+
+		// Dial with TLS
+		conn, err = tls.DialWithDialer(&dialer, "tcp", broker, tlsConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to %s with TLS: %w", broker, err)
+		}
+
+		// Verify TLS handshake
+		tlsConn := conn.(*tls.Conn)
+		if err := tlsConn.Handshake(); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("TLS handshake failed: %w", err)
+		}
+	} else {
+		// Regular TCP connection
+		conn, err = dialer.DialContext(p.ctx, "tcp", broker)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to %s: %w", broker, err)
+		}
 	}
 
 	// Configure TCP connection
@@ -201,6 +230,49 @@ func (p *ConnectionPool) createConnection(broker string) (*connection, error) {
 	}
 
 	return c, nil
+}
+
+// buildTLSConfig builds a TLS configuration from the client config
+func (p *ConnectionPool) buildTLSConfig() (*tls.Config, error) {
+	tlsConf := p.config.Security.TLS
+
+	// Check if we already have a built config
+	if tlsConf.config != nil {
+		return tlsConf.config, nil
+	}
+
+	config := &tls.Config{
+		InsecureSkipVerify: tlsConf.InsecureSkipVerify,
+		ServerName:         tlsConf.ServerName,
+	}
+
+	// Load CA certificate if provided
+	if tlsConf.CAFile != "" {
+		caCert, err := os.ReadFile(tlsConf.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA certificate: %w", err)
+		}
+
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to parse CA certificate")
+		}
+		config.RootCAs = caCertPool
+	}
+
+	// Load client certificate if provided
+	if tlsConf.CertFile != "" && tlsConf.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(tlsConf.CertFile, tlsConf.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client certificate: %w", err)
+		}
+		config.Certificates = []tls.Certificate{cert}
+	}
+
+	// Cache the built config
+	tlsConf.config = config
+
+	return config, nil
 }
 
 // cleanupLoop periodically cleans up idle connections

@@ -11,6 +11,7 @@ import (
 
 	"github.com/shawntherrien/streambus/pkg/logging"
 	"github.com/shawntherrien/streambus/pkg/metadata"
+	"github.com/shawntherrien/streambus/pkg/security"
 )
 
 // registerAdminAPI registers admin management HTTP endpoints
@@ -33,6 +34,13 @@ func (b *Broker) registerAdminAPI(mux *http.ServeMux) {
 	// Replication endpoints
 	mux.HandleFunc("/api/v1/replication/links", b.handleReplicationLinks)
 	mux.HandleFunc("/api/v1/replication/links/", b.handleReplicationLinkOperations)
+
+	// Security endpoints
+	mux.HandleFunc("/api/v1/security/status", b.handleSecurityStatus)
+	mux.HandleFunc("/api/v1/security/acls", b.handleSecurityACLs)
+	mux.HandleFunc("/api/v1/security/acls/", b.handleSecurityACLOperations)
+	mux.HandleFunc("/api/v1/security/users", b.handleSecurityUsers)
+	mux.HandleFunc("/api/v1/security/users/", b.handleSecurityUserOperations)
 
 	b.logger.Info("Registered admin management API endpoints")
 }
@@ -840,4 +848,184 @@ func (b *Broker) getReplicationLinkHealth(w http.ResponseWriter, r *http.Request
 func (b *Broker) failoverReplicationLink(w http.ResponseWriter, r *http.Request, linkID string) {
 	// TODO: Implement when broker has replication manager
 	http.Error(w, "Replication not yet available", http.StatusNotImplemented)
+}
+
+// ==================== Security Endpoints ====================
+
+// handleSecurityStatus handles GET /api/v1/security/status
+func (b *Broker) handleSecurityStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if b.securityManager == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"enabled":        false,
+			"authentication": false,
+			"authorization":  false,
+			"audit":          false,
+			"encryption":     false,
+		})
+		return
+	}
+
+	status := map[string]interface{}{
+		"enabled":        true,
+		"authentication": b.securityManager.IsAuthenticationEnabled(),
+		"authorization":  b.securityManager.IsAuthorizationEnabled(),
+		"audit":          b.securityManager.IsAuditEnabled(),
+		"encryption":     b.securityManager.IsEncryptionEnabled(),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
+}
+
+// handleSecurityACLs handles GET /api/v1/security/acls (list) and POST (create)
+func (b *Broker) handleSecurityACLs(w http.ResponseWriter, r *http.Request) {
+	if b.securityManager == nil {
+		http.Error(w, "Security not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		acls := b.securityManager.ListACLs()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"acls":  acls,
+			"count": len(acls),
+		})
+
+	case http.MethodPost:
+		var req struct {
+			Principal    string `json:"principal"`
+			ResourceType string `json:"resource_type"`
+			ResourceName string `json:"resource_name"`
+			PatternType  string `json:"pattern_type"`
+			Action       string `json:"action"`
+			Permission   string `json:"permission"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		// Create ACL entry
+		acl := &security.ACLEntry{
+			ID:           fmt.Sprintf("acl-%d", time.Now().UnixNano()),
+			Principal:    req.Principal,
+			ResourceType: security.ResourceType(req.ResourceType),
+			ResourceName: req.ResourceName,
+			PatternType:  security.PatternType(req.PatternType),
+			Action:       security.Action(req.Action),
+			Permission:   security.Permission(req.Permission),
+			CreatedAt:    time.Now(),
+			CreatedBy:    "admin", // TODO: Get from authenticated principal
+		}
+
+		if err := b.securityManager.AddACL(acl); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(acl)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleSecurityACLOperations handles DELETE /api/v1/security/acls/:id
+func (b *Broker) handleSecurityACLOperations(w http.ResponseWriter, r *http.Request) {
+	if b.securityManager == nil {
+		http.Error(w, "Security not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	aclID := strings.TrimPrefix(r.URL.Path, "/api/v1/security/acls/")
+
+	switch r.Method {
+	case http.MethodDelete:
+		if err := b.securityManager.RemoveACL(aclID); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleSecurityUsers handles GET /api/v1/security/users (list) and POST (create)
+func (b *Broker) handleSecurityUsers(w http.ResponseWriter, r *http.Request) {
+	if b.securityManager == nil {
+		http.Error(w, "Security not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// TODO: Implement user listing when security manager supports it
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"users": []string{},
+			"count": 0,
+		})
+
+	case http.MethodPost:
+		var req struct {
+			Username string   `json:"username"`
+			Password string   `json:"password"`
+			Method   string   `json:"auth_method"`
+			Groups   []string `json:"groups"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		// Add user through security manager
+		authMethod := security.AuthMethod(req.Method)
+		if err := b.securityManager.AddUser(req.Username, req.Password, authMethod, req.Groups); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"username": req.Username,
+			"status":   "created",
+		})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleSecurityUserOperations handles DELETE /api/v1/security/users/:username
+func (b *Broker) handleSecurityUserOperations(w http.ResponseWriter, r *http.Request) {
+	if b.securityManager == nil {
+		http.Error(w, "Security not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	_ = strings.TrimPrefix(r.URL.Path, "/api/v1/security/users/")
+
+	switch r.Method {
+	case http.MethodDelete:
+		// TODO: Implement user deletion when security manager supports it
+		http.Error(w, "Not implemented", http.StatusNotImplemented)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }
