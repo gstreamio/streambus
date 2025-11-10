@@ -64,6 +64,15 @@ func (h *Handler) Handle(req *protocol.Request) *protocol.Response {
 func (h *Handler) handleProduce(req *protocol.Request) *protocol.Response {
 	payload := req.Payload.(*protocol.ProduceRequest)
 
+	// Auto-create topic if it doesn't exist
+	if !h.topicManager.TopicExists(payload.Topic) {
+		// Create topic with default 1 partition
+		if err := h.topicManager.CreateTopic(payload.Topic, 1); err != nil {
+			return h.errorResponse(req.Header.RequestID, protocol.ErrTopicExists,
+				fmt.Sprintf("failed to auto-create topic: %v", err))
+		}
+	}
+
 	// Get partition
 	partition, err := h.topicManager.GetPartition(payload.Topic, payload.PartitionID)
 	if err != nil {
@@ -116,6 +125,15 @@ func (h *Handler) handleProduce(req *protocol.Request) *protocol.Response {
 // handleFetch handles a fetch request
 func (h *Handler) handleFetch(req *protocol.Request) *protocol.Response {
 	payload := req.Payload.(*protocol.FetchRequest)
+
+	// Auto-create topic if it doesn't exist
+	if !h.topicManager.TopicExists(payload.Topic) {
+		// Create topic with default 1 partition
+		if err := h.topicManager.CreateTopic(payload.Topic, 1); err != nil {
+			return h.errorResponse(req.Header.RequestID, protocol.ErrTopicExists,
+				fmt.Sprintf("failed to auto-create topic: %v", err))
+		}
+	}
 
 	// Get partition
 	partition, err := h.topicManager.GetPartition(payload.Topic, payload.PartitionID)
