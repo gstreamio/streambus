@@ -145,6 +145,11 @@ const (
 	ErrConcurrentTransactions               ErrorCode = 37
 	ErrTransactionAborted                   ErrorCode = 38
 	ErrInvalidPartitionList                 ErrorCode = 39
+	// Security error codes
+	ErrAuthenticationFailed                 ErrorCode = 40
+	ErrAuthorizationFailed                  ErrorCode = 41
+	ErrInvalidCredentials                   ErrorCode = 42
+	ErrAccountDisabled                      ErrorCode = 43
 )
 
 // String returns the string representation of ErrorCode
@@ -216,6 +221,14 @@ func (e ErrorCode) String() string {
 		return "TransactionAborted"
 	case ErrInvalidPartitionList:
 		return "InvalidPartitionList"
+	case ErrAuthenticationFailed:
+		return "AuthenticationFailed"
+	case ErrAuthorizationFailed:
+		return "AuthorizationFailed"
+	case ErrInvalidCredentials:
+		return "InvalidCredentials"
+	case ErrAccountDisabled:
+		return "AccountDisabled"
 	default:
 		return fmt.Sprintf("Unknown(%d)", e)
 	}

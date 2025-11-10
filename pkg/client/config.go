@@ -1,6 +1,7 @@
 package client
 
 import (
+	"crypto/tls"
 	"time"
 )
 
@@ -38,6 +39,9 @@ type Config struct {
 
 	// Consumer configuration
 	ConsumerConfig ConsumerConfig
+
+	// Security configuration
+	Security *SecurityConfig
 }
 
 // ProducerConfig holds producer-specific configuration
@@ -127,6 +131,90 @@ func (c *Config) Validate() error {
 
 	if c.MaxRetries < 0 {
 		return ErrInvalidRetries
+	}
+
+	// Validate security config if present
+	if c.Security != nil {
+		if err := c.Security.Validate(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// SecurityConfig holds client security configuration
+type SecurityConfig struct {
+	// TLS configuration
+	TLS *TLSConfig
+
+	// SASL configuration
+	SASL *SASLConfig
+
+	// API Key
+	APIKey string
+}
+
+// TLSConfig holds TLS configuration for the client
+type TLSConfig struct {
+	// Enable TLS
+	Enabled bool
+
+	// Certificate file (for client certificate authentication)
+	CertFile string
+
+	// Key file (for client certificate authentication)
+	KeyFile string
+
+	// CA certificate file (to verify server certificate)
+	CAFile string
+
+	// Skip server certificate verification (not recommended for production)
+	InsecureSkipVerify bool
+
+	// Server name for certificate verification
+	ServerName string
+
+	// Parsed TLS config (internal use)
+	config *tls.Config
+}
+
+// SASLConfig holds SASL authentication configuration
+type SASLConfig struct {
+	// Enable SASL
+	Enabled bool
+
+	// SASL mechanism (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)
+	Mechanism string
+
+	// Username
+	Username string
+
+	// Password
+	Password string
+}
+
+// Validate validates security configuration
+func (s *SecurityConfig) Validate() error {
+	if s.TLS != nil && s.TLS.Enabled {
+		if s.TLS.CertFile != "" && s.TLS.KeyFile == "" {
+			return ErrInvalidTLSConfig
+		}
+		if s.TLS.KeyFile != "" && s.TLS.CertFile == "" {
+			return ErrInvalidTLSConfig
+		}
+	}
+
+	if s.SASL != nil && s.SASL.Enabled {
+		if s.SASL.Username == "" {
+			return ErrInvalidSASLConfig
+		}
+		if s.SASL.Password == "" {
+			return ErrInvalidSASLConfig
+		}
+		if s.SASL.Mechanism == "" {
+			s.SASL.Mechanism = "SCRAM-SHA-256" // Default
+		}
 	}
 
 	return nil

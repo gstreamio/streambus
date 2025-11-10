@@ -1,0 +1,71 @@
+# StreamBus Broker Configuration with SASL/SCRAM Authentication
+# This example shows how to enable SASL authentication with SCRAM-SHA-256
+
+broker_id: 1
+host: "localhost"
+port: 9092
+grpc_port: 9093
+http_port: 8080
+
+data_dir: "./data/broker1"
+raft_data_dir: "./data/raft1"
+
+log_level: "info"
+
+# Security Configuration
+security:
+  # SASL Configuration
+  sasl:
+    enabled: true
+
+    # Allowed SASL mechanisms
+    mechanisms:
+      - "SASL_SCRAM_SHA256"
+      - "SASL_SCRAM_SHA512"
+      - "SASL_PLAIN"  # Not recommended for production
+
+    # User database
+    # Note: In production, users should be managed via API or external database
+    users:
+      admin:
+        username: "admin"
+        # Password will be hashed using SCRAM
+        # Use the admin API to create users securely
+        enabled: true
+        groups:
+          - "admins"
+
+      producer:
+        username: "producer"
+        enabled: true
+        groups:
+          - "producers"
+
+      consumer:
+        username: "consumer"
+        enabled: true
+        groups:
+          - "consumers"
+
+  # TLS recommended even with SASL to encrypt credentials in transit
+  tls:
+    enabled: true
+    cert_file: "/path/to/certs/broker.crt"
+    key_file: "/path/to/certs/broker.key"
+
+  # Authorization
+  authz_enabled: true
+
+  # Super users
+  super_users:
+    - "admin"
+
+  # Allow anonymous access
+  allow_anonymous: false
+
+  # Audit logging
+  audit_enabled: true
+  audit_log_file: "/var/log/streambus/audit.log"
+
+  # Use default ACLs
+  use_default_acls: false  # We'll define custom ACLs
