@@ -1,0 +1,37 @@
+apiVersion: streambus.io/v1alpha1
+kind: StreamBusCluster
+metadata:
+  name: streambus-minimal
+  namespace: default
+spec:
+  # Minimal 3-broker cluster with default settings
+  replicas: 3
+
+  image:
+    repository: streambus/broker
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+  storage:
+    class: standard
+    size: 10Gi
+    raftSize: 5Gi
+
+  config:
+    logLevel: info
+    port: 9092
+    httpPort: 8081
+    grpcPort: 9093
+
+  observability:
+    metrics:
+      enabled: true
+      serviceMonitor: false

@@ -1,0 +1,169 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: streambus-operator
+  namespace: streambus-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: streambus-operator-role
+rules:
+  # StreamBusCluster resources
+  - apiGroups:
+      - streambus.io
+    resources:
+      - streambusclusters
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - streambus.io
+    resources:
+      - streambusclusters/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - streambus.io
+    resources:
+      - streambusclusters/finalizers
+    verbs:
+      - update
+  # StatefulSets
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  # Services
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  # ConfigMaps
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  # PersistentVolumeClaims
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - get
+      - list
+      - watch
+  # Pods (for status)
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+  # Events
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: streambus-operator-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: streambus-operator-role
+subjects:
+  - kind: ServiceAccount
+    name: streambus-operator
+    namespace: streambus-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: streambus-operator-leader-election-role
+  namespace: streambus-system
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: streambus-operator-leader-election-rolebinding
+  namespace: streambus-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: streambus-operator-leader-election-role
+subjects:
+  - kind: ServiceAccount
+    name: streambus-operator
+    namespace: streambus-system

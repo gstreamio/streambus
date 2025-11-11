@@ -1,12 +1,14 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
+	"github.com/shawntherrien/streambus/pkg/broker"
+	"github.com/shawntherrien/streambus/pkg/consensus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -82,59 +84,161 @@ func run(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Commit: %s, Built: %s\n", commit, buildTime)
 	fmt.Println()
 
-	// TODO: Initialize broker components
-	// - Storage engine
-	// - Network server
-	// - Replication engine
-	// - Consensus (Raft)
-	// - Metrics/monitoring
-
-	// Get configuration
-	brokerID := viper.GetInt("server.broker_id")
-	host := viper.GetString("server.host")
-	port := viper.GetInt("server.port")
-	dataDir := viper.GetString("storage.data_dir")
-
-	fmt.Printf("Broker Configuration:\n")
-	fmt.Printf("  Broker ID: %d\n", brokerID)
-	fmt.Printf("  Address: %s:%d\n", host, port)
-	fmt.Printf("  Data Directory: %s\n", dataDir)
-	fmt.Println()
-
-	// TODO: Validate configuration
-	if brokerID == 0 {
-		return fmt.Errorf("broker_id must be set")
+	// Parse configuration from viper
+	config, err := parseConfig()
+	if err != nil {
+		return fmt.Errorf("failed to parse configuration: %w", err)
 	}
 
-	// Setup signal handling for graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	_ = ctx // TODO: Use context when broker is implemented
+	fmt.Printf("Broker Configuration:\n")
+	fmt.Printf("  Broker ID: %d\n", config.BrokerID)
+	fmt.Printf("  Address: %s:%d\n", config.Host, config.Port)
+	fmt.Printf("  Data Directory: %s\n", config.DataDir)
+	fmt.Printf("  Raft Data Directory: %s\n", config.RaftDataDir)
+	fmt.Printf("  HTTP Port: %d\n", config.HTTPPort)
+	fmt.Printf("  Raft Peers: %d\n", len(config.RaftPeers))
+	fmt.Println()
 
+	// Create broker
+	b, err := broker.New(config)
+	if err != nil {
+		return fmt.Errorf("failed to create broker: %w", err)
+	}
+
+	// Start broker
+	if err := b.Start(); err != nil {
+		return fmt.Errorf("failed to start broker: %w", err)
+	}
+
+	fmt.Println()
+	fmt.Println("========================================")
+	fmt.Println("StreamBus Broker is running!")
+	fmt.Println("========================================")
+	fmt.Printf("  Protocol: %s:%d\n", config.Host, config.Port)
+	fmt.Printf("  Health:   http://0.0.0.0:%d/health\n", config.HTTPPort)
+	fmt.Printf("  Metrics:  http://0.0.0.0:%d/metrics\n", config.HTTPPort)
+	fmt.Println("========================================")
+	fmt.Println()
+	fmt.Println("Press Ctrl+C to stop...")
+
+	// Setup signal handling for graceful shutdown
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	// TODO: Start broker
-	// broker, err := broker.New(config)
-	// if err != nil {
-	//     return fmt.Errorf("failed to create broker: %w", err)
-	// }
-	//
-	// if err := broker.Start(ctx); err != nil {
-	//     return fmt.Errorf("failed to start broker: %w", err)
-	// }
-
-	fmt.Println("Broker started successfully!")
-	fmt.Println("Press Ctrl+C to stop...")
 
 	// Wait for shutdown signal
 	sig := <-sigCh
 	fmt.Printf("\nReceived signal: %v\n", sig)
 	fmt.Println("Shutting down gracefully...")
 
-	// TODO: Graceful shutdown
-	// broker.Shutdown(ctx)
+	// Graceful shutdown
+	if err := b.Stop(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error during shutdown: %v\n", err)
+		return err
+	}
 
-	fmt.Println("Broker stopped")
+	fmt.Println("Broker stopped cleanly")
 	return nil
+}
+
+func parseConfig() (*broker.Config, error) {
+	// Get configuration values
+	brokerID := viper.GetInt32("server.broker_id")
+	if brokerID == 0 {
+		return nil, fmt.Errorf("server.broker_id must be set")
+	}
+
+	host := viper.GetString("server.host")
+	if host == "" {
+		host = "0.0.0.0"
+	}
+
+	port := viper.GetInt("server.port")
+	if port == 0 {
+		port = 9092
+	}
+
+	grpcPort := viper.GetInt("server.grpc_port")
+	if grpcPort == 0 {
+		grpcPort = 9093
+	}
+
+	httpPort := viper.GetInt("server.http_port")
+	if httpPort == 0 {
+		httpPort = 8080
+	}
+
+	dataDir := viper.GetString("storage.data_dir")
+	if dataDir == "" {
+		return nil, fmt.Errorf("storage.data_dir must be set")
+	}
+
+	raftDataDir := viper.GetString("cluster.raft.data_dir")
+	if raftDataDir == "" {
+		return nil, fmt.Errorf("cluster.raft.data_dir must be set")
+	}
+
+	// Parse Raft peers
+	var raftPeers []consensus.Peer
+	peersConfig := viper.Get("cluster.peers")
+	if peersConfig != nil {
+		peersSlice, ok := peersConfig.([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("cluster.peers must be an array")
+		}
+
+		for _, p := range peersSlice {
+			peerStr, ok := p.(string)
+			if !ok {
+				continue
+			}
+
+			// Parse peer string: "1:localhost:9093" or "1:broker-1:9093"
+			// Split by colon
+			parts := strings.Split(peerStr, ":")
+			if len(parts) != 3 {
+				fmt.Fprintf(os.Stderr, "Warning: Invalid peer format (expected id:host:port): %s\n", peerStr)
+				continue
+			}
+
+			// Parse ID
+			var id uint64
+			if _, err := fmt.Sscanf(parts[0], "%d", &id); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Invalid peer ID: %s\n", parts[0])
+				continue
+			}
+
+			// Parse port
+			var port int
+			if _, err := fmt.Sscanf(parts[2], "%d", &port); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Invalid peer port: %s\n", parts[2])
+				continue
+			}
+
+			raftPeers = append(raftPeers, consensus.Peer{
+				ID:   id,
+				Addr: fmt.Sprintf("%s:%d", parts[1], port),
+			})
+		}
+	}
+
+	if len(raftPeers) == 0 {
+		return nil, fmt.Errorf("cluster.peers must have at least one peer")
+	}
+
+	logLevel := viper.GetString("observability.logging.level")
+	if logLevel == "" {
+		logLevel = "info"
+	}
+
+	return &broker.Config{
+		BrokerID:    brokerID,
+		Host:        host,
+		Port:        port,
+		GRPCPort:    grpcPort,
+		HTTPPort:    httpPort,
+		DataDir:     dataDir,
+		RaftDataDir: raftDataDir,
+		RaftPeers:   raftPeers,
+		LogLevel:    logLevel,
+	}, nil
 }

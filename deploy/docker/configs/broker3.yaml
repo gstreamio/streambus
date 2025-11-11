@@ -1,0 +1,21 @@
+server:
+  broker_id: 3
+  host: 0.0.0.0
+  port: 9092
+  http_port: 8081
+  grpc_port: 9093
+
+storage:
+  data_dir: /data
+
+cluster:
+  raft:
+    data_dir: /data/raft
+  peers:
+    - "1:broker1:9093"
+    - "2:broker2:9093"
+    - "3:broker3:9093"
+
+observability:
+  logging:
+    level: info

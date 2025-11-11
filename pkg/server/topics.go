@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/shawntherrien/streambus/pkg/storage"
@@ -35,11 +36,92 @@ func NewTopicManager(dataDir string) *TopicManager {
 	storageDir := filepath.Join(dataDir, "topics")
 	os.MkdirAll(storageDir, 0755)
 
-	return &TopicManager{
+	tm := &TopicManager{
 		topics:     make(map[string]*Topic),
 		dataDir:    dataDir,
 		storageDir: storageDir,
 	}
+
+	// Load existing topics from disk
+	tm.loadExistingTopics()
+
+	return tm
+}
+
+// loadExistingTopics scans the storage directory for existing topics
+func (tm *TopicManager) loadExistingTopics() error {
+	fmt.Printf("[TOPIC-LOAD] Scanning storage directory: %s\n", tm.storageDir)
+	entries, err := os.ReadDir(tm.storageDir)
+	if err != nil {
+		// Directory might not exist on first run
+		fmt.Printf("[TOPIC-LOAD] Storage directory doesn't exist or can't be read: %v\n", err)
+		return nil
+	}
+
+	fmt.Printf("[TOPIC-LOAD] Found %d entries in storage directory\n", len(entries))
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		topicName := entry.Name()
+		topicDir := filepath.Join(tm.storageDir, topicName)
+		fmt.Printf("[TOPIC-LOAD] Loading topic: %s from %s\n", topicName, topicDir)
+
+		// Count partitions by looking for partition directories
+		partitionEntries, err := os.ReadDir(topicDir)
+		if err != nil {
+			continue
+		}
+
+		topic := &Topic{
+			name:       topicName,
+			partitions: make(map[uint32]*Partition),
+		}
+
+		for _, partEntry := range partitionEntries {
+			if !partEntry.IsDir() || !strings.HasPrefix(partEntry.Name(), "partition-") {
+				continue
+			}
+
+			// Parse partition ID from directory name
+			var partitionID uint32
+			if _, err := fmt.Sscanf(partEntry.Name(), "partition-%d", &partitionID); err != nil {
+				continue
+			}
+
+			// Load the partition with storage recovery
+			partitionDir := filepath.Join(topicDir, partEntry.Name())
+			fmt.Printf("[TOPIC-LOAD] Creating log for partition %d at %s\n", partitionID, partitionDir)
+			config := storage.DefaultConfig()
+			log, err := storage.NewLog(partitionDir, *config)
+			if err != nil {
+				fmt.Printf("[TOPIC-LOAD] Failed to create log for partition %d: %v\n", partitionID, err)
+				continue
+			}
+
+			fmt.Printf("[TOPIC-LOAD] Successfully loaded partition %d\n", partitionID)
+			topic.partitions[partitionID] = &Partition{
+				id:  partitionID,
+				log: log,
+			}
+		}
+
+		if len(topic.partitions) > 0 {
+			tm.topics[topicName] = topic
+			fmt.Printf("[TOPIC-LOAD] Successfully registered topic '%s' with %d partitions\n", topicName, len(topic.partitions))
+		} else {
+			fmt.Printf("[TOPIC-LOAD] Skipping topic '%s' - no partitions loaded\n", topicName)
+		}
+	}
+
+	fmt.Printf("[TOPIC-LOAD] Loading complete. Total topics loaded: %d\n", len(tm.topics))
+	for name := range tm.topics {
+		fmt.Printf("[TOPIC-LOAD]   - %s\n", name)
+	}
+
+	return nil
 }
 
 // CreateTopic creates a new topic with the specified number of partitions
@@ -48,7 +130,8 @@ func (tm *TopicManager) CreateTopic(name string, numPartitions uint32) error {
 	defer tm.mu.Unlock()
 
 	if _, exists := tm.topics[name]; exists {
-		return fmt.Errorf("topic %s already exists", name)
+		// Topic already loaded, nothing to do
+		return nil
 	}
 
 	topic := &Topic{
@@ -149,6 +232,15 @@ func (tm *TopicManager) TopicExists(name string) bool {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 	_, exists := tm.topics[name]
+
+	fmt.Printf("[TOPIC-EXISTS] Checking for topic '%s': exists=%v (total topics: %d)\n", name, exists, len(tm.topics))
+	if !exists && len(tm.topics) > 0 {
+		fmt.Printf("[TOPIC-EXISTS] Available topics:\n")
+		for topicName := range tm.topics {
+			fmt.Printf("[TOPIC-EXISTS]   - %s\n", topicName)
+		}
+	}
+
 	return exists
 }
 

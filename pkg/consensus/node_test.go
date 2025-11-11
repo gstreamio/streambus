@@ -384,3 +384,50 @@ func BenchmarkStorage(b *testing.B) {
 		_ = storage.SaveEntries(entries)
 	}
 }
+
+func TestNode_Status(t *testing.T) {
+	dir := t.TempDir()
+
+	config := DefaultConfig()
+	config.NodeID = 1
+	config.DataDir = dir
+	config.Peers = []Peer{
+		{ID: 1, Addr: "localhost:15101"},
+	}
+
+	sm := &mockStateMachine{}
+	node, err := NewNode(config, sm)
+	require.NoError(t, err)
+
+	node.SetBindAddr("localhost:15101")
+	err = node.Start()
+	require.NoError(t, err)
+	defer node.Stop()
+
+	// Wait a bit for initialization
+	time.Sleep(200 * time.Millisecond)
+
+	// Status should not panic
+	status := node.Status()
+	assert.Equal(t, uint64(1), status.ID)
+}
+
+func TestNode_Ready(t *testing.T) {
+	dir := t.TempDir()
+
+	config := DefaultConfig()
+	config.NodeID = 1
+	config.DataDir = dir
+	config.Peers = []Peer{
+		{ID: 1, Addr: "localhost:15201"},
+	}
+
+	sm := &mockStateMachine{}
+	node, err := NewNode(config, sm)
+	require.NoError(t, err)
+
+	// Ready channel should be available before Start
+	readyCh := node.Ready()
+	assert.NotNil(t, readyCh)
+}
+

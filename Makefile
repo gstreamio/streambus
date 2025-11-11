@@ -37,6 +37,12 @@ build: ## Build all binaries
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(CLI_BINARY) ./cmd/cli
 	@echo "Build complete!"
 
+build-operator: ## Build operator binary
+	@echo "Building operator..."
+	@mkdir -p $(BUILD_DIR)
+	cd deploy/kubernetes/operator && CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o ../../../$(BUILD_DIR)/streambus-operator ./main.go
+	@echo "Operator build complete!"
+
 build-linux: ## Build Linux binaries
 	@echo "Building for Linux..."
 	@mkdir -p $(BUILD_DIR)
@@ -56,9 +62,27 @@ install: ## Install binaries to $GOPATH/bin
 	$(GOCMD) install $(LDFLAGS) ./cmd/broker
 	$(GOCMD) install $(LDFLAGS) ./cmd/cli
 
-test: ## Run tests
-	@echo "Running tests..."
+test: ## Run all tests (unit + integration)
+	@echo "Running all tests..."
 	$(GOTEST) -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+test-unit: ## Run unit tests only (with -short flag)
+	@echo "Running unit tests..."
+	$(GOTEST) -v -short -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+test-integration: ## Run integration tests
+	@echo "Running integration tests..."
+	@echo "Note: Requires broker to be running on localhost:9092"
+	$(GOTEST) -v -run 'TestE2E|TestIntegration' ./tests/integration/...
+
+test-e2e: test-integration ## Alias for integration tests
+
+test-chaos: ## Run chaos engineering tests
+	@echo "Running chaos tests..."
+	@echo "Note: Requires broker to be running on localhost:9092"
+	$(GOTEST) -v -timeout 15m ./tests/chaos/...
+
+test-all: test-unit test-integration test-chaos ## Run all test types
 
 test-coverage: ## Run tests with coverage report
 	@echo "Running tests with coverage..."
@@ -67,9 +91,13 @@ test-coverage: ## Run tests with coverage report
 	$(GOCMD) tool cover -html=$(COVERAGE_DIR)/coverage.out -o $(COVERAGE_DIR)/coverage.html
 	@echo "Coverage report generated at $(COVERAGE_DIR)/coverage.html"
 
-test-integration: ## Run integration tests
-	@echo "Running integration tests..."
-	$(GOTEST) -v -tags=integration ./...
+coverage-analysis: ## Run comprehensive coverage analysis
+	@echo "Running coverage analysis..."
+	@./scripts/test-coverage.sh --html
+
+coverage-report: ## Generate coverage report for CI
+	@echo "Generating coverage report..."
+	@./scripts/test-coverage.sh --format json
 
 benchmark: ## Run all benchmarks
 	@echo "Running all benchmarks..."
@@ -143,6 +171,28 @@ benchmark-baseline: ## Set current benchmark as baseline
 	@mkdir -p benchmarks
 	$(GOTEST) -bench=. -benchmem -run=^$$ ./... | tee benchmarks/baseline.txt
 
+loadtest: ## Run load tests with default settings
+	@echo "Running load tests..."
+	@./scripts/run-benchmarks.sh --duration 30s
+
+loadtest-latency: ## Run latency-focused load test
+	@echo "Running latency load test..."
+	@./scripts/run-benchmarks.sh --duration 60s --focus latency
+
+loadtest-throughput: ## Run throughput-focused load test
+	@echo "Running throughput load test..."
+	@./scripts/run-benchmarks.sh --duration 60s --focus throughput
+
+loadtest-stress: ## Run stress test with high load
+	@echo "Running stress test..."
+	@./scripts/run-benchmarks.sh --duration 120s --stress
+
+ci: test-unit lint ## Run CI checks (unit tests + lint)
+	@echo "CI checks passed!"
+
+ci-full: clean test-all lint benchmark ## Run full CI suite
+	@echo "Full CI suite passed!"
+
 lint: ## Run linters
 	@echo "Running linters..."
 	@if command -v golangci-lint >/dev/null 2>&1; then \
@@ -175,19 +225,40 @@ clean: ## Clean build artifacts
 	@rm -f coverage.txt
 	@rm -f *.prof
 
-docker-build: ## Build Docker image
-	@echo "Building Docker image..."
-	docker build -t streambus:$(VERSION) .
-	docker tag streambus:$(VERSION) streambus:latest
+docker-build: docker-broker docker-operator ## Build all Docker images
+
+docker-broker: ## Build broker Docker image
+	@echo "Building broker Docker image..."
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg BUILD_TIME=$(BUILD_TIME) \
+		-t streambus/broker:$(VERSION) \
+		-t streambus/broker:latest \
+		-f Dockerfile .
+
+docker-operator: ## Build operator Docker image
+	@echo "Building operator Docker image..."
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg BUILD_TIME=$(BUILD_TIME) \
+		-t streambus/operator:$(VERSION) \
+		-t streambus/operator:latest \
+		-f deploy/kubernetes/operator/Dockerfile \
+		deploy/kubernetes/operator
 
 docker-build-dev: ## Build Docker dev image
 	@echo "Building Docker dev image..."
 	docker build -f Dockerfile.dev -t streambus:dev .
 
-docker-push: ## Push Docker image
-	@echo "Pushing Docker image..."
-	docker push streambus:$(VERSION)
-	docker push streambus:latest
+docker-push: ## Push all Docker images
+	@echo "Pushing broker image..."
+	docker push streambus/broker:$(VERSION)
+	docker push streambus/broker:latest
+	@echo "Pushing operator image..."
+	docker push streambus/operator:$(VERSION)
+	docker push streambus/operator:latest
 
 run-broker: build ## Run broker locally
 	@echo "Starting broker..."
@@ -200,6 +271,19 @@ run-cluster: ## Run 3-node cluster with docker-compose
 stop-cluster: ## Stop docker-compose cluster
 	@echo "Stopping cluster..."
 	docker-compose down
+
+kill-processes: ## Kill all lingering StreamBus processes
+	@echo "Killing lingering StreamBus processes..."
+	@pkill -9 streambus-broker 2>/dev/null || echo "No streambus-broker processes found"
+	@pkill -9 streambus-cli 2>/dev/null || echo "No streambus-cli processes found"
+	@pkill -9 broker 2>/dev/null || echo "No broker processes found"
+	@pkill -9 cli 2>/dev/null || echo "No cli processes found"
+	@echo "Done!"
+
+restart-cluster: stop-cluster run-cluster ## Restart docker-compose cluster
+
+cluster-logs: ## Show cluster logs
+	docker-compose logs -f
 
 proto: ## Generate protobuf code
 	@echo "Generating protobuf code..."
@@ -238,6 +322,36 @@ tools: ## Install development tools
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 	go install golang.org/x/perf/cmd/benchstat@latest
+
+k8s-install-operator: ## Install operator to Kubernetes cluster
+	@echo "Installing operator..."
+	kubectl apply -f deploy/kubernetes/operator/config/crd/
+	kubectl apply -f deploy/kubernetes/operator/config/rbac/
+	kubectl apply -f deploy/kubernetes/operator/config/manager/
+
+k8s-uninstall-operator: ## Uninstall operator from Kubernetes cluster
+	@echo "Uninstalling operator..."
+	kubectl delete -f deploy/kubernetes/operator/config/manager/ || true
+	kubectl delete -f deploy/kubernetes/operator/config/rbac/ || true
+	kubectl delete -f deploy/kubernetes/operator/config/crd/ || true
+
+k8s-deploy-minimal: ## Deploy minimal cluster to Kubernetes
+	@echo "Deploying minimal cluster..."
+	kubectl apply -f deploy/kubernetes/examples/minimal-cluster.yaml
+
+helm-package: ## Package Helm chart
+	@echo "Packaging Helm chart..."
+	helm package deploy/kubernetes/helm/streambus-operator
+
+helm-install: ## Install Helm chart locally
+	@echo "Installing Helm chart..."
+	helm install streambus-operator deploy/kubernetes/helm/streambus-operator \
+		--namespace streambus-system \
+		--create-namespace
+
+helm-uninstall: ## Uninstall Helm chart
+	@echo "Uninstalling Helm chart..."
+	helm uninstall streambus-operator --namespace streambus-system
 
 version: ## Print version
 	@echo "Version: $(VERSION)"

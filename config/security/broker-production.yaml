@@ -1,0 +1,102 @@
+# StreamBus Broker Configuration - Production Security Setup
+# This example shows a complete production-grade security configuration
+# combining TLS, SASL, ACLs, audit logging, and encryption
+
+broker_id: 1
+host: "broker1.streambus.example.com"
+port: 9092
+grpc_port: 9093
+http_port: 8080
+
+data_dir: "/var/lib/streambus/data"
+raft_data_dir: "/var/lib/streambus/raft"
+
+log_level: "info"
+
+# Security Configuration - Production Grade
+security:
+  # TLS Configuration with mTLS
+  tls:
+    enabled: true
+    cert_file: "/etc/streambus/certs/broker.crt"
+    key_file: "/etc/streambus/certs/broker.key"
+    ca_file: "/etc/streambus/certs/ca.crt"
+
+    # Require and verify client certificates
+    require_client_cert: true
+    verify_client_cert: true
+
+    # Restrict by certificate CN
+    allowed_client_cns:
+      - "producer-service-prod"
+      - "consumer-service-prod"
+      - "analytics-service-prod"
+      - "admin-service-prod"
+
+    # Use TLS 1.3 for maximum security
+    min_version: 1.3
+
+  # SASL/SCRAM Configuration
+  sasl:
+    enabled: true
+
+    # Only use secure mechanisms in production
+    mechanisms:
+      - "SASL_SCRAM_SHA512"  # Prefer SHA-512
+      - "SASL_SCRAM_SHA256"
+
+    # Users managed via API - this is just bootstrap admin
+    users:
+      bootstrap_admin:
+        username: "bootstrap_admin"
+        enabled: true
+        groups:
+          - "admins"
+          - "operators"
+
+  # Authorization with ACLs
+  authz_enabled: true
+
+  # Super users (use sparingly in production)
+  super_users:
+    - "bootstrap_admin"
+
+  # Disable anonymous access in production
+  allow_anonymous: false
+
+  # Comprehensive audit logging
+  audit_enabled: true
+  audit_log_file: "/var/log/streambus/audit.log"
+
+  # API Key authentication for programmatic access
+  api_key_enabled: true
+
+  # Do not use default ACLs - define specific ACLs for production
+  use_default_acls: false
+
+  # Encryption at rest
+  encryption:
+    enabled: true
+    algorithm: "AES-256-GCM"
+
+    # In production, consider using KMS
+    kms_type: "local"  # Options: local, aws-kms, gcp-kms, vault
+    master_key_path: "/etc/streambus/keys/master.key"
+
+    # Rotate keys monthly
+    key_rotation_interval: "720h"  # 30 days
+
+    # Strong key derivation
+    pbkdf2_iterations: 100000
+
+# Multi-tenancy for production isolation
+enable_multi_tenancy: true
+
+# Server configuration
+server:
+  address: "0.0.0.0:9092"
+  max_connections: 10000
+  read_timeout: "30s"
+  write_timeout: "30s"
+  keep_alive: true
+  keep_alive_period: "30s"

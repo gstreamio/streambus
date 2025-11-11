@@ -1,0 +1,119 @@
+apiVersion: streambus.io/v1alpha1
+kind: StreamBusCluster
+metadata:
+  name: streambus-multitenant
+  namespace: platform
+spec:
+  # Multi-tenant cluster with resource isolation
+  replicas: 5
+
+  image:
+    repository: streambus/broker
+    tag: v0.6.0
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: 2000m
+      memory: 4Gi
+    limits:
+      cpu: 8000m
+      memory: 16Gi
+
+  storage:
+    class: fast-ssd
+    size: 200Gi
+    raftSize: 100Gi
+
+  config:
+    logLevel: info
+    port: 9092
+    httpPort: 8081
+    grpcPort: 9093
+    maxConnections: 50000
+    maxMessageSize: 10485760  # 10MB
+
+  security:
+    tls:
+      enabled: true
+      certSecretName: streambus-tls-certs
+    authentication:
+      enabled: true
+      method: jwt
+      jwtSecretName: streambus-jwt-secret
+    authorization:
+      enabled: true
+      defaultPolicy: deny
+
+  multiTenancy:
+    enabled: true
+    isolation:
+      # Strong isolation between tenants
+      networkPolicies: true
+      resourceQuotas: true
+      rateLimiting: true
+
+    # Default quotas for new tenants
+    defaultQuotas:
+      maxTopics: 100
+      maxPartitionsPerTopic: 10
+      maxConnections: 1000
+      maxBandwidthMBps: 100
+      maxStorageGB: 50
+      maxMessagesPerSecond: 10000
+
+    # Tenant-specific overrides
+    tenantOverrides:
+      - tenantId: "premium-tenant-1"
+        quotas:
+          maxTopics: 500
+          maxPartitionsPerTopic: 50
+          maxConnections: 5000
+          maxBandwidthMBps: 500
+          maxStorageGB: 500
+          maxMessagesPerSecond: 100000
+
+      - tenantId: "basic-tenant-1"
+        quotas:
+          maxTopics: 10
+          maxPartitionsPerTopic: 3
+          maxConnections: 100
+          maxBandwidthMBps: 10
+          maxStorageGB: 10
+          maxMessagesPerSecond: 1000
+
+  observability:
+    metrics:
+      enabled: true
+      serviceMonitor: true
+      # Per-tenant metrics
+      perTenantMetrics: true
+    tracing:
+      enabled: true
+      endpoint: "jaeger-collector.observability.svc:4317"
+      samplingRate: 0.1
+      # Tenant context propagation
+      includeTenantId: true
+    logging:
+      level: info
+      format: json
+      # Include tenant ID in all logs
+      includeTenantContext: true
+
+  # Spread across availability zones
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - streambus-broker
+            topologyKey: topology.kubernetes.io/zone
+
+  podLabels:
+    workload-type: multi-tenant
+    billing-enabled: "true"
