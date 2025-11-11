@@ -159,7 +159,6 @@ func (l *logImpl) Read(offset Offset, maxBytes int) ([]*Message, error) {
 		if found {
 			msg := l.deserializeMessage(value)
 			msg.Offset = currentOffset
-			fmt.Printf("  -> Found in memtable, setting offset to %d\n", currentOffset)
 			messages = append(messages, msg)
 			bytesRead += len(msg.Value) + len(msg.Key)
 			currentOffset++
