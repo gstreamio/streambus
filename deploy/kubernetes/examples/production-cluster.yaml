@@ -1,0 +1,108 @@
+apiVersion: streambus.io/v1alpha1
+kind: StreamBusCluster
+metadata:
+  name: streambus-production
+  namespace: production
+spec:
+  # Production 5-broker cluster with high availability
+  replicas: 5
+
+  image:
+    repository: streambus/broker
+    tag: v0.6.0
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+
+  storage:
+    class: fast-ssd
+    size: 100Gi
+    raftSize: 50Gi
+
+  config:
+    logLevel: info
+    port: 9092
+    httpPort: 8081
+    grpcPort: 9093
+    # Production tuning
+    maxConnections: 10000
+    maxMessageSize: 10485760  # 10MB
+    compressionEnabled: true
+
+  security:
+    tls:
+      enabled: true
+      certSecretName: streambus-tls-certs
+    authentication:
+      enabled: true
+      method: mtls
+
+  multiTenancy:
+    enabled: true
+    defaultQuotas:
+      maxTopics: 100
+      maxConnections: 1000
+      maxBandwidthMBps: 100
+
+  observability:
+    metrics:
+      enabled: true
+      serviceMonitor: true
+      interval: 30s
+    tracing:
+      enabled: true
+      endpoint: "jaeger-collector.observability.svc:4317"
+      samplingRate: 0.1
+    logging:
+      level: info
+      format: json
+
+  # High availability configuration
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - streambus-broker
+              - key: app.kubernetes.io/instance
+                operator: In
+                values:
+                  - streambus-production
+          topologyKey: kubernetes.io/hostname
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: node.kubernetes.io/instance-type
+                operator: In
+                values:
+                  - m5.xlarge
+                  - m5.2xlarge
+
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: streambus
+      effect: NoSchedule
+
+  nodeSelector:
+    workload: streaming
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8081"
+    prometheus.io/path: "/metrics"
+
+  podLabels:
+    environment: production
+    team: platform
+    cost-center: infrastructure

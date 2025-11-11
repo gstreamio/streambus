@@ -262,6 +262,12 @@ func (c *Codec) DecodeResponsePayload(resp *Response, reqType RequestType) error
 
 	case RequestTypeGetOffset:
 		payload := &GetOffsetResponse{}
+		topicLen := binary.BigEndian.Uint32(data[offset:])
+		offset += 4
+		payload.Topic = string(data[offset : offset+int(topicLen)])
+		offset += int(topicLen)
+		payload.PartitionID = binary.BigEndian.Uint32(data[offset:])
+		offset += 4
 		payload.StartOffset = int64(binary.BigEndian.Uint64(data[offset:]))
 		offset += 8
 		payload.EndOffset = int64(binary.BigEndian.Uint64(data[offset:]))
@@ -385,7 +391,7 @@ func (c *Codec) calculateResponsePayloadSize(resp *Response) (uint32, error) {
 		return size, nil
 
 	case *GetOffsetResponse:
-		return 8 + 8 + 8, nil // StartOffset + EndOffset + HighWaterMark
+		return uint32(4 + len(payload.Topic) + 4 + 8 + 8 + 8), nil // TopicLen + Topic + PartitionID + StartOffset + EndOffset + HighWaterMark
 
 	case *CreateTopicResponse:
 		return uint32(4 + len(payload.Topic) + 1), nil // TopicLen + Topic + Created
@@ -630,6 +636,12 @@ func (c *Codec) encodeResponsePayload(buf []byte, offset int, resp *Response) (i
 		return offset, nil
 
 	case *GetOffsetResponse:
+		binary.BigEndian.PutUint32(buf[offset:], uint32(len(payload.Topic)))
+		offset += 4
+		copy(buf[offset:], payload.Topic)
+		offset += len(payload.Topic)
+		binary.BigEndian.PutUint32(buf[offset:], payload.PartitionID)
+		offset += 4
 		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.StartOffset))
 		offset += 8
 		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.EndOffset))

@@ -1,0 +1,229 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: streambus-broker
+  labels:
+    app: streambus
+    component: broker
+spec:
+  serviceName: streambus-broker
+  replicas: 3
+  selector:
+    matchLabels:
+      app: streambus
+      component: broker
+  
+  # Update strategy for rolling updates
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0
+  
+  # Pod management policy
+  podManagementPolicy: Parallel
+  
+  template:
+    metadata:
+      labels:
+        app: streambus
+        component: broker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    
+    spec:
+      # Security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      
+      # Service account
+      serviceAccountName: streambus-broker
+      
+      # Anti-affinity for HA
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - streambus
+                  - key: component
+                    operator: In
+                    values:
+                      - broker
+              topologyKey: kubernetes.io/hostname
+      
+      # Init container to prepare data directory
+      initContainers:
+        - name: init-data-dir
+          image: busybox:1.35
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              echo "Initializing data directory..."
+              mkdir -p /var/lib/streambus/data
+              mkdir -p /var/lib/streambus/wal
+              chmod 750 /var/lib/streambus
+              echo "Initialization complete"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/streambus
+          securityContext:
+            runAsUser: 0
+      
+      containers:
+        - name: broker
+          image: streambus/broker:latest
+          imagePullPolicy: IfNotPresent
+          
+          # Environment variables
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: STREAMBUS_BROKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: STREAMBUS_DATA_DIR
+              value: /var/lib/streambus/data
+            - name: STREAMBUS_LOG_LEVEL
+              value: info
+            - name: STREAMBUS_METRICS_ENABLED
+              value: "true"
+            - name: STREAMBUS_TRACING_ENABLED
+              value: "true"
+            - name: STREAMBUS_PROFILING_ENABLED
+              value: "true"
+          
+          # Ports
+          ports:
+            - name: client
+              containerPort: 9092
+              protocol: TCP
+            - name: cluster
+              containerPort: 9093
+              protocol: TCP
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: profiling
+              containerPort: 6060
+              protocol: TCP
+          
+          # Startup probe (allows slow startup)
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          
+          # Liveness probe (restarts unhealthy pods)
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          
+          # Readiness probe (controls traffic routing)
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          
+          # Lifecycle hooks
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    echo "Initiating graceful shutdown..."
+                    # Signal graceful shutdown
+                    kill -TERM 1
+                    # Wait for shutdown (max 60s)
+                    for i in $(seq 1 60); do
+                      if ! kill -0 1 2>/dev/null; then
+                        echo "Broker shutdown complete"
+                        exit 0
+                      fi
+                      sleep 1
+                    done
+                    echo "Force shutdown after timeout"
+                    exit 0
+          
+          # Resource limits
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 2Gi
+              ephemeral-storage: 1Gi
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+              ephemeral-storage: 5Gi
+          
+          # Volume mounts
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/streambus
+            - name: config
+              mountPath: /etc/streambus
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          
+          # Security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      
+      # Volumes
+      volumes:
+        - name: config
+          configMap:
+            name: streambus-config
+        - name: tmp
+          emptyDir: {}
+  
+  # Volume claim templates
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: fast-ssd
+        resources:
+          requests:
+            storage: 100Gi

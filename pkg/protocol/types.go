@@ -19,13 +19,24 @@ const (
 type RequestType byte
 
 const (
-	RequestTypeProduce     RequestType = 0x01
-	RequestTypeFetch       RequestType = 0x02
-	RequestTypeGetOffset   RequestType = 0x03
-	RequestTypeCreateTopic RequestType = 0x04
-	RequestTypeDeleteTopic RequestType = 0x05
-	RequestTypeListTopics  RequestType = 0x06
-	RequestTypeHealthCheck RequestType = 0x07
+	RequestTypeProduce         RequestType = 0x01
+	RequestTypeFetch           RequestType = 0x02
+	RequestTypeGetOffset       RequestType = 0x03
+	RequestTypeCreateTopic     RequestType = 0x04
+	RequestTypeDeleteTopic     RequestType = 0x05
+	RequestTypeListTopics      RequestType = 0x06
+	RequestTypeHealthCheck     RequestType = 0x07
+	RequestTypeJoinGroup       RequestType = 0x08
+	RequestTypeSyncGroup       RequestType = 0x09
+	RequestTypeHeartbeat       RequestType = 0x0A
+	RequestTypeLeaveGroup      RequestType = 0x0B
+	RequestTypeOffsetCommit    RequestType = 0x0C
+	RequestTypeOffsetFetch     RequestType = 0x0D
+	RequestTypeInitProducerID  RequestType = 0x0E
+	RequestTypeAddPartitionsToTxn RequestType = 0x0F
+	RequestTypeAddOffsetsToTxn RequestType = 0x10
+	RequestTypeEndTxn          RequestType = 0x11
+	RequestTypeTxnOffsetCommit RequestType = 0x12
 )
 
 // String returns the string representation of RequestType
@@ -45,6 +56,28 @@ func (t RequestType) String() string {
 		return "ListTopics"
 	case RequestTypeHealthCheck:
 		return "HealthCheck"
+	case RequestTypeJoinGroup:
+		return "JoinGroup"
+	case RequestTypeSyncGroup:
+		return "SyncGroup"
+	case RequestTypeHeartbeat:
+		return "Heartbeat"
+	case RequestTypeLeaveGroup:
+		return "LeaveGroup"
+	case RequestTypeOffsetCommit:
+		return "OffsetCommit"
+	case RequestTypeOffsetFetch:
+		return "OffsetFetch"
+	case RequestTypeInitProducerID:
+		return "InitProducerID"
+	case RequestTypeAddPartitionsToTxn:
+		return "AddPartitionsToTxn"
+	case RequestTypeAddOffsetsToTxn:
+		return "AddOffsetsToTxn"
+	case RequestTypeEndTxn:
+		return "EndTxn"
+	case RequestTypeTxnOffsetCommit:
+		return "TxnOffsetCommit"
 	default:
 		return fmt.Sprintf("Unknown(%d)", t)
 	}
@@ -90,6 +123,33 @@ const (
 	ErrChecksumMismatch  ErrorCode = 10
 	ErrInvalidProtocol   ErrorCode = 11
 	ErrMessageTooLarge   ErrorCode = 12
+	// Consumer group error codes
+	ErrUnknownMemberID           ErrorCode = 20
+	ErrInvalidSessionTimeout     ErrorCode = 21
+	ErrRebalanceInProgress       ErrorCode = 22
+	ErrInvalidGenerationID       ErrorCode = 23
+	ErrUnknownConsumerGroupID    ErrorCode = 24
+	ErrNotCoordinator            ErrorCode = 25
+	ErrInvalidCommitOffsetSize   ErrorCode = 26
+	ErrGroupAuthorizationFailed  ErrorCode = 27
+	ErrIllegalGeneration         ErrorCode = 28
+	ErrInconsistentGroupProtocol ErrorCode = 29
+	// Transaction error codes
+	ErrInvalidProducerEpoch                 ErrorCode = 30
+	ErrInvalidTransactionState              ErrorCode = 31
+	ErrInvalidProducerIDMapping             ErrorCode = 32
+	ErrTransactionCoordinatorNotAvailable   ErrorCode = 33
+	ErrTransactionCoordinatorFenced         ErrorCode = 34
+	ErrProducerFenced                       ErrorCode = 35
+	ErrInvalidTransactionTimeout            ErrorCode = 36
+	ErrConcurrentTransactions               ErrorCode = 37
+	ErrTransactionAborted                   ErrorCode = 38
+	ErrInvalidPartitionList                 ErrorCode = 39
+	// Security error codes
+	ErrAuthenticationFailed                 ErrorCode = 40
+	ErrAuthorizationFailed                  ErrorCode = 41
+	ErrInvalidCredentials                   ErrorCode = 42
+	ErrAccountDisabled                      ErrorCode = 43
 )
 
 // String returns the string representation of ErrorCode
@@ -121,6 +181,54 @@ func (e ErrorCode) String() string {
 		return "InvalidProtocol"
 	case ErrMessageTooLarge:
 		return "MessageTooLarge"
+	case ErrUnknownMemberID:
+		return "UnknownMemberID"
+	case ErrInvalidSessionTimeout:
+		return "InvalidSessionTimeout"
+	case ErrRebalanceInProgress:
+		return "RebalanceInProgress"
+	case ErrInvalidGenerationID:
+		return "InvalidGenerationID"
+	case ErrUnknownConsumerGroupID:
+		return "UnknownConsumerGroupID"
+	case ErrNotCoordinator:
+		return "NotCoordinator"
+	case ErrInvalidCommitOffsetSize:
+		return "InvalidCommitOffsetSize"
+	case ErrGroupAuthorizationFailed:
+		return "GroupAuthorizationFailed"
+	case ErrIllegalGeneration:
+		return "IllegalGeneration"
+	case ErrInconsistentGroupProtocol:
+		return "InconsistentGroupProtocol"
+	case ErrInvalidProducerEpoch:
+		return "InvalidProducerEpoch"
+	case ErrInvalidTransactionState:
+		return "InvalidTransactionState"
+	case ErrInvalidProducerIDMapping:
+		return "InvalidProducerIDMapping"
+	case ErrTransactionCoordinatorNotAvailable:
+		return "TransactionCoordinatorNotAvailable"
+	case ErrTransactionCoordinatorFenced:
+		return "TransactionCoordinatorFenced"
+	case ErrProducerFenced:
+		return "ProducerFenced"
+	case ErrInvalidTransactionTimeout:
+		return "InvalidTransactionTimeout"
+	case ErrConcurrentTransactions:
+		return "ConcurrentTransactions"
+	case ErrTransactionAborted:
+		return "TransactionAborted"
+	case ErrInvalidPartitionList:
+		return "InvalidPartitionList"
+	case ErrAuthenticationFailed:
+		return "AuthenticationFailed"
+	case ErrAuthorizationFailed:
+		return "AuthorizationFailed"
+	case ErrInvalidCredentials:
+		return "InvalidCredentials"
+	case ErrAccountDisabled:
+		return "AccountDisabled"
 	default:
 		return fmt.Sprintf("Unknown(%d)", e)
 	}

@@ -36,4 +36,10 @@ var (
 	// Consumer errors
 	ErrConsumerClosed       = errors.New("consumer is closed")
 	ErrNoMessages           = errors.New("no messages available")
+
+	// Security errors
+	ErrInvalidTLSConfig     = errors.New("invalid TLS configuration")
+	ErrInvalidSASLConfig    = errors.New("invalid SASL configuration")
+	ErrTLSHandshakeFailed   = errors.New("TLS handshake failed")
+	ErrAuthenticationFailed = errors.New("authentication failed")
 )

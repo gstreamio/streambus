@@ -115,11 +115,17 @@ func (l *logImpl) Read(offset Offset, maxBytes int) ([]*Message, error) {
 		return nil, ErrLogClosed
 	}
 
-	if offset < Offset(atomic.LoadInt64(&l.logStartOffset)) {
+	logStart := Offset(atomic.LoadInt64(&l.logStartOffset))
+	hwm := Offset(atomic.LoadInt64(&l.highWaterMark))
+	fmt.Printf("Read: offset=%d logStart=%d highWaterMark=%d\n", offset, logStart, hwm)
+
+	if offset < logStart {
+		fmt.Printf("  -> ErrOffsetOutOfRange: offset < logStart\n")
 		return nil, ErrOffsetOutOfRange
 	}
 
-	if offset >= Offset(atomic.LoadInt64(&l.highWaterMark)) {
+	if offset >= hwm {
+		fmt.Printf("  -> ErrOffsetOutOfRange: offset >= highWaterMark\n")
 		return nil, ErrOffsetOutOfRange
 	}
 
@@ -157,14 +163,17 @@ func (l *logImpl) Read(offset Offset, maxBytes int) ([]*Message, error) {
 			currentOffset++
 		} else {
 			// Not in memtable, try reading from WAL
+			fmt.Printf("  -> offset %d not in memtable, trying WAL...\n", currentOffset)
 			walData, err := l.wal.Read(currentOffset)
 			if err != nil {
 				// If not in WAL either, skip this offset
+				fmt.Printf("  -> WAL read error for offset %d: %v\n", currentOffset, err)
 				currentOffset++
 				continue
 			}
 
 			// Deserialize the message from WAL
+			fmt.Printf("  -> Found in WAL: %d bytes\n", len(walData))
 			msg := l.deserializeMessage(walData)
 			msg.Offset = currentOffset
 			messages = append(messages, msg)
@@ -477,15 +486,60 @@ func (l *logImpl) recover() error {
 	// Get the current offset from WAL
 	nextOffset := l.wal.NextOffset()
 
+	fmt.Printf("[RECOVERY] Starting recovery: nextOffset=%d\n", nextOffset)
+
 	// Set our offsets based on WAL state
 	atomic.StoreInt64(&l.nextOffset, int64(nextOffset))
 	atomic.StoreInt64(&l.highWaterMark, int64(nextOffset))
 	atomic.StoreInt64(&l.logStartOffset, 0)
 
-	// Note: We don't rebuild memtables from WAL here.
-	// Instead, Read() will fall back to reading from WAL
-	// when messages aren't found in memtables.
-	// This is acceptable for now and avoids expensive replay.
+	// Rebuild memtable from WAL for better performance
+	// Try to recover last N messages into memtable (where N is based on memtable size)
+	// We'll recover from the end backwards to get the most recent messages
 
+	if nextOffset == 0 {
+		// No data to recover
+		fmt.Printf("[RECOVERY] No data to recover (nextOffset=0)\n")
+		return nil
+	}
+
+	// Calculate how many messages we should try to recover
+	// Estimate ~1KB per message average, so for 1MB memtable, recover ~1000 messages
+	maxToRecover := Offset(1000)
+	startOffset := nextOffset - maxToRecover
+	if startOffset < 0 {
+		startOffset = 0
+	}
+
+	fmt.Printf("[RECOVERY] Recovering messages from offset %d to %d\n", startOffset, nextOffset)
+
+	recovered := 0
+	for offset := Offset(startOffset); offset < nextOffset; offset++ {
+		// Try to read from WAL
+		walData, err := l.wal.Read(offset)
+		if err != nil {
+			// Skip missing offsets (could be truncated or not exist)
+			continue
+		}
+
+		// Add to active memtable
+		key := offsetToKey(offset)
+		if err := l.activeMemTable.Put(key, walData); err != nil {
+			// If we can't add to memtable, it might be full - that's ok
+			// The WAL fallback will still work
+			fmt.Printf("[RECOVERY] Memtable put failed at offset %d: %v\n", offset, err)
+			break
+		}
+		recovered++
+
+		// Check if we need to rotate memtable during recovery
+		if l.activeMemTable.Size() >= l.config.MemTable.MaxSize {
+			// Memtable is full, stop recovering
+			fmt.Printf("[RECOVERY] Memtable full after %d messages\n", recovered)
+			break
+		}
+	}
+
+	fmt.Printf("[RECOVERY] Recovery complete: recovered %d messages to memtable\n", recovered)
 	return nil
 }

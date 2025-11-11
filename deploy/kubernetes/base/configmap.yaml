@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: streambus-config
+  labels:
+    app: streambus
+data:
+  broker.yaml: |
+    server:
+      broker_id: ${STREAMBUS_BROKER_ID}
+      listen: "0.0.0.0:9092"
+      data_dir: "${STREAMBUS_DATA_DIR}"
+      log_level: "${STREAMBUS_LOG_LEVEL}"
+      
+      # Connection settings
+      max_connections: 10000
+      connection_timeout: 30s
+      read_timeout: 30s
+      write_timeout: 30s
+
+    storage:
+      # WAL settings
+      wal_sync: periodic
+      wal_sync_interval: 10ms
+      
+      # MemTable settings
+      memtable_flush_threshold: 67108864  # 64MB
+      
+      # Compaction
+      compaction_policy: size-tiered
+      max_sstable_size: 268435456  # 256MB
+      
+      # Retention
+      retention:
+        max_age: 168h  # 7 days
+        max_bytes: 107374182400  # 100GB
+
+    network:
+      max_request_size: 1048576  # 1MB
+      socket_send_buffer: 131072  # 128KB
+      socket_receive_buffer: 131072  # 128KB
+
+    # Health checks
+    health:
+      enabled: true
+      port: 8080
+      liveness_path: /health/live
+      readiness_path: /health/ready
+
+    # Metrics
+    metrics:
+      enabled: ${STREAMBUS_METRICS_ENABLED:-true}
+      port: 8080
+      path: /metrics
+
+    # Tracing
+    tracing:
+      enabled: ${STREAMBUS_TRACING_ENABLED:-false}
+      exporter: otlp
+      endpoint: ${STREAMBUS_TRACING_ENDPOINT:-localhost:4317}
+      sampling_rate: ${STREAMBUS_TRACING_SAMPLING_RATE:-0.1}
+
+    # Profiling
+    profiling:
+      enabled: ${STREAMBUS_PROFILING_ENABLED:-false}
+      port: 6060
+
+    # Production tuning
+    performance:
+      io_threads: 8
+      batch_timeout: 10ms
+      max_batch_size: 1000

@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: streambus
+
+commonLabels:
+  app.kubernetes.io/name: streambus
+  app.kubernetes.io/component: broker
+  app.kubernetes.io/managed-by: kubectl
+
+resources:
+  - rbac.yaml
+  - configmap.yaml
+  - statefulset.yaml
+  - services.yaml
+  - monitoring.yaml
+
+# ConfigMap generator
+configMapGenerator:
+  - name: streambus-config
+    files:
+      - broker.yaml
+
+# Common annotations
+commonAnnotations:
+  documentation: "https://github.com/shawntherrien/streambus"
+  support: "streambus-ops@example.com"
+
+# Images
+images:
+  - name: streambus/broker
+    newTag: latest
+
+# Replicas
+replicas:
+  - name: streambus-broker
+    count: 3

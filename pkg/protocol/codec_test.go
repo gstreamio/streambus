@@ -686,3 +686,317 @@ func BenchmarkCodec_DecodeFetchRequest(b *testing.B) {
 		codec.DecodeRequest(bytes.NewBuffer(data))
 	}
 }
+
+
+// Additional response encoding/decoding tests for coverage
+
+func TestCodec_ProduceResponse(t *testing.T) {
+	codec := NewCodec()
+
+	resp := &Response{
+		Header: ResponseHeader{
+			RequestID: 123,
+			Status:    StatusOK,
+		},
+		Payload: &ProduceResponse{
+			BaseOffset:    100,
+			NumMessages:   5,
+			HighWaterMark: 105,
+		},
+	}
+
+	// Encode
+	buf := &bytes.Buffer{}
+	err := codec.EncodeResponse(buf, resp)
+	if err != nil {
+		t.Fatalf("EncodeResponse failed: %v", err)
+	}
+
+	// Decode
+	decoded, err := codec.DecodeResponse(buf)
+	if err != nil {
+		t.Fatalf("DecodeResponse failed: %v", err)
+	}
+
+	// Decode payload
+	err = codec.DecodeResponsePayload(decoded, RequestTypeProduce)
+	if err != nil {
+		t.Fatalf("DecodeResponsePayload failed: %v", err)
+	}
+
+	produceResp := decoded.Payload.(*ProduceResponse)
+	if produceResp.BaseOffset != 100 {
+		t.Errorf("BaseOffset = %d, want 100", produceResp.BaseOffset)
+	}
+	if produceResp.NumMessages != 5 {
+		t.Errorf("NumMessages = %d, want 5", produceResp.NumMessages)
+	}
+	if produceResp.HighWaterMark != 105 {
+		t.Errorf("HighWaterMark = %d, want 105", produceResp.HighWaterMark)
+	}
+}
+
+func TestCodec_FetchResponse(t *testing.T) {
+	codec := NewCodec()
+
+	resp := &Response{
+		Header: ResponseHeader{
+			RequestID: 124,
+			Status:    StatusOK,
+		},
+		Payload: &FetchResponse{
+			Messages: []Message{
+				{
+					Offset:    100,
+					Key:       []byte("key1"),
+					Value:     []byte("value1"),
+					Timestamp: time.Now().UnixNano(),
+				},
+				{
+					Offset:    101,
+					Key:       []byte("key2"),
+					Value:     []byte("value2"),
+					Timestamp: time.Now().UnixNano(),
+				},
+			},
+		},
+	}
+
+	// Encode
+	buf := &bytes.Buffer{}
+	err := codec.EncodeResponse(buf, resp)
+	if err != nil {
+		t.Fatalf("EncodeResponse failed: %v", err)
+	}
+
+	// Decode
+	decoded, err := codec.DecodeResponse(buf)
+	if err != nil {
+		t.Fatalf("DecodeResponse failed: %v", err)
+	}
+
+	// Decode payload
+	err = codec.DecodeResponsePayload(decoded, RequestTypeFetch)
+	if err != nil {
+		t.Fatalf("DecodeResponsePayload failed: %v", err)
+	}
+
+	fetchResp := decoded.Payload.(*FetchResponse)
+	if len(fetchResp.Messages) != 2 {
+		t.Errorf("Messages count = %d, want 2", len(fetchResp.Messages))
+	}
+}
+
+func TestCodec_GetOffsetResponse(t *testing.T) {
+	codec := NewCodec()
+
+	resp := &Response{
+		Header: ResponseHeader{
+			RequestID: 125,
+			Status:    StatusOK,
+		},
+		Payload: &GetOffsetResponse{
+			Topic:         "test-topic",
+			PartitionID:   0,
+			StartOffset:   999,
+			EndOffset:     1100,
+			HighWaterMark: 1000,
+		},
+	}
+
+	// Encode
+	buf := &bytes.Buffer{}
+	err := codec.EncodeResponse(buf, resp)
+	if err != nil {
+		t.Fatalf("EncodeResponse failed: %v", err)
+	}
+
+	// Decode
+	decoded, err := codec.DecodeResponse(buf)
+	if err != nil {
+		t.Fatalf("DecodeResponse failed: %v", err)
+	}
+
+	// Decode payload
+	err = codec.DecodeResponsePayload(decoded, RequestTypeGetOffset)
+	if err != nil {
+		t.Fatalf("DecodeResponsePayload failed: %v", err)
+	}
+
+	offsetResp := decoded.Payload.(*GetOffsetResponse)
+	if offsetResp.Topic != "test-topic" {
+		t.Errorf("Topic = %s, want test-topic", offsetResp.Topic)
+	}
+	if offsetResp.StartOffset != 999 {
+		t.Errorf("StartOffset = %d, want 999", offsetResp.StartOffset)
+	}
+	if offsetResp.EndOffset != 1100 {
+		t.Errorf("EndOffset = %d, want 1100", offsetResp.EndOffset)
+	}
+	if offsetResp.HighWaterMark != 1000 {
+		t.Errorf("HighWaterMark = %d, want 1000", offsetResp.HighWaterMark)
+	}
+}
+
+func TestCodec_CreateTopicResponse(t *testing.T) {
+	codec := NewCodec()
+
+	resp := &Response{
+		Header: ResponseHeader{
+			RequestID: 126,
+			Status:    StatusOK,
+		},
+		Payload: &CreateTopicResponse{
+			Created: true,
+		},
+	}
+
+	// Encode
+	buf := &bytes.Buffer{}
+	err := codec.EncodeResponse(buf, resp)
+	if err != nil {
+		t.Fatalf("EncodeResponse failed: %v", err)
+	}
+
+	// Decode
+	decoded, err := codec.DecodeResponse(buf)
+	if err != nil {
+		t.Fatalf("DecodeResponse failed: %v", err)
+	}
+
+	// Decode payload
+	err = codec.DecodeResponsePayload(decoded, RequestTypeCreateTopic)
+	if err != nil {
+		t.Fatalf("DecodeResponsePayload failed: %v", err)
+	}
+
+	createResp := decoded.Payload.(*CreateTopicResponse)
+	if !createResp.Created {
+		t.Errorf("Created = false, want true")
+	}
+}
+
+func TestCodec_DeleteTopicResponse(t *testing.T) {
+	codec := NewCodec()
+
+	resp := &Response{
+		Header: ResponseHeader{
+			RequestID: 127,
+			Status:    StatusOK,
+		},
+		Payload: &DeleteTopicResponse{
+			Deleted: true,
+		},
+	}
+
+	// Encode
+	buf := &bytes.Buffer{}
+	err := codec.EncodeResponse(buf, resp)
+	if err != nil {
+		t.Fatalf("EncodeResponse failed: %v", err)
+	}
+
+	// Decode
+	decoded, err := codec.DecodeResponse(buf)
+	if err != nil {
+		t.Fatalf("DecodeResponse failed: %v", err)
+	}
+
+	// Decode payload
+	err = codec.DecodeResponsePayload(decoded, RequestTypeDeleteTopic)
+	if err != nil {
+		t.Fatalf("DecodeResponsePayload failed: %v", err)
+	}
+
+	deleteResp := decoded.Payload.(*DeleteTopicResponse)
+	if !deleteResp.Deleted {
+		t.Errorf("Deleted = false, want true")
+	}
+}
+
+func TestCodec_ListTopicsResponse(t *testing.T) {
+	codec := NewCodec()
+
+	resp := &Response{
+		Header: ResponseHeader{
+			RequestID: 128,
+			Status:    StatusOK,
+		},
+		Payload: &ListTopicsResponse{
+			Topics: []TopicInfo{
+				{Name: "topic1", NumPartitions: 3},
+				{Name: "topic2", NumPartitions: 5},
+				{Name: "topic3", NumPartitions: 1},
+			},
+		},
+	}
+
+	// Encode
+	buf := &bytes.Buffer{}
+	err := codec.EncodeResponse(buf, resp)
+	if err != nil {
+		t.Fatalf("EncodeResponse failed: %v", err)
+	}
+
+	// Decode
+	decoded, err := codec.DecodeResponse(buf)
+	if err != nil {
+		t.Fatalf("DecodeResponse failed: %v", err)
+	}
+
+	// Decode payload
+	err = codec.DecodeResponsePayload(decoded, RequestTypeListTopics)
+	if err != nil {
+		t.Fatalf("DecodeResponsePayload failed: %v", err)
+	}
+
+	listResp := decoded.Payload.(*ListTopicsResponse)
+	if len(listResp.Topics) != 3 {
+		t.Errorf("Topics count = %d, want 3", len(listResp.Topics))
+	}
+	if listResp.Topics[0].Name != "topic1" {
+		t.Errorf("Topics[0].Name = %s, want topic1", listResp.Topics[0].Name)
+	}
+}
+
+func TestCodec_HealthCheckResponse(t *testing.T) {
+	codec := NewCodec()
+
+	resp := &Response{
+		Header: ResponseHeader{
+			RequestID: 129,
+			Status:    StatusOK,
+		},
+		Payload: &HealthCheckResponse{
+			Status: "healthy",
+			Uptime: 3600,
+		},
+	}
+
+	// Encode
+	buf := &bytes.Buffer{}
+	err := codec.EncodeResponse(buf, resp)
+	if err != nil {
+		t.Fatalf("EncodeResponse failed: %v", err)
+	}
+
+	// Decode
+	decoded, err := codec.DecodeResponse(buf)
+	if err != nil {
+		t.Fatalf("DecodeResponse failed: %v", err)
+	}
+
+	// Decode payload
+	err = codec.DecodeResponsePayload(decoded, RequestTypeHealthCheck)
+	if err != nil {
+		t.Fatalf("DecodeResponsePayload failed: %v", err)
+	}
+
+	healthResp := decoded.Payload.(*HealthCheckResponse)
+	if healthResp.Status != "healthy" {
+		t.Errorf("Status = %s, want healthy", healthResp.Status)
+	}
+	if healthResp.Uptime != 3600 {
+		t.Errorf("Uptime = %d, want 3600", healthResp.Uptime)
+	}
+}
