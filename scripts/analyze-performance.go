@@ -64,7 +64,6 @@ func analyzeProfile(filename string) []PerformanceIssue {
 	var (
 		allocsPerOp      float64
 		bytesPerOp       float64
-		nsPerOp          float64
 		benchmarkName    string
 		hasThroughput    bool
 		throughputMBps   float64
@@ -75,7 +74,6 @@ func analyzeProfile(filename string) []PerformanceIssue {
 
 	allocPattern := regexp.MustCompile(`(\d+)\s+allocs/op`)
 	bytesPattern := regexp.MustCompile(`(\d+)\s+B/op`)
-	nsPattern := regexp.MustCompile(`(\d+)\s+ns/op`)
 	namePattern := regexp.MustCompile(`Benchmark(\w+)`)
 	throughputPattern := regexp.MustCompile(`([\d.]+)\s+MB/s`)
 	msgRatePattern := regexp.MustCompile(`([\d.]+)\s+msgs/s`)
@@ -96,10 +94,6 @@ func analyzeProfile(filename string) []PerformanceIssue {
 
 		if matches := bytesPattern.FindStringSubmatch(line); len(matches) > 1 {
 			bytesPerOp, _ = strconv.ParseFloat(matches[1], 64)
-		}
-
-		if matches := nsPattern.FindStringSubmatch(line); len(matches) > 1 {
-			nsPerOp, _ = strconv.ParseFloat(matches[1], 64)
 		}
 
 		// Extract throughput metrics

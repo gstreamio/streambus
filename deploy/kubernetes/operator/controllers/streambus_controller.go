@@ -377,7 +377,7 @@ func (r *StreamBusClusterReconciler) buildStatefulSet(cluster *streambusv1alpha1
 					Spec: corev1.PersistentVolumeClaimSpec{
 						AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 						StorageClassName: &cluster.Spec.Storage.Class,
-						Resources: corev1.ResourceRequirements{
+						Resources: corev1.VolumeResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceStorage: resource.MustParse(cluster.Spec.Storage.Size),
 							},
@@ -391,7 +391,7 @@ func (r *StreamBusClusterReconciler) buildStatefulSet(cluster *streambusv1alpha1
 					Spec: corev1.PersistentVolumeClaimSpec{
 						AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 						StorageClassName: &cluster.Spec.Storage.Class,
-						Resources: corev1.ResourceRequirements{
+						Resources: corev1.VolumeResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceStorage: resource.MustParse(cluster.Spec.Storage.RaftSize),
 							},

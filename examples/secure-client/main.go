@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/shawntherrien/streambus/pkg/client"
 )
@@ -105,33 +104,39 @@ func createSecureClient() *client.Client {
 
 // produceWithTLS demonstrates producing messages with a secure client
 func produceWithTLS(c *client.Client) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	ctx := context.Background()
+	_ = ctx // Suppress unused variable warning
 
-	producer, err := c.CreateProducer("secure-topic")
-	if err != nil {
-		return fmt.Errorf("failed to create producer: %w", err)
+	// Create topic first
+	if err := c.CreateTopic("secure-topic", 1, 1); err != nil {
+		// Topic may already exist, log but continue
+		log.Printf("Topic creation: %v (may already exist)", err)
 	}
+
+	producer := client.NewProducer(c)
 	defer producer.Close()
 
 	// Produce messages
-	messages := []client.Message{
+	messages := []struct {
+		key   []byte
+		value []byte
+	}{
 		{
-			Key:   []byte("key1"),
-			Value: []byte("Secure message 1"),
+			key:   []byte("key1"),
+			value: []byte("Secure message 1"),
 		},
 		{
-			Key:   []byte("key2"),
-			Value: []byte("Secure message 2"),
+			key:   []byte("key2"),
+			value: []byte("Secure message 2"),
 		},
 	}
 
 	for _, msg := range messages {
-		offset, err := producer.Send(ctx, msg)
+		err := producer.Send("secure-topic", msg.key, msg.value)
 		if err != nil {
 			return fmt.Errorf("failed to send message: %w", err)
 		}
-		fmt.Printf("Message sent successfully at offset %d\n", offset)
+		fmt.Printf("Message sent successfully\n")
 	}
 
 	return nil
