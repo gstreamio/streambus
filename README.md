@@ -145,7 +145,7 @@ Perfect for microservices, event sourcing, log aggregation, real-time analytics,
 
 ```bash
 # Clone the repository
-git clone https://github.com/shawntherrien/streambus.git
+git clone https://github.com/gstreamio/streambus.git
 cd streambus
 
 # Install dependencies
@@ -175,7 +175,7 @@ go build -o bin/streambus cmd/server/main.go
 **For application development, use the official Go SDK:**
 
 ```bash
-go get github.com/stherrien/streambus-sdk
+go get github.com/gstreamio/streambus-sdk
 ```
 
 ```go
@@ -183,7 +183,7 @@ package main
 
 import (
     "log"
-    "github.com/stherrien/streambus-sdk/client"
+    "github.com/gstreamio/streambus-sdk/client"
 )
 
 func main() {
@@ -232,9 +232,9 @@ func main() {
 }
 ```
 
-**SDK Repository:** [github.com/stherrien/streambus-sdk](https://github.com/stherrien/streambus-sdk)
+**SDK Repository:** [github.com/gstreamio/streambus-sdk](https://github.com/gstreamio/streambus-sdk)
 
-See the [SDK README](https://github.com/stherrien/streambus-sdk#readme) for complete documentation, examples, and API reference.
+See the [SDK README](https://github.com/gstreamio/streambus-sdk#readme) for complete documentation, examples, and API reference.
 
 ---
 
@@ -393,7 +393,7 @@ docker-compose up -d
 ## Documentation
 
 ### SDKs & Client Libraries
-- **[Go SDK](https://github.com/stherrien/streambus-sdk)** - Official Go client library (Apache 2.0)
+- **[Go SDK](https://github.com/gstreamio/streambus-sdk)** - Official Go client library (Apache 2.0)
   - Full-featured with producer, consumer, and consumer groups
   - TLS/mTLS and SASL authentication support
   - Transactional messaging with exactly-once semantics
@@ -552,8 +552,8 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the complete roadmap.
 ### Get Help
 
 - 📖 **Documentation**: [Complete docs](docs/)
-- 💬 **Discussions**: [GitHub Discussions](https://github.com/shawntherrien/streambus/discussions)
-- 🐛 **Issues**: [GitHub Issues](https://github.com/shawntherrien/streambus/issues)
+- 💬 **Discussions**: [GitHub Discussions](https://github.com/gstreamio/streambus/discussions)
+- 🐛 **Issues**: [GitHub Issues](https://github.com/gstreamio/streambus/issues)
 - 🔒 **Security**: Report vulnerabilities to security@streambus.io
 
 ### Stay Updated
@@ -647,7 +647,7 @@ Built with ❤️ in Go by developers who believe streaming platforms should be 
 
 <div align="center">
 
-**[Get Started](docs/GETTING_STARTED.md)** • **[View Examples](examples/)** • **[Read Docs](docs/)** • **[Join Community](https://github.com/shawntherrien/streambus/discussions)**
+**[Get Started](docs/GETTING_STARTED.md)** • **[View Examples](examples/)** • **[Read Docs](docs/)** • **[Join Community](https://github.com/gstreamio/streambus/discussions)**
 
 ⭐ **Star us on GitHub** — it helps!
 
