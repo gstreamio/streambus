@@ -170,17 +170,20 @@ go build -o bin/streambus cmd/server/main.go
 # - Metrics endpoint on port 8080/metrics
 ```
 
-### Using the Client
+### Using the Go SDK
+
+**For application development, use the official Go SDK:**
+
+```bash
+go get github.com/stherrien/streambus-sdk
+```
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
     "log"
-
-    "github.com/shawntherrien/streambus/pkg/client"
+    "github.com/stherrien/streambus-sdk/client"
 )
 
 func main() {
@@ -203,8 +206,7 @@ func main() {
     producer := client.NewProducer(c)
     defer producer.Close()
 
-    ctx := context.Background()
-    err = producer.Send(ctx, "orders", []byte("order-123"), []byte(`{
+    err = producer.Send("orders", []byte("order-123"), []byte(`{
         "orderId": "123",
         "amount": 99.99,
         "status": "pending"
@@ -217,19 +219,22 @@ func main() {
     consumer := client.NewConsumer(c, "orders", 0)
     defer consumer.Close()
 
-    consumer.SeekToBeginning()
-    messages, err := consumer.Fetch(ctx)
+    if err := consumer.Seek(0); err != nil {
+        log.Fatal(err)
+    }
+
+    record, err := consumer.FetchOne()
     if err != nil {
         log.Fatal(err)
     }
 
-    for _, msg := range messages {
-        fmt.Printf("Received: %s\n", msg.Value)
-    }
+    log.Printf("Received: %s\n", record.Value)
 }
 ```
 
-See [examples/](examples/) for complete producer and consumer examples.
+**SDK Repository:** [github.com/stherrien/streambus-sdk](https://github.com/stherrien/streambus-sdk)
+
+See the [SDK README](https://github.com/stherrien/streambus-sdk#readme) for complete documentation, examples, and API reference.
 
 ---
 
@@ -386,6 +391,15 @@ docker-compose up -d
 ---
 
 ## Documentation
+
+### SDKs & Client Libraries
+- **[Go SDK](https://github.com/stherrien/streambus-sdk)** - Official Go client library (Apache 2.0)
+  - Full-featured with producer, consumer, and consumer groups
+  - TLS/mTLS and SASL authentication support
+  - Transactional messaging with exactly-once semantics
+- **Python SDK** - Coming soon (streambus-py-sdk)
+- **C# SDK** - Planned (streambus-csharp-sdk)
+- **Java SDK** - Planned (streambus-java-sdk)
 
 ### Getting Started
 - [Quick Start Guide](docs/GETTING_STARTED.md) - Step-by-step tutorial
