@@ -14,7 +14,6 @@ import (
 	"github.com/shawntherrien/streambus/pkg/client"
 	"github.com/shawntherrien/streambus/pkg/tracing"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 func main() {
@@ -59,7 +58,7 @@ func main() {
 	// Example 2: Initialize Tracer
 	fmt.Println("\n2. Initializing Tracer")
 
-	tracer, err := tracing.NewTracer(tracingConfig)
+	tracer, err := tracing.New(tracingConfig)
 	if err != nil {
 		log.Fatalf("Failed to create tracer: %v", err)
 	}
@@ -67,8 +66,6 @@ func main() {
 
 	fmt.Println("   - Tracer initialized successfully")
 	fmt.Printf("   - Tracing enabled: %v\n", tracer.IsEnabled())
-
-	tr := tracer.Tracer()
 
 	// Example 3: Create and start broker with tracing
 	fmt.Println("\n3. Creating Broker")
@@ -98,14 +95,11 @@ func main() {
 	ctx := context.Background()
 
 	// Start a span for topic creation
-	ctx, createTopicSpan := tracing.StartSpan(ctx, tr, "create-topic",
-		tracing.WithSpanKind(trace.SpanKindClient),
-		tracing.WithAttributes(
-			tracing.AttrTopicName.String("traced-events"),
-			tracing.AttrTopicPartitions.Int64(3),
-			tracing.AttrTopicReplicas.Int64(1),
-		),
-	)
+	ctx, createTopicSpan := tracer.StartWithAttributes(ctx, "create-topic", map[string]interface{}{
+		"topic.name":       "traced-events",
+		"topic.partitions": 3,
+		"topic.replicas":   1,
+	})
 
 	// Create client
 	clientConfig := client.DefaultConfig()
@@ -139,13 +133,10 @@ func main() {
 
 	for i := 0; i < messageCount; i++ {
 		// Start a span for each produce operation
-		produceCtx, produceSpan := tracing.StartSpan(ctx, tr, "produce-message",
-			tracing.WithSpanKind(trace.SpanKindProducer),
-			tracing.WithAttributes(
-				tracing.AttrTopicName.String("traced-events"),
-				tracing.AttrMessageKey.String(fmt.Sprintf("key-%d", i)),
-			),
-		)
+		produceCtx, produceSpan := tracer.StartWithAttributes(ctx, "produce-message", map[string]interface{}{
+			"topic.name":  "traced-events",
+			"message.key": fmt.Sprintf("key-%d", i),
+		})
 
 		key := []byte(fmt.Sprintf("key-%d", i))
 		value := []byte(fmt.Sprintf("Traced message %d at %s", i, time.Now().Format(time.RFC3339)))
@@ -187,9 +178,7 @@ func main() {
 	// Example 6: Simulated error with tracing
 	fmt.Println("\n6. Demonstrating Error Tracing")
 
-	errorCtx, errorSpan := tracing.StartSpan(ctx, tr, "simulate-error",
-		tracing.WithSpanKind(trace.SpanKindInternal),
-	)
+	errorCtx, errorSpan := tracer.Start(ctx, "simulate-error")
 
 	// Simulate an error
 	simulatedErr := fmt.Errorf("simulated validation error")
@@ -208,20 +197,15 @@ func main() {
 	// Example 7: Nested spans (parent-child relationships)
 	fmt.Println("\n7. Demonstrating Nested Spans")
 
-	parentCtx, parentSpan := tracing.StartSpan(ctx, tr, "batch-operation",
-		tracing.WithSpanKind(trace.SpanKindInternal),
-	)
+	parentCtx, parentSpan := tracer.Start(ctx, "batch-operation")
 
 	fmt.Println("   - Parent span: batch-operation")
 
 	for i := 0; i < 3; i++ {
 		// Child span inherits parent's trace context
-		childCtx, childSpan := tracing.StartSpan(parentCtx, tr, fmt.Sprintf("sub-operation-%d", i),
-			tracing.WithSpanKind(trace.SpanKindInternal),
-			tracing.WithAttributes(
-				tracing.AttrMessageCount.Int(i),
-			),
-		)
+		childCtx, childSpan := tracer.StartWithAttributes(parentCtx, fmt.Sprintf("sub-operation-%d", i), map[string]interface{}{
+			"message.count": i,
+		})
 
 		fmt.Printf("   - Child span %d: sub-operation-%d\n", i, i)
 
@@ -240,7 +224,7 @@ func main() {
 	// Example 8: Tracing with attributes
 	fmt.Println("\n8. Adding Custom Attributes")
 
-	attrCtx, attrSpan := tracing.StartSpan(ctx, tr, "operation-with-attributes")
+	attrCtx, attrSpan := tracer.Start(ctx, "operation-with-attributes")
 
 	// Add various StreamBus-specific attributes
 	tracing.SetSpanAttributes(attrSpan,
@@ -263,7 +247,7 @@ func main() {
 	// Example 9: Span events for key milestones
 	fmt.Println("\n9. Adding Span Events")
 
-	eventCtx, eventSpan := tracing.StartSpan(ctx, tr, "complex-operation")
+	eventCtx, eventSpan := tracer.Start(ctx, "complex-operation")
 
 	tracing.AddSpanEvent(eventSpan, "started", tracing.AttrMessageCount.Int(0))
 	fmt.Println("   - Event: started")

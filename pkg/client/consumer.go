@@ -58,10 +58,6 @@ func (c *Consumer) FetchN(maxMessages int) ([]protocol.Message, error) {
 		return nil, ErrInvalidTopic
 	}
 
-	if c.partitionID < 0 {
-		return nil, ErrInvalidPartition
-	}
-
 	req := &protocol.Request{
 		Header: protocol.RequestHeader{
 			Type:    protocol.RequestTypeFetch,
@@ -91,9 +87,9 @@ func (c *Consumer) FetchN(maxMessages int) ([]protocol.Message, error) {
 
 	// Update offset for next fetch
 	if len(fetchResp.Messages) > 0 {
-		// Offset should be set to the last message's offset + 1
-		// For now, just increment by message count
-		c.offset += int64(len(fetchResp.Messages))
+		// Set offset to the last message's offset + 1 for the next fetch
+		lastMessage := fetchResp.Messages[len(fetchResp.Messages)-1]
+		c.offset = lastMessage.Offset + 1
 	}
 
 	// Update metrics
