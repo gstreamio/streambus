@@ -39,6 +39,8 @@ func NewHandlerWithDataDir(dataDir string) *Handler {
 func (h *Handler) Handle(req *protocol.Request) *protocol.Response {
 	atomic.AddInt64(&h.requestsHandled, 1)
 
+	fmt.Printf("Handle: type=%d requestID=%d payload=%T\n", req.Header.Type, req.Header.RequestID, req.Payload)
+
 	// Route based on request type
 	switch req.Header.Type {
 	case protocol.RequestTypeProduce:
@@ -126,6 +128,9 @@ func (h *Handler) handleProduce(req *protocol.Request) *protocol.Response {
 func (h *Handler) handleFetch(req *protocol.Request) *protocol.Response {
 	payload := req.Payload.(*protocol.FetchRequest)
 
+	fmt.Printf("FETCH REQUEST: topic='%s' partition=%d offset=%d maxBytes=%d\n",
+		payload.Topic, payload.PartitionID, payload.Offset, payload.MaxBytes)
+
 	// Auto-create topic if it doesn't exist
 	if !h.topicManager.TopicExists(payload.Topic) {
 		// Create topic with default 1 partition
@@ -144,6 +149,9 @@ func (h *Handler) handleFetch(req *protocol.Request) *protocol.Response {
 	// Read messages from log starting at offset
 	storageMessages, err := partition.log.Read(storage.Offset(payload.Offset), int(payload.MaxBytes))
 	if err != nil {
+		// Log the error for debugging
+		fmt.Printf("Read error for topic=%s partition=%d offset=%d: %v\n",
+			payload.Topic, payload.PartitionID, payload.Offset, err)
 		// No messages available, return empty list
 		storageMessages = []*storage.Message{}
 	}

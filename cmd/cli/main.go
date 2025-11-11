@@ -174,21 +174,40 @@ var consumeCmd = &cobra.Command{
 		maxMessages, _ := cmd.Flags().GetInt("max-messages")
 		brokers, _ := cmd.Flags().GetStringSlice("brokers")
 
+		// Parse offset flag
+		var startOffset int64
+		switch offsetStr {
+		case "earliest":
+			startOffset = 0
+		case "latest":
+			startOffset = -1
+		default:
+			// Try parsing as number
+			parsed, err := fmt.Sscanf(offsetStr, "%d", &startOffset)
+			if err != nil || parsed != 1 {
+				return fmt.Errorf("invalid offset value: %s (use 'earliest', 'latest', or a number)", offsetStr)
+			}
+		}
+
 		fmt.Printf("Consuming from topic '%s'\n", topic)
 		fmt.Printf("  Consumer Group: %s\n", group)
-		fmt.Printf("  Starting Offset: %s\n", offsetStr)
+		fmt.Printf("  Starting Offset: %s (resolved to %d)\n", offsetStr, startOffset)
 
 		// Create client
 		config := client.DefaultConfig()
 		config.Brokers = brokers
+
+		// Configure consumer with parsed offset
+		config.ConsumerConfig.StartOffset = startOffset
+
 		c, err := client.New(config)
 		if err != nil {
 			return fmt.Errorf("failed to create client: %w", err)
 		}
 		defer c.Close()
 
-		// Create consumer (consumer will handle offset internally)
-		consumer := client.NewConsumer(c, group, 0)
+		// Create consumer with configured offset
+		consumer := client.NewConsumer(c, topic, 0)
 		defer consumer.Close()
 
 		fmt.Println("Consuming messages... (Press Ctrl+C to stop)")
