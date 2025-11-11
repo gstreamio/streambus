@@ -58,10 +58,6 @@ func (c *Consumer) FetchN(maxMessages int) ([]protocol.Message, error) {
 		return nil, ErrInvalidTopic
 	}
 
-	if c.partitionID < 0 {
-		return nil, ErrInvalidPartition
-	}
-
 	req := &protocol.Request{
 		Header: protocol.RequestHeader{
 			Type:    protocol.RequestTypeFetch,

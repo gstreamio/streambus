@@ -57,16 +57,17 @@ func producerWithKeys() {
 	defer producer.Close()
 
 	// Send messages with keys for ordering
-	orders := map[string]string{
-		"order-123": "Order created for customer ABC",
-		"order-124": "Order created for customer XYZ",
-		"order-123": "Order updated - added item",
-		"order-123": "Order completed",
+	// Messages with the same key will be ordered
+	orders := []struct{ key, value string }{
+		{"order-123", "Order created for customer ABC"},
+		{"order-124", "Order created for customer XYZ"},
+		{"order-123", "Order updated - added item"},
+		{"order-123", "Order completed"},
 	}
 
-	for key, value := range orders {
-		if err := producer.SendWithKey("orders", key, value); err != nil {
-			log.Printf("Failed to send order %s: %v", key, err)
+	for _, order := range orders {
+		if err := producer.SendWithKey("orders", order.key, order.value); err != nil {
+			log.Printf("Failed to send order %s: %v", order.key, err)
 		}
 	}
 
