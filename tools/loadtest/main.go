@@ -44,9 +44,8 @@ type LoadTestStats struct {
 func main() {
 	config := parseFlags()
 
-	logger := logging.NewLogger(logging.Config{
-		Level:  "info",
-		Format: "json",
+	logger := logging.New(&logging.Config{
+		Level: logging.LevelInfo,
 	})
 
 	logger.Info("Starting load test", logging.Fields{
@@ -137,26 +136,24 @@ func runProducer(ctx context.Context, wg *sync.WaitGroup, id int, config *LoadTe
 
 	// Create client
 	clientCfg := &client.Config{
-		Brokers: config.Brokers,
-		Timeout: 30 * time.Second,
+		Brokers:        config.Brokers,
+		ConnectTimeout: 30 * time.Second,
 	}
 
-	c, err := client.NewClient(clientCfg)
+	c, err := client.New(clientCfg)
 	if err != nil {
-		logger.Error("Failed to create client", logging.Fields{
+		logger.Error("Failed to create client", err, logging.Fields{
 			"producer_id": id,
-			"error":       err,
 		})
 		atomic.AddInt64(&stats.Errors, 1)
 		return
 	}
 	defer c.Close()
 
-	producer, err := c.NewProducer()
-	if err != nil {
-		logger.Error("Failed to create producer", logging.Fields{
+	producer := client.NewProducer(c)
+	if producer == nil {
+		logger.Error("Failed to create producer", fmt.Errorf("producer is nil"), logging.Fields{
 			"producer_id": id,
-			"error":       err,
 		})
 		atomic.AddInt64(&stats.Errors, 1)
 		return
@@ -197,14 +194,13 @@ func runProducer(ctx context.Context, wg *sync.WaitGroup, id int, config *LoadTe
 			key := []byte(fmt.Sprintf("producer-%d-msg-%d", id, messageCount))
 
 			start := time.Now()
-			err := producer.Send(ctx, config.Topic, key, value)
+			err := producer.Send(config.Topic, key, value)
 			latency := time.Since(start)
 
 			if err != nil {
 				atomic.AddInt64(&stats.Errors, 1)
-				logger.Error("Send failed", logging.Fields{
+				logger.Error("Send failed", err, logging.Fields{
 					"producer_id": id,
-					"error":       err,
 				})
 				continue
 			}
@@ -223,15 +219,14 @@ func runConsumer(ctx context.Context, wg *sync.WaitGroup, id int, config *LoadTe
 
 	// Create client
 	clientCfg := &client.Config{
-		Brokers: config.Brokers,
-		Timeout: 30 * time.Second,
+		Brokers:        config.Brokers,
+		ConnectTimeout: 30 * time.Second,
 	}
 
-	c, err := client.NewClient(clientCfg)
+	c, err := client.New(clientCfg)
 	if err != nil {
-		logger.Error("Failed to create client", logging.Fields{
+		logger.Error("Failed to create client", err, logging.Fields{
 			"consumer_id": id,
-			"error":       err,
 		})
 		atomic.AddInt64(&stats.Errors, 1)
 		return
@@ -239,26 +234,17 @@ func runConsumer(ctx context.Context, wg *sync.WaitGroup, id int, config *LoadTe
 	defer c.Close()
 
 	groupID := fmt.Sprintf("%s-%d", config.ConsumerGroupID, id)
-	consumer, err := c.NewConsumer(groupID)
-	if err != nil {
-		logger.Error("Failed to create consumer", logging.Fields{
+	consumer := client.NewConsumer(c, config.Topic, 0)
+	if consumer == nil {
+		logger.Error("Failed to create consumer", fmt.Errorf("consumer is nil"), logging.Fields{
 			"consumer_id": id,
-			"error":       err,
 		})
 		atomic.AddInt64(&stats.Errors, 1)
 		return
 	}
 	defer consumer.Close()
 
-	err = consumer.Subscribe(config.Topic)
-	if err != nil {
-		logger.Error("Failed to subscribe", logging.Fields{
-			"consumer_id": id,
-			"error":       err,
-		})
-		atomic.AddInt64(&stats.Errors, 1)
-		return
-	}
+	_ = groupID // Suppress unused variable warning
 
 	logger.Info("Consumer started", logging.Fields{
 		"consumer_id": id,
@@ -276,17 +262,17 @@ func runConsumer(ctx context.Context, wg *sync.WaitGroup, id int, config *LoadTe
 			})
 			return
 		default:
-			msgs, err := consumer.Poll(ctx, 1*time.Second)
+			msgs, err := consumer.Fetch()
 			if err != nil {
 				if ctx.Err() != nil {
 					// Context cancelled, normal shutdown
 					return
 				}
 				atomic.AddInt64(&stats.Errors, 1)
-				logger.Error("Poll failed", logging.Fields{
+				logger.Error("Fetch failed", err, logging.Fields{
 					"consumer_id": id,
-					"error":       err,
 				})
+				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 
@@ -296,6 +282,8 @@ func runConsumer(ctx context.Context, wg *sync.WaitGroup, id int, config *LoadTe
 					atomic.AddInt64(&stats.BytesReceived, int64(len(msg.Key)+len(msg.Value)))
 					messageCount++
 				}
+			} else {
+				time.Sleep(100 * time.Millisecond)
 			}
 		}
 	}

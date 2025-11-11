@@ -158,6 +158,7 @@ func (l *logImpl) Read(offset Offset, maxBytes int) ([]*Message, error) {
 
 		if found {
 			msg := l.deserializeMessage(value)
+			msg.Offset = currentOffset
 			messages = append(messages, msg)
 			bytesRead += len(msg.Value) + len(msg.Key)
 			currentOffset++
@@ -504,42 +505,73 @@ func (l *logImpl) recover() error {
 	}
 
 	// Calculate how many messages we should try to recover
-	// Estimate ~1KB per message average, so for 1MB memtable, recover ~1000 messages
-	maxToRecover := Offset(1000)
+	// We want to fill the memtable as much as possible to avoid WAL lookups
+	// Default memtable size is 64MB, estimate ~2KB per message average
+	maxMemTableSize := l.config.MemTable.MaxSize
+	if maxMemTableSize == 0 {
+		maxMemTableSize = 64 * 1024 * 1024 // Default 64MB
+	}
+
+	// Estimate we can fit roughly maxMemTableSize/2KB messages
+	// But cap at all available messages
+	estimatedCapacity := Offset(maxMemTableSize / 2048)
+	maxToRecover := estimatedCapacity
+	if nextOffset < estimatedCapacity {
+		maxToRecover = nextOffset
+	}
+
 	startOffset := nextOffset - maxToRecover
 	if startOffset < 0 {
 		startOffset = 0
 	}
 
-	fmt.Printf("[RECOVERY] Recovering messages from offset %d to %d\n", startOffset, nextOffset)
+	fmt.Printf("[RECOVERY] Recovering messages from offset %d to %d (memtable size: %d bytes)\n",
+		startOffset, nextOffset, maxMemTableSize)
 
 	recovered := 0
+	skipped := 0
+	totalSize := int64(0)
+
 	for offset := Offset(startOffset); offset < nextOffset; offset++ {
 		// Try to read from WAL
 		walData, err := l.wal.Read(offset)
 		if err != nil {
 			// Skip missing offsets (could be truncated or not exist)
+			skipped++
 			continue
+		}
+
+		// Check if we're approaching memtable size limit
+		messageSize := int64(len(walData))
+		if totalSize+messageSize >= maxMemTableSize && recovered > 0 {
+			// We've filled the memtable, but let's try to rotate and continue
+			fmt.Printf("[RECOVERY] Memtable full at offset %d (size: %d bytes, %d messages), rotating...\n",
+				offset, totalSize, recovered)
+			l.rotateMemTable()
+
+			// Check if we can continue with more immutable memtables
+			if len(l.immutableMemTables) >= l.config.MemTable.NumImmutable {
+				fmt.Printf("[RECOVERY] Max immutable memtables reached (%d), stopping recovery\n",
+					l.config.MemTable.NumImmutable)
+				break
+			}
+
+			// Reset counters for new memtable
+			totalSize = 0
 		}
 
 		// Add to active memtable
 		key := offsetToKey(offset)
 		if err := l.activeMemTable.Put(key, walData); err != nil {
-			// If we can't add to memtable, it might be full - that's ok
-			// The WAL fallback will still work
 			fmt.Printf("[RECOVERY] Memtable put failed at offset %d: %v\n", offset, err)
 			break
 		}
 		recovered++
-
-		// Check if we need to rotate memtable during recovery
-		if l.activeMemTable.Size() >= l.config.MemTable.MaxSize {
-			// Memtable is full, stop recovering
-			fmt.Printf("[RECOVERY] Memtable full after %d messages\n", recovered)
-			break
-		}
+		totalSize += messageSize
 	}
 
-	fmt.Printf("[RECOVERY] Recovery complete: recovered %d messages to memtable\n", recovered)
+	fmt.Printf("[RECOVERY] Recovery complete: recovered %d messages (skipped %d), total size: %d bytes\n",
+		recovered, skipped, totalSize)
+	fmt.Printf("[RECOVERY] Memtables: 1 active + %d immutable\n", len(l.immutableMemTables))
 	return nil
 }
