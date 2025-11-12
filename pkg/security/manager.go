@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/shawntherrien/streambus/pkg/logging"
+	"github.com/gstreamio/streambus/pkg/logging"
 )
 
 // Manager manages all security components

@@ -7,7 +7,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/shawntherrien/streambus/pkg/storage"
+	"github.com/gstreamio/streambus/pkg/logger"
+	"github.com/gstreamio/streambus/pkg/storage"
+	"go.uber.org/zap"
 )
 
 // TopicManager manages topics and their partitions
@@ -50,15 +52,15 @@ func NewTopicManager(dataDir string) *TopicManager {
 
 // loadExistingTopics scans the storage directory for existing topics
 func (tm *TopicManager) loadExistingTopics() error {
-	fmt.Printf("[TOPIC-LOAD] Scanning storage directory: %s\n", tm.storageDir)
+	logger.Debug("scanning storage directory", zap.String("dir", tm.storageDir))
 	entries, err := os.ReadDir(tm.storageDir)
 	if err != nil {
 		// Directory might not exist on first run
-		fmt.Printf("[TOPIC-LOAD] Storage directory doesn't exist or can't be read: %v\n", err)
+		logger.Debug("storage directory doesn't exist or can't be read", zap.Error(err))
 		return nil
 	}
 
-	fmt.Printf("[TOPIC-LOAD] Found %d entries in storage directory\n", len(entries))
+	logger.Debug("found entries in storage directory", zap.Int("count", len(entries)))
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -67,7 +69,7 @@ func (tm *TopicManager) loadExistingTopics() error {
 
 		topicName := entry.Name()
 		topicDir := filepath.Join(tm.storageDir, topicName)
-		fmt.Printf("[TOPIC-LOAD] Loading topic: %s from %s\n", topicName, topicDir)
+		logger.Debug("loading topic", zap.String("topic", topicName), zap.String("dir", topicDir))
 
 		// Count partitions by looking for partition directories
 		partitionEntries, err := os.ReadDir(topicDir)
@@ -93,15 +95,19 @@ func (tm *TopicManager) loadExistingTopics() error {
 
 			// Load the partition with storage recovery
 			partitionDir := filepath.Join(topicDir, partEntry.Name())
-			fmt.Printf("[TOPIC-LOAD] Creating log for partition %d at %s\n", partitionID, partitionDir)
+			logger.Debug("creating log for partition",
+				zap.Uint32("partition", partitionID),
+				zap.String("dir", partitionDir))
 			config := storage.DefaultConfig()
 			log, err := storage.NewLog(partitionDir, *config)
 			if err != nil {
-				fmt.Printf("[TOPIC-LOAD] Failed to create log for partition %d: %v\n", partitionID, err)
+				logger.Warn("failed to create log for partition",
+					zap.Uint32("partition", partitionID),
+					zap.Error(err))
 				continue
 			}
 
-			fmt.Printf("[TOPIC-LOAD] Successfully loaded partition %d\n", partitionID)
+			logger.Debug("successfully loaded partition", zap.Uint32("partition", partitionID))
 			topic.partitions[partitionID] = &Partition{
 				id:  partitionID,
 				log: log,
@@ -110,17 +116,15 @@ func (tm *TopicManager) loadExistingTopics() error {
 
 		if len(topic.partitions) > 0 {
 			tm.topics[topicName] = topic
-			fmt.Printf("[TOPIC-LOAD] Successfully registered topic '%s' with %d partitions\n", topicName, len(topic.partitions))
+			logger.Info("registered topic",
+				zap.String("topic", topicName),
+				zap.Int("partitions", len(topic.partitions)))
 		} else {
-			fmt.Printf("[TOPIC-LOAD] Skipping topic '%s' - no partitions loaded\n", topicName)
+			logger.Debug("skipping topic - no partitions loaded", zap.String("topic", topicName))
 		}
 	}
 
-	fmt.Printf("[TOPIC-LOAD] Loading complete. Total topics loaded: %d\n", len(tm.topics))
-	for name := range tm.topics {
-		fmt.Printf("[TOPIC-LOAD]   - %s\n", name)
-	}
-
+	logger.Info("topic loading complete", zap.Int("totalTopics", len(tm.topics)))
 	return nil
 }
 
@@ -233,13 +237,11 @@ func (tm *TopicManager) TopicExists(name string) bool {
 	defer tm.mu.RUnlock()
 	_, exists := tm.topics[name]
 
-	fmt.Printf("[TOPIC-EXISTS] Checking for topic '%s': exists=%v (total topics: %d)\n", name, exists, len(tm.topics))
-	if !exists && len(tm.topics) > 0 {
-		fmt.Printf("[TOPIC-EXISTS] Available topics:\n")
-		for topicName := range tm.topics {
-			fmt.Printf("[TOPIC-EXISTS]   - %s\n", topicName)
-		}
-	}
+	// Only log at debug level to avoid flooding
+	logger.Debug("topic existence check",
+		zap.String("topic", name),
+		zap.Bool("exists", exists),
+		zap.Int("totalTopics", len(tm.topics)))
 
 	return exists
 }

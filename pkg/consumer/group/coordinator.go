@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/logging"
+	"github.com/gstreamio/streambus/pkg/logging"
 )
 
 // GroupCoordinator manages consumer groups

@@ -8,19 +8,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/cluster"
-	"github.com/shawntherrien/streambus/pkg/consensus"
-	"github.com/shawntherrien/streambus/pkg/consumer/group"
-	"github.com/shawntherrien/streambus/pkg/health"
-	"github.com/shawntherrien/streambus/pkg/logging"
-	"github.com/shawntherrien/streambus/pkg/metadata"
-	"github.com/shawntherrien/streambus/pkg/metrics"
-	"github.com/shawntherrien/streambus/pkg/schema"
-	"github.com/shawntherrien/streambus/pkg/security"
-	"github.com/shawntherrien/streambus/pkg/server"
-	"github.com/shawntherrien/streambus/pkg/storage"
-	"github.com/shawntherrien/streambus/pkg/tenancy"
-	"github.com/shawntherrien/streambus/pkg/transaction"
+	"github.com/gstreamio/streambus/pkg/cluster"
+	"github.com/gstreamio/streambus/pkg/consensus"
+	"github.com/gstreamio/streambus/pkg/consumer/group"
+	"github.com/gstreamio/streambus/pkg/health"
+	"github.com/gstreamio/streambus/pkg/logging"
+	"github.com/gstreamio/streambus/pkg/metadata"
+	"github.com/gstreamio/streambus/pkg/metrics"
+	"github.com/gstreamio/streambus/pkg/schema"
+	"github.com/gstreamio/streambus/pkg/security"
+	"github.com/gstreamio/streambus/pkg/server"
+	"github.com/gstreamio/streambus/pkg/storage"
+	"github.com/gstreamio/streambus/pkg/tenancy"
+	"github.com/gstreamio/streambus/pkg/transaction"
 )
 
 // Config holds broker configuration
@@ -706,6 +706,28 @@ func (b *Broker) initObservability() error {
 	})
 
 	return nil
+}
+
+// IsReady returns true if the broker is ready to accept requests
+func (b *Broker) IsReady() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.status == StatusRunning
+}
+
+// IsAlive returns true if the broker is alive (not stopped)
+func (b *Broker) IsAlive() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.status != StatusStopped
+}
+
+// IsLeader returns true if this broker is the Raft leader
+func (b *Broker) IsLeader() bool {
+	if b.raftNode == nil {
+		return false
+	}
+	return b.raftNode.IsLeader()
 }
 
 // validateConfig validates broker configuration

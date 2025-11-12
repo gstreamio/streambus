@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/consensus"
-	"github.com/shawntherrien/streambus/pkg/logging"
-	"github.com/shawntherrien/streambus/pkg/security"
-	"github.com/shawntherrien/streambus/pkg/tenancy"
+	"github.com/gstreamio/streambus/pkg/consensus"
+	"github.com/gstreamio/streambus/pkg/logging"
+	"github.com/gstreamio/streambus/pkg/security"
+	"github.com/gstreamio/streambus/pkg/tenancy"
 )
 
 func newTestLogger() *logging.Logger {

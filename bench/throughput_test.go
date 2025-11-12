@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/client"
-	"github.com/shawntherrien/streambus/pkg/storage"
+	"github.com/gstreamio/streambus/pkg/client"
+	"github.com/gstreamio/streambus/pkg/storage"
 )
 
 // BenchmarkE2E_ProducerThroughput measures end-to-end producer throughput

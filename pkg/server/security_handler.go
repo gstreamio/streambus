@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/shawntherrien/streambus/pkg/protocol"
-	"github.com/shawntherrien/streambus/pkg/security"
+	"github.com/gstreamio/streambus/pkg/protocol"
+	"github.com/gstreamio/streambus/pkg/security"
 )
 
 // SecurityHandler wraps a handler with authentication and authorization

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/client"
+	"github.com/gstreamio/streambus/pkg/client"
 )
 
 // StreamHandler handles the replication stream for a single link

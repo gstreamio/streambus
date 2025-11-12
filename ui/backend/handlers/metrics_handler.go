@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/shawntherrien/streambus/ui/backend/services"
+	"github.com/gstreamio/streambus/ui/backend/services"
 )
 
 // MetricsHandler handles metrics requests

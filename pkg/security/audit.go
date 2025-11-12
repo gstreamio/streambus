@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/logging"
+	"github.com/gstreamio/streambus/pkg/logging"
 )
 
 // FileAuditLogger logs audit events to a file

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/shawntherrien/streambus/pkg/broker"
-	"github.com/shawntherrien/streambus/pkg/consensus"
+	"github.com/gstreamio/streambus/pkg/broker"
+	"github.com/gstreamio/streambus/pkg/consensus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
