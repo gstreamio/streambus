@@ -8,8 +8,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/client"
-	"github.com/shawntherrien/streambus/pkg/protocol"
+	"github.com/gstreamio/streambus/pkg/client"
+	"github.com/gstreamio/streambus/pkg/protocol"
 	"github.com/spf13/cobra"
 )
 

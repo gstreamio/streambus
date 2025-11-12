@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+
+	"github.com/gstreamio/streambus/pkg/logger"
+	"go.uber.org/zap"
 )
 
 // logImpl implements the Log interface
@@ -117,15 +120,24 @@ func (l *logImpl) Read(offset Offset, maxBytes int) ([]*Message, error) {
 
 	logStart := Offset(atomic.LoadInt64(&l.logStartOffset))
 	hwm := Offset(atomic.LoadInt64(&l.highWaterMark))
-	fmt.Printf("Read: offset=%d logStart=%d highWaterMark=%d\n", offset, logStart, hwm)
+
+	// Log at debug level for troubleshooting
+	logger.Debug("read request",
+		zap.Int64("offset", int64(offset)),
+		zap.Int64("logStart", int64(logStart)),
+		zap.Int64("highWaterMark", int64(hwm)))
 
 	if offset < logStart {
-		fmt.Printf("  -> ErrOffsetOutOfRange: offset < logStart\n")
+		logger.Debug("offset out of range: offset < logStart",
+			zap.Int64("offset", int64(offset)),
+			zap.Int64("logStart", int64(logStart)))
 		return nil, ErrOffsetOutOfRange
 	}
 
 	if offset >= hwm {
-		fmt.Printf("  -> ErrOffsetOutOfRange: offset >= highWaterMark\n")
+		logger.Debug("offset out of range: offset >= highWaterMark",
+			zap.Int64("offset", int64(offset)),
+			zap.Int64("highWaterMark", int64(hwm)))
 		return nil, ErrOffsetOutOfRange
 	}
 
@@ -164,17 +176,17 @@ func (l *logImpl) Read(offset Offset, maxBytes int) ([]*Message, error) {
 			currentOffset++
 		} else {
 			// Not in memtable, try reading from WAL
-			fmt.Printf("  -> offset %d not in memtable, trying WAL...\n", currentOffset)
+			logger.Debug("offset not in memtable, trying WAL", zap.Int64("offset", int64(currentOffset)))
 			walData, err := l.wal.Read(currentOffset)
 			if err != nil {
 				// If not in WAL either, skip this offset
-				fmt.Printf("  -> WAL read error for offset %d: %v\n", currentOffset, err)
+				logger.Debug("WAL read error", zap.Int64("offset", int64(currentOffset)), zap.Error(err))
 				currentOffset++
 				continue
 			}
 
 			// Deserialize the message from WAL
-			fmt.Printf("  -> Found in WAL: %d bytes\n", len(walData))
+			logger.Debug("found in WAL", zap.Int64("offset", int64(currentOffset)), zap.Int("bytes", len(walData)))
 			msg := l.deserializeMessage(walData)
 			msg.Offset = currentOffset
 			messages = append(messages, msg)
@@ -487,7 +499,7 @@ func (l *logImpl) recover() error {
 	// Get the current offset from WAL
 	nextOffset := l.wal.NextOffset()
 
-	fmt.Printf("[RECOVERY] Starting recovery: nextOffset=%d\n", nextOffset)
+	logger.Info("starting recovery", zap.Int64("nextOffset", int64(nextOffset)))
 
 	// Set our offsets based on WAL state
 	atomic.StoreInt64(&l.nextOffset, int64(nextOffset))
@@ -500,7 +512,7 @@ func (l *logImpl) recover() error {
 
 	if nextOffset == 0 {
 		// No data to recover
-		fmt.Printf("[RECOVERY] No data to recover (nextOffset=0)\n")
+		logger.Debug("no data to recover")
 		return nil
 	}
 
@@ -525,8 +537,10 @@ func (l *logImpl) recover() error {
 		startOffset = 0
 	}
 
-	fmt.Printf("[RECOVERY] Recovering messages from offset %d to %d (memtable size: %d bytes)\n",
-		startOffset, nextOffset, maxMemTableSize)
+	logger.Info("recovering messages from WAL",
+		zap.Int64("startOffset", int64(startOffset)),
+		zap.Int64("endOffset", int64(nextOffset)),
+		zap.Int64("memTableSize", maxMemTableSize))
 
 	recovered := 0
 	skipped := 0
@@ -545,14 +559,16 @@ func (l *logImpl) recover() error {
 		messageSize := int64(len(walData))
 		if totalSize+messageSize >= maxMemTableSize && recovered > 0 {
 			// We've filled the memtable, but let's try to rotate and continue
-			fmt.Printf("[RECOVERY] Memtable full at offset %d (size: %d bytes, %d messages), rotating...\n",
-				offset, totalSize, recovered)
+			logger.Debug("memtable full, rotating",
+				zap.Int64("offset", int64(offset)),
+				zap.Int64("size", totalSize),
+				zap.Int("messages", recovered))
 			l.rotateMemTable()
 
 			// Check if we can continue with more immutable memtables
 			if len(l.immutableMemTables) >= l.config.MemTable.NumImmutable {
-				fmt.Printf("[RECOVERY] Max immutable memtables reached (%d), stopping recovery\n",
-					l.config.MemTable.NumImmutable)
+				logger.Debug("max immutable memtables reached, stopping recovery",
+					zap.Int("maxImmutable", l.config.MemTable.NumImmutable))
 				break
 			}
 
@@ -563,15 +579,20 @@ func (l *logImpl) recover() error {
 		// Add to active memtable
 		key := offsetToKey(offset)
 		if err := l.activeMemTable.Put(key, walData); err != nil {
-			fmt.Printf("[RECOVERY] Memtable put failed at offset %d: %v\n", offset, err)
+			logger.Warn("memtable put failed during recovery",
+				zap.Int64("offset", int64(offset)),
+				zap.Error(err))
 			break
 		}
 		recovered++
 		totalSize += messageSize
 	}
 
-	fmt.Printf("[RECOVERY] Recovery complete: recovered %d messages (skipped %d), total size: %d bytes\n",
-		recovered, skipped, totalSize)
-	fmt.Printf("[RECOVERY] Memtables: 1 active + %d immutable\n", len(l.immutableMemTables))
+	logger.Info("recovery complete",
+		zap.Int("recovered", recovered),
+		zap.Int("skipped", skipped),
+		zap.Int64("totalSize", totalSize),
+		zap.Int("activeMemtables", 1),
+		zap.Int("immutableMemtables", len(l.immutableMemTables)))
 	return nil
 }

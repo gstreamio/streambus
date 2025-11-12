@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/logging"
-	"github.com/shawntherrien/streambus/pkg/metadata"
-	"github.com/shawntherrien/streambus/pkg/security"
+	"github.com/gstreamio/streambus/pkg/logging"
+	"github.com/gstreamio/streambus/pkg/metadata"
+	"github.com/gstreamio/streambus/pkg/security"
 )
 
 // registerAdminAPI registers admin management HTTP endpoints

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/protocol"
+	"github.com/gstreamio/streambus/pkg/protocol"
 )
 
 func TestServer_StartStop(t *testing.T) {

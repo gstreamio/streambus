@@ -12,8 +12,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	streambusv1alpha1 "github.com/shawntherrien/streambus/deploy/kubernetes/operator/api/v1alpha1"
-	"github.com/shawntherrien/streambus/deploy/kubernetes/operator/controllers"
+	streambusv1alpha1 "github.com/gstreamio/streambus/deploy/kubernetes/operator/api/v1alpha1"
+	"github.com/gstreamio/streambus/deploy/kubernetes/operator/controllers"
 )
 
 var (

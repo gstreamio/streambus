@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/client"
+	"github.com/gstreamio/streambus/pkg/client"
 )
 
 // BenchmarkE2E_ProduceLatency measures end-to-end produce latency distribution

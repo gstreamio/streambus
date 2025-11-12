@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/shawntherrien/streambus-sdk/streambus"
+	"github.com/gstreamio/streambus-sdk/streambus"
 )
 
 func main() {

@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/protocol"
-	"github.com/shawntherrien/streambus/pkg/server"
+	"github.com/gstreamio/streambus/pkg/protocol"
+	"github.com/gstreamio/streambus/pkg/server"
 )
 
 // setupTestServer creates a test server for integration tests

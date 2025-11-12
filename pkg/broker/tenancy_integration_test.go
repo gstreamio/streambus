@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/consensus"
-	"github.com/shawntherrien/streambus/pkg/tenancy"
+	"github.com/gstreamio/streambus/pkg/consensus"
+	"github.com/gstreamio/streambus/pkg/tenancy"
 )
 
 func TestMultiTenancyIntegration(t *testing.T) {

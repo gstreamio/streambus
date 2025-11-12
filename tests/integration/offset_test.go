@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/client"
-	"github.com/shawntherrien/streambus/pkg/protocol"
+	"github.com/gstreamio/streambus/pkg/client"
+	"github.com/gstreamio/streambus/pkg/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
