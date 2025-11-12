@@ -169,6 +169,12 @@ func (b *Broker) Start() error {
 		return fmt.Errorf("failed to initialize storage: %w", err)
 	}
 
+	// Initialize multi-tenancy BEFORE observability so the tenancy manager
+	// exists when HTTP API routes are registered
+	if err := b.initTenancy(); err != nil {
+		return fmt.Errorf("failed to initialize multi-tenancy: %w", err)
+	}
+
 	// Start observability (HTTP/health endpoints) early so Docker health checks work
 	// This must happen before initCluster() which may block waiting for Raft consensus
 	if err := b.initObservability(); err != nil {
@@ -197,10 +203,6 @@ func (b *Broker) Start() error {
 
 	if err := b.initSecurity(); err != nil {
 		return fmt.Errorf("failed to initialize security: %w", err)
-	}
-
-	if err := b.initTenancy(); err != nil {
-		return fmt.Errorf("failed to initialize multi-tenancy: %w", err)
 	}
 
 	if err := b.initServer(); err != nil {

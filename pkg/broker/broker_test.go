@@ -635,3 +635,98 @@ func TestBroker_UpdateTenantStorageUsage_EmptyTenantsList(t *testing.T) {
 	// Should not panic with empty tenant list
 	broker.updateTenantStorageUsage()
 }
+func TestBroker_IsReady(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	broker := &Broker{
+		ctx:    ctx,
+		cancel: cancel,
+		logger: newTestLogger(),
+		status: StatusStarting,
+	}
+
+	// Initially not ready (StatusStarting)
+	if broker.IsReady() {
+		t.Error("Broker should not be ready when status is StatusStarting")
+	}
+
+	// Set to running
+	broker.mu.Lock()
+	broker.status = StatusRunning
+	broker.mu.Unlock()
+
+	if !broker.IsReady() {
+		t.Error("Broker should be ready when status is StatusRunning")
+	}
+
+	// Set to stopping
+	broker.mu.Lock()
+	broker.status = StatusStopping
+	broker.mu.Unlock()
+
+	if broker.IsReady() {
+		t.Error("Broker should not be ready when status is StatusStopping")
+	}
+}
+
+func TestBroker_IsAlive(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	broker := &Broker{
+		ctx:    ctx,
+		cancel: cancel,
+		logger: newTestLogger(),
+		status: StatusStarting,
+	}
+
+	// Alive in starting state
+	if !broker.IsAlive() {
+		t.Error("Broker should be alive when status is StatusStarting")
+	}
+
+	// Alive in running state
+	broker.mu.Lock()
+	broker.status = StatusRunning
+	broker.mu.Unlock()
+
+	if !broker.IsAlive() {
+		t.Error("Broker should be alive when status is StatusRunning")
+	}
+
+	// Alive in stopping state
+	broker.mu.Lock()
+	broker.status = StatusStopping
+	broker.mu.Unlock()
+
+	if !broker.IsAlive() {
+		t.Error("Broker should be alive when status is StatusStopping")
+	}
+
+	// Not alive when stopped
+	broker.mu.Lock()
+	broker.status = StatusStopped
+	broker.mu.Unlock()
+
+	if broker.IsAlive() {
+		t.Error("Broker should not be alive when status is StatusStopped")
+	}
+}
+
+func TestBroker_IsLeader_NoRaftNode(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	broker := &Broker{
+		ctx:      ctx,
+		cancel:   cancel,
+		logger:   newTestLogger(),
+		raftNode: nil,
+	}
+
+	// Should return false when raft node is nil
+	if broker.IsLeader() {
+		t.Error("Broker should not be leader when raft node is nil")
+	}
+}
