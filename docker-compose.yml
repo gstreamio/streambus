@@ -34,7 +34,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 30s  # Increased from 10s - allows broker to fully initialize
 
   # StreamBus Broker Node 2
   broker2:
@@ -74,7 +74,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 30s  # Increased from 10s - allows broker to fully initialize
 
   # StreamBus Broker Node 3
   broker3:
@@ -116,7 +116,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 30s  # Increased from 10s - allows broker to fully initialize
 
   # Prometheus for metrics
   prometheus:
