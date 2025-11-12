@@ -7,8 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gstreamio/streambus/pkg/logger"
 	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
+	"go.uber.org/zap"
 )
 
 // RaftNode wraps etcd/raft and implements the Node interface.
@@ -267,7 +269,13 @@ func (rn *RaftNode) run() {
 			// Send messages to other nodes
 			for _, msg := range rd.Messages {
 				if err := rn.transport.Send(msg); err != nil {
-					log.Printf("[Node %d] Failed to send message to %d: %v", rn.config.NodeID, msg.To, err)
+					// Log at debug level - these are expected during node restarts
+					// The transport layer already logs connection attempts with backoff
+					logger.Debug("failed to send raft message",
+						zap.Uint64("from", rn.config.NodeID),
+						zap.Uint64("to", msg.To),
+						zap.String("type", msg.Type.String()),
+						zap.Error(err))
 				}
 			}
 
