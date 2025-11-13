@@ -133,8 +133,17 @@ func (tm *TopicManager) CreateTopic(name string, numPartitions uint32) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
-	if _, exists := tm.topics[name]; exists {
-		// Topic already loaded, nothing to do
+	if existing, exists := tm.topics[name]; exists {
+		// Check if partition count matches
+		existing.mu.RLock()
+		existingPartitions := uint32(len(existing.partitions))
+		existing.mu.RUnlock()
+
+		if existingPartitions != numPartitions {
+			return fmt.Errorf("topic %s already exists with %d partitions, cannot recreate with %d partitions",
+				name, existingPartitions, numPartitions)
+		}
+		// Topic exists with same partition count - idempotent operation
 		return nil
 	}
 
