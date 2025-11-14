@@ -278,6 +278,7 @@ const (
 )
 
 func createWALSegment(path string, baseOffset Offset) (*walSegment, error) {
+	// #nosec G304 -- path is internal WAL segment path, not user-supplied input
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0600)
 	if err != nil {
 		return nil, err
@@ -304,6 +305,7 @@ func createWALSegment(path string, baseOffset Offset) (*walSegment, error) {
 }
 
 func openWALSegment(path string) (*walSegment, error) {
+	// #nosec G304 -- path is internal WAL segment path, not user-supplied input
 	file, err := os.OpenFile(path, os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err
