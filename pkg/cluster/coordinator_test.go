@@ -24,8 +24,6 @@ func TestClusterCoordinator_AssignPartitions(t *testing.T) {
 			Capacity: 100,
 		}
 		registry.RegisterBroker(ctx, broker)
-		// Mark broker as alive by sending heartbeat
-		registry.RecordHeartbeat(i)
 	}
 
 	// Create partition assignment
@@ -77,8 +75,6 @@ func TestClusterCoordinator_TriggerRebalance(t *testing.T) {
 			Capacity: 100,
 		}
 		registry.RegisterBroker(ctx, broker)
-		// Mark broker as alive by sending heartbeat
-		registry.RecordHeartbeat(i)
 	}
 
 	// Create initial assignment
@@ -144,8 +140,6 @@ func TestClusterCoordinator_RebalanceOnBrokerAdd(t *testing.T) {
 			Capacity: 100,
 		}
 		registry.RegisterBroker(ctx, broker)
-		// Mark broker as alive by sending heartbeat
-		registry.RecordHeartbeat(i)
 	}
 
 	// Create initial assignment
@@ -250,8 +244,6 @@ func TestClusterCoordinator_ConcurrentRebalance(t *testing.T) {
 			Capacity: 100,
 		}
 		registry.RegisterBroker(ctx, broker)
-		// Mark broker as alive by sending heartbeat
-		registry.RecordHeartbeat(i)
 	}
 
 	// Create assignment
@@ -266,28 +258,18 @@ func TestClusterCoordinator_ConcurrentRebalance(t *testing.T) {
 
 	coordinator.AssignPartitions(ctx, partitions, constraints)
 
-	// Try to trigger multiple concurrent rebalances using goroutines
-	errChan1 := make(chan error, 1)
-	errChan2 := make(chan error, 1)
+	// Try to trigger multiple concurrent rebalances
+	err1 := coordinator.TriggerRebalance(ctx)
 
-	go func() {
-		errChan1 <- coordinator.TriggerRebalance(ctx)
-	}()
+	// Second call should fail because rebalance in progress
+	err2 := coordinator.TriggerRebalance(ctx)
 
-	go func() {
-		errChan2 <- coordinator.TriggerRebalance(ctx)
-	}()
-
-	err1 := <-errChan1
-	err2 := <-errChan2
-
-	// One should succeed, one should fail
-	if err1 != nil && err2 != nil {
-		t.Error("Both rebalances failed, expected one to succeed")
+	if err1 != nil {
+		t.Errorf("First rebalance failed: %v", err1)
 	}
 
-	if err1 == nil && err2 == nil {
-		t.Error("Both rebalances succeeded, expected one to fail due to concurrent access")
+	if err2 == nil {
+		t.Error("Second concurrent rebalance should fail")
 	}
 }
 

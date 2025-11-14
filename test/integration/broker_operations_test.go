@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/broker"
-	"github.com/gstreamio/streambus/pkg/client"
-	"github.com/gstreamio/streambus/pkg/consensus"
+	"github.com/shawntherrien/streambus/pkg/broker"
+	"github.com/shawntherrien/streambus/pkg/client"
+	"github.com/shawntherrien/streambus/pkg/consensus"
 )
 
 // TestBrokerOperations tests complete broker lifecycle and operations

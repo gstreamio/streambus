@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/client"
-	"github.com/gstreamio/streambus/pkg/logging"
+	"github.com/shawntherrien/streambus/pkg/client"
+	"github.com/shawntherrien/streambus/pkg/logging"
 )
 
 type LoadTestConfig struct {
@@ -379,7 +379,7 @@ func printFinalStats(stats *LoadTestStats, config *LoadTestConfig, logger *loggi
 	fmt.Printf("Send Throughput:       %.2f MB/s\n", sendThroughput)
 	fmt.Printf("Receive Throughput:    %.2f MB/s\n", receiveThroughput)
 	fmt.Printf("Average Latency:       %.2f ms\n", avgLatency)
-	fmt.Println("========================================")
+	fmt.Println("========================================\n")
 
 	logger.Info("Load test completed", logging.Fields{
 		"total_sent":       sent,

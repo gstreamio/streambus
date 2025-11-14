@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/client"
-	"github.com/gstreamio/streambus/pkg/protocol"
+	"github.com/shawntherrien/streambus/pkg/client"
+	"github.com/shawntherrien/streambus/pkg/protocol"
 )
 
 // Consumer provides a simple interface for consuming messages

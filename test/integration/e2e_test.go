@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/cluster"
-	"github.com/gstreamio/streambus/pkg/consensus"
-	"github.com/gstreamio/streambus/pkg/metadata"
+	"github.com/shawntherrien/streambus/pkg/cluster"
+	"github.com/shawntherrien/streambus/pkg/consensus"
+	"github.com/shawntherrien/streambus/pkg/metadata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

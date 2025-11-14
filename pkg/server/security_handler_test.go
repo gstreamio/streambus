@@ -5,9 +5,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/gstreamio/streambus/pkg/logging"
-	"github.com/gstreamio/streambus/pkg/protocol"
-	"github.com/gstreamio/streambus/pkg/security"
+	"github.com/shawntherrien/streambus/pkg/logging"
+	"github.com/shawntherrien/streambus/pkg/protocol"
+	"github.com/shawntherrien/streambus/pkg/security"
 )
 
 // newTestLogger creates a test logger

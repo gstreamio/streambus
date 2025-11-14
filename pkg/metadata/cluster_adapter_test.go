@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/cluster"
+	"github.com/shawntherrien/streambus/pkg/cluster"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

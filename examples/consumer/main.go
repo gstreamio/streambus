@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/client"
+	"github.com/shawntherrien/streambus/pkg/client"
 )
 
 func main() {

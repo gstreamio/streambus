@@ -8,9 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/logger"
 	"go.etcd.io/raft/v3/raftpb"
-	"go.uber.org/zap"
 )
 
 // MessageHandler is a callback function that handles incoming Raft messages.
@@ -39,12 +37,6 @@ type bidirPeer struct {
 	lastUsed time.Time
 	sendCh   chan raftpb.Message
 	stopCh   chan struct{}
-
-	// Exponential backoff for connection retries
-	backoff *Backoff
-
-	// Circuit breaker to avoid hammering dead nodes
-	circuitBreaker *CircuitBreaker
 }
 
 // NewBidirectionalTransport creates a new bidirectional transport.
@@ -130,12 +122,10 @@ func (t *BidirectionalTransport) AddPeer(nodeID uint64, addr string) error {
 	}
 
 	peer := &bidirPeer{
-		id:             nodeID,
-		addr:           addr,
-		sendCh:         make(chan raftpb.Message, 256),
-		stopCh:         make(chan struct{}),
-		backoff:        NewBackoff(),
-		circuitBreaker: NewCircuitBreaker(),
+		id:     nodeID,
+		addr:   addr,
+		sendCh: make(chan raftpb.Message, 256),
+		stopCh: make(chan struct{}),
 	}
 
 	t.peers[nodeID] = peer
@@ -158,7 +148,6 @@ func (t *BidirectionalTransport) RemovePeer(nodeID uint64) error {
 }
 
 // ensureConnected ensures a connection to the peer exists.
-// Implements industry-standard exponential backoff and circuit breaker pattern.
 func (t *BidirectionalTransport) ensureConnected(peer *bidirPeer) error {
 	peer.mu.RLock()
 	if peer.conn != nil {
@@ -166,14 +155,6 @@ func (t *BidirectionalTransport) ensureConnected(peer *bidirPeer) error {
 		return nil
 	}
 	peer.mu.RUnlock()
-
-	// Check circuit breaker before attempting connection
-	if !peer.circuitBreaker.Call() {
-		logger.Debug("circuit breaker open, skipping connection attempt",
-			zap.Uint64("peerId", peer.id),
-			zap.String("addr", peer.addr))
-		return fmt.Errorf("circuit breaker open for peer %d", peer.id)
-	}
 
 	peer.mu.Lock()
 	defer peer.mu.Unlock()
@@ -183,57 +164,24 @@ func (t *BidirectionalTransport) ensureConnected(peer *bidirPeer) error {
 		return nil
 	}
 
-	// Apply exponential backoff before connection attempt
-	// This prevents hammering the peer during restarts
-	backoffDuration := peer.backoff.Next()
-	logger.Debug("applying backoff before connection attempt",
-		zap.Uint64("peerId", peer.id),
-		zap.Duration("backoff", backoffDuration))
-	time.Sleep(backoffDuration)
-
 	// Try to establish connection
+	// Note: Both nodes can initiate connections; we'll handle duplicates when accepting
+
+	// Establish new connection
 	conn, err := net.DialTimeout("tcp", peer.addr, 5*time.Second)
 	if err != nil {
-		// Record failure in circuit breaker
-		peer.circuitBreaker.RecordFailure()
-
-		// Log at debug level to avoid spam (sampled in production)
-		logger.Debug("failed to connect to peer",
-			zap.Uint64("peerId", peer.id),
-			zap.String("addr", peer.addr),
-			zap.Duration("backoff", backoffDuration),
-			zap.Int("failureCount", peer.circuitBreaker.failureCount),
-			zap.Error(err))
-
 		return fmt.Errorf("failed to connect to %s: %w", peer.addr, err)
 	}
 
 	// Send handshake: our node ID
 	if err := binary.Write(conn, binary.BigEndian, t.nodeID); err != nil {
 		conn.Close()
-		peer.circuitBreaker.RecordFailure()
-
-		logger.Debug("failed to send handshake to peer",
-			zap.Uint64("peerId", peer.id),
-			zap.String("addr", peer.addr),
-			zap.Error(err))
-
 		return fmt.Errorf("failed to send handshake: %w", err)
 	}
 
-	// Connection successful!
+	// Set connection
 	peer.conn = conn
 	peer.lastUsed = time.Now()
-
-	// Reset backoff and record success in circuit breaker
-	peer.backoff.Reset()
-	peer.circuitBreaker.RecordSuccess()
-
-	// Log success at info level (important event)
-	logger.Info("connected to raft peer",
-		zap.Uint64("nodeId", t.nodeID),
-		zap.Uint64("peerId", peer.id),
-		zap.String("addr", peer.addr))
 
 	// Start sender and receiver goroutines
 	t.wg.Add(2)

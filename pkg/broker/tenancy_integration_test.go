@@ -4,13 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"testing"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/consensus"
-	"github.com/gstreamio/streambus/pkg/tenancy"
+	"github.com/shawntherrien/streambus/pkg/consensus"
+	"github.com/shawntherrien/streambus/pkg/tenancy"
 )
 
 func TestMultiTenancyIntegration(t *testing.T) {
@@ -132,28 +131,7 @@ func testListTenants(t *testing.T, httpPort int) {
 }
 
 func testGetTenant(t *testing.T, httpPort int) {
-	// First, create a tenant to get
-	createURL := fmt.Sprintf("http://localhost:%d/api/v1/tenants", httpPort)
-	reqBody := map[string]interface{}{
-		"id":   "get-test-tenant",
-		"name": "Get Test Tenant",
-		"quotas": map[string]interface{}{
-			"MaxBytesPerSecond":    1 * 1024 * 1024,
-			"MaxMessagesPerSecond": 1000,
-			"MaxStorageBytes":      10 * 1024 * 1024 * 1024,
-			"MaxTopics":            10,
-			"MaxPartitions":        100,
-			"MaxConnections":       50,
-		},
-	}
-	jsonData, _ := json.Marshal(reqBody)
-	_, err := http.Post(createURL, "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		t.Fatalf("Failed to create tenant: %v", err)
-	}
-
-	// Now get the tenant
-	url := fmt.Sprintf("http://localhost:%d/api/v1/tenants/get-test-tenant", httpPort)
+	url := fmt.Sprintf("http://localhost:%d/api/v1/tenants/test-tenant", httpPort)
 
 	resp, err := http.Get(url)
 	if err != nil {
@@ -162,9 +140,7 @@ func testGetTenant(t *testing.T, httpPort int) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Errorf("Expected status 200, got %d. Body: %s", resp.StatusCode, string(body))
-		return
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
 	}
 
 	var tenant map[string]interface{}
@@ -172,9 +148,8 @@ func testGetTenant(t *testing.T, httpPort int) {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
 
-	// The API returns fields with capital letters (ID, Name, etc.)
-	if tenant["ID"] != "get-test-tenant" {
-		t.Errorf("Expected tenant ID 'get-test-tenant', got '%v'", tenant["ID"])
+	if tenant["id"] != "test-tenant" {
+		t.Errorf("Expected tenant ID 'test-tenant', got '%v'", tenant["id"])
 	}
 }
 

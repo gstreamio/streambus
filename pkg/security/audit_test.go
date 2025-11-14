@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/logging"
+	"github.com/shawntherrien/streambus/pkg/logging"
 )
 
 func TestNewFileAuditLogger(t *testing.T) {

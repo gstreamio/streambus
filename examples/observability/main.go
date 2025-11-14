@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/broker"
-	"github.com/gstreamio/streambus/pkg/client"
-	"github.com/gstreamio/streambus/pkg/metrics"
+	"github.com/shawntherrien/streambus/pkg/broker"
+	"github.com/shawntherrien/streambus/pkg/client"
+	"github.com/shawntherrien/streambus/pkg/metrics"
 )
 
 func main() {

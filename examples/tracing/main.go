@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/broker"
-	"github.com/gstreamio/streambus/pkg/client"
-	"github.com/gstreamio/streambus/pkg/tracing"
+	"github.com/shawntherrien/streambus/pkg/broker"
+	"github.com/shawntherrien/streambus/pkg/client"
+	"github.com/shawntherrien/streambus/pkg/tracing"
 	"go.opentelemetry.io/otel/codes"
 )
 

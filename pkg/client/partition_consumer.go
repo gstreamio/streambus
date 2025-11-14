@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/protocol"
+	"github.com/shawntherrien/streambus/pkg/protocol"
 )
 
 // PartitionConsumer is a consumer that is aware of partitions and can consume from multiple partitions

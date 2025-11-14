@@ -5,10 +5,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/logger"
-	"github.com/gstreamio/streambus/pkg/protocol"
-	"github.com/gstreamio/streambus/pkg/storage"
-	"go.uber.org/zap"
+	"github.com/shawntherrien/streambus/pkg/protocol"
+	"github.com/shawntherrien/streambus/pkg/storage"
 )
 
 // Handler handles incoming requests
@@ -41,11 +39,7 @@ func NewHandlerWithDataDir(dataDir string) *Handler {
 func (h *Handler) Handle(req *protocol.Request) *protocol.Response {
 	atomic.AddInt64(&h.requestsHandled, 1)
 
-	// Log at debug level for troubleshooting
-	logger.Debug("handling request",
-		zap.Int("type", int(req.Header.Type)),
-		zap.Uint64("requestID", req.Header.RequestID),
-		zap.String("payload", fmt.Sprintf("%T", req.Payload)))
+	fmt.Printf("Handle: type=%d requestID=%d payload=%T\n", req.Header.Type, req.Header.RequestID, req.Payload)
 
 	// Route based on request type
 	switch req.Header.Type {
@@ -134,12 +128,8 @@ func (h *Handler) handleProduce(req *protocol.Request) *protocol.Response {
 func (h *Handler) handleFetch(req *protocol.Request) *protocol.Response {
 	payload := req.Payload.(*protocol.FetchRequest)
 
-	// Log fetch request at debug level
-	logger.Debug("fetch request",
-		zap.String("topic", payload.Topic),
-		zap.Uint32("partition", payload.PartitionID),
-		zap.Int64("offset", payload.Offset),
-		zap.Uint32("maxBytes", payload.MaxBytes))
+	fmt.Printf("FETCH REQUEST: topic='%s' partition=%d offset=%d maxBytes=%d\n",
+		payload.Topic, payload.PartitionID, payload.Offset, payload.MaxBytes)
 
 	// Auto-create topic if it doesn't exist
 	if !h.topicManager.TopicExists(payload.Topic) {
@@ -159,12 +149,9 @@ func (h *Handler) handleFetch(req *protocol.Request) *protocol.Response {
 	// Read messages from log starting at offset
 	storageMessages, err := partition.log.Read(storage.Offset(payload.Offset), int(payload.MaxBytes))
 	if err != nil {
-		// Log read errors at debug level
-		logger.Debug("read error",
-			zap.String("topic", payload.Topic),
-			zap.Uint32("partition", payload.PartitionID),
-			zap.Int64("offset", payload.Offset),
-			zap.Error(err))
+		// Log the error for debugging
+		fmt.Printf("Read error for topic=%s partition=%d offset=%d: %v\n",
+			payload.Topic, payload.PartitionID, payload.Offset, err)
 		// No messages available, return empty list
 		storageMessages = []*storage.Message{}
 	}

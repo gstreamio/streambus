@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/logging"
+	"github.com/shawntherrien/streambus/pkg/logging"
 )
 
 // TransactionCoordinator manages transactional operations

@@ -6,8 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/gstreamio/streambus/pkg/protocol"
-	"github.com/gstreamio/streambus/pkg/transaction"
+	"github.com/shawntherrien/streambus/pkg/protocol"
+	"github.com/shawntherrien/streambus/pkg/transaction"
 )
 
 // IsolationLevel represents the transaction isolation level for consumers

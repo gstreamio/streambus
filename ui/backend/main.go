@@ -14,9 +14,9 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/gstreamio/streambus/ui/backend/handlers"
-	"github.com/gstreamio/streambus/ui/backend/middleware"
-	"github.com/gstreamio/streambus/ui/backend/services"
+	"github.com/shawntherrien/streambus/ui/backend/handlers"
+	"github.com/shawntherrien/streambus/ui/backend/middleware"
+	"github.com/shawntherrien/streambus/ui/backend/services"
 )
 
 var (

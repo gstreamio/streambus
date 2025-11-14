@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/cluster"
+	"github.com/shawntherrien/streambus/pkg/cluster"
 )
 
 // ClusterMetadataStore is an adapter that implements cluster.MetadataStore

@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/logging"
-	"github.com/gstreamio/streambus/pkg/replication/link"
+	"github.com/shawntherrien/streambus/pkg/logging"
+	"github.com/shawntherrien/streambus/pkg/replication/link"
 )
 
 const version = "1.0.0"

@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gstreamio/streambus/pkg/logging"
-	"github.com/gstreamio/streambus/pkg/tenancy"
+	"github.com/shawntherrien/streambus/pkg/logging"
+	"github.com/shawntherrien/streambus/pkg/tenancy"
 )
 
 // registerTenancyAPI registers tenant management HTTP endpoints

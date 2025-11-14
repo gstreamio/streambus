@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/consensus"
-	"github.com/gstreamio/streambus/pkg/metadata"
+	"github.com/shawntherrien/streambus/pkg/consensus"
+	"github.com/shawntherrien/streambus/pkg/metadata"
 )
 
 func main() {

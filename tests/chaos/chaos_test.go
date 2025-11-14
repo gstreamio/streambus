@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/client"
+	"github.com/shawntherrien/streambus/pkg/client"
 )
 
 // SimpleLogger implements the Logger interface for testing
@@ -78,7 +78,7 @@ func TestChaos_RandomLatency(t *testing.T) {
 				key := []byte(fmt.Sprintf("key-%d", messageID))
 				value := []byte(fmt.Sprintf("message-%d", messageID))
 
-				err := producer.Send(topic, key, value)
+				err := producer.Send(ctx, topic, 0, key, value)
 				if err != nil {
 					atomic.AddInt64(&errorCount, 1)
 				} else {
@@ -153,7 +153,7 @@ func TestChaos_IntermittentErrors(t *testing.T) {
 				key := []byte(fmt.Sprintf("key-%d", messageID))
 				value := []byte(fmt.Sprintf("message-%d", messageID))
 
-				err := producer.Send(topic, key, value)
+				err := producer.Send(ctx, topic, 0, key, value)
 				if err != nil {
 					atomic.AddInt64(&realErrorCount, 1)
 				} else {
@@ -226,7 +226,7 @@ func TestChaos_SlowNetwork(t *testing.T) {
 				key := []byte(fmt.Sprintf("key-%d", messageID))
 				value := []byte(fmt.Sprintf("message-%d", messageID))
 
-				err := producer.Send(topic, key, value)
+				err := producer.Send(ctx, topic, 0, key, value)
 				if err != nil {
 					atomic.AddInt64(&timeoutCount, 1)
 				} else {
@@ -311,7 +311,7 @@ func TestChaos_CombinedFaults(t *testing.T) {
 					key := []byte(fmt.Sprintf("key-%d", messageID))
 					value := []byte(fmt.Sprintf("message-%d", messageID))
 
-					err := producer.Send(topic, key, value)
+					err := producer.Send(ctx, topic, 0, key, value)
 					if err != nil {
 						atomic.AddInt64(&errorCount, 1)
 					} else {
@@ -338,7 +338,7 @@ func TestChaos_CombinedFaults(t *testing.T) {
 						continue
 					}
 
-					messages, err := consumer.Fetch()
+					messages, err := consumer.Fetch(ctx, 0, 1024*1024)
 					if err == nil {
 						atomic.AddInt64(&consumedCount, int64(len(messages)))
 					}

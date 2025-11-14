@@ -1,11 +1,12 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/client"
+	"github.com/shawntherrien/streambus/pkg/client"
 )
 
 // TestE2E_ProducerConsumerLifecycle tests the complete producer-consumer flow
@@ -34,6 +35,8 @@ func TestE2E_ProducerConsumerLifecycle(t *testing.T) {
 	}
 	defer c.Close()
 
+	ctx := context.Background()
+
 	// Step 1: Produce messages
 	t.Log("Step 1: Producing messages")
 	producer := client.NewProducer(c)
@@ -42,7 +45,7 @@ func TestE2E_ProducerConsumerLifecycle(t *testing.T) {
 		key := []byte(fmt.Sprintf("key-%d", i))
 		value := []byte(fmt.Sprintf("message-%d", i))
 
-		err := producer.Send(topic, key, value)
+		err := producer.Send(ctx, topic, 0, key, value)
 		if err != nil {
 			t.Fatalf("Failed to send message %d: %v", i, err)
 		}
@@ -62,7 +65,7 @@ func TestE2E_ProducerConsumerLifecycle(t *testing.T) {
 		case <-timeout:
 			t.Fatalf("Timeout: only consumed %d/%d messages", consumedCount, numMessages)
 		default:
-			messages, err := consumer.Fetch()
+			messages, err := consumer.Fetch(ctx, 0, 1024*1024)
 			if err != nil {
 				t.Fatalf("Failed to fetch messages: %v", err)
 			}
@@ -107,6 +110,8 @@ func TestE2E_MultiPartition(t *testing.T) {
 	}
 	defer c.Close()
 
+	ctx := context.Background()
+
 	// Create topic with multiple partitions (would need admin API)
 	// For now, assume topic exists or is auto-created
 
@@ -118,7 +123,7 @@ func TestE2E_MultiPartition(t *testing.T) {
 			key := []byte(fmt.Sprintf("part%d-key-%d", partID, i))
 			value := []byte(fmt.Sprintf("part%d-msg-%d", partID, i))
 
-			err := producer.SendToPartition(topic, uint32(partID), key, value)
+			err := producer.Send(ctx, topic, uint32(partID), key, value)
 			if err != nil {
 				t.Fatalf("Failed to send to partition %d: %v", partID, err)
 			}
@@ -138,7 +143,7 @@ func TestE2E_MultiPartition(t *testing.T) {
 			case <-timeout:
 				t.Fatalf("Timeout consuming from partition %d: got %d/%d", partID, consumed, messagesPerPartition)
 			default:
-				messages, err := consumer.Fetch()
+				messages, err := consumer.Fetch(ctx, 0, 1024*1024)
 				if err != nil {
 					t.Fatalf("Fetch failed for partition %d: %v", partID, err)
 				}
@@ -175,6 +180,8 @@ func TestE2E_LargeMessages(t *testing.T) {
 	}
 	defer c.Close()
 
+	ctx := context.Background()
+
 	// Test various large message sizes
 	sizes := []int{
 		1 * 1024,      // 1KB
@@ -196,14 +203,14 @@ func TestE2E_LargeMessages(t *testing.T) {
 		key := []byte(fmt.Sprintf("large-%d", size))
 
 		// Produce
-		err := producer.Send(topic, key, value)
+		err := producer.Send(ctx, topic, 0, key, value)
 		if err != nil {
 			t.Fatalf("Failed to send %d byte message: %v", size, err)
 		}
 
 		// Consume
 		consumer := client.NewConsumer(c, topic, 0)
-		messages, err := consumer.Fetch()
+		messages, err := consumer.Fetch(ctx, 0, 10*1024*1024)
 		if err != nil {
 			t.Fatalf("Failed to fetch %d byte message: %v", size, err)
 		}
@@ -251,6 +258,8 @@ func TestE2E_HighThroughput(t *testing.T) {
 	}
 	defer c.Close()
 
+	ctx := context.Background()
+
 	// Produce messages as fast as possible
 	producer := client.NewProducer(c)
 
@@ -260,7 +269,7 @@ func TestE2E_HighThroughput(t *testing.T) {
 		key := []byte(fmt.Sprintf("key-%d", i))
 		value := []byte(fmt.Sprintf("message-%d-data", i))
 
-		err := producer.Send(topic, key, value)
+		err := producer.Send(ctx, topic, 0, key, value)
 		if err != nil {
 			t.Fatalf("Failed to send message %d: %v", i, err)
 		}
@@ -287,7 +296,7 @@ func TestE2E_HighThroughput(t *testing.T) {
 		case <-timeout:
 			t.Fatalf("Timeout: consumed %d/%d messages", consumed, numMessages)
 		default:
-			messages, err := consumer.Fetch()
+			messages, err := consumer.Fetch(ctx, 0, 10*1024*1024)
 			if err != nil {
 				t.Fatalf("Fetch failed: %v", err)
 			}
@@ -340,6 +349,8 @@ func TestE2E_OrderingGuarantee(t *testing.T) {
 	}
 	defer c.Close()
 
+	ctx := context.Background()
+
 	// Produce messages with sequence numbers
 	producer := client.NewProducer(c)
 
@@ -347,7 +358,7 @@ func TestE2E_OrderingGuarantee(t *testing.T) {
 		key := []byte(fmt.Sprintf("seq-%05d", i))
 		value := []byte(fmt.Sprintf("message-%d", i))
 
-		err := producer.Send(topic, key, value)
+		err := producer.Send(ctx, topic, 0, key, value)
 		if err != nil {
 			t.Fatalf("Failed to send message %d: %v", i, err)
 		}
@@ -367,7 +378,7 @@ func TestE2E_OrderingGuarantee(t *testing.T) {
 		case <-timeout:
 			t.Fatalf("Timeout: consumed %d/%d messages", consumed, numMessages)
 		default:
-			messages, err := consumer.Fetch()
+			messages, err := consumer.Fetch(ctx, 0, 1024*1024)
 			if err != nil {
 				t.Fatalf("Fetch failed: %v", err)
 			}

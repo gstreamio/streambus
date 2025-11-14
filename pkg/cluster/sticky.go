@@ -50,8 +50,7 @@ func (ss *StickyStrategy) Rebalance(
 	}
 
 	// Check if rebalancing is needed
-	// Don't skip rebalancing if brokers have been removed
-	if current.IsBalanced(1) && ss.allBrokersMatch(current, availableBrokers) {
+	if current.IsBalanced(1) && ss.allBrokersInAssignment(current, availableBrokers) {
 		// Still increment version even if no changes needed
 		result := current.Clone()
 		result.Version++
@@ -178,31 +177,6 @@ func (ss *StickyStrategy) allBrokersInAssignment(assignment *Assignment, brokers
 			return false
 		}
 	}
-	return true
-}
-
-// allBrokersMatch checks if the brokers in the assignment exactly match the available brokers
-func (ss *StickyStrategy) allBrokersMatch(assignment *Assignment, brokers []BrokerInfo) bool {
-	// Check if all available brokers are in the assignment
-	availableSet := make(map[int32]bool)
-	for _, broker := range brokers {
-		availableSet[broker.ID] = true
-	}
-
-	// Check if assignment has any brokers not in available set
-	for brokerID := range assignment.BrokerLoad {
-		if !availableSet[brokerID] {
-			return false // Assignment has broker not in available list
-		}
-	}
-
-	// Check if all available brokers are in the assignment
-	for _, broker := range brokers {
-		if _, exists := assignment.BrokerLoad[broker.ID]; !exists {
-			return false // Available broker not in assignment
-		}
-	}
-
 	return true
 }
 

@@ -7,9 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gstreamio/streambus/pkg/logger"
-	"github.com/gstreamio/streambus/pkg/storage"
-	"go.uber.org/zap"
+	"github.com/shawntherrien/streambus/pkg/storage"
 )
 
 // TopicManager manages topics and their partitions
@@ -52,15 +50,15 @@ func NewTopicManager(dataDir string) *TopicManager {
 
 // loadExistingTopics scans the storage directory for existing topics
 func (tm *TopicManager) loadExistingTopics() error {
-	logger.Debug("scanning storage directory", zap.String("dir", tm.storageDir))
+	fmt.Printf("[TOPIC-LOAD] Scanning storage directory: %s\n", tm.storageDir)
 	entries, err := os.ReadDir(tm.storageDir)
 	if err != nil {
 		// Directory might not exist on first run
-		logger.Debug("storage directory doesn't exist or can't be read", zap.Error(err))
+		fmt.Printf("[TOPIC-LOAD] Storage directory doesn't exist or can't be read: %v\n", err)
 		return nil
 	}
 
-	logger.Debug("found entries in storage directory", zap.Int("count", len(entries)))
+	fmt.Printf("[TOPIC-LOAD] Found %d entries in storage directory\n", len(entries))
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -69,7 +67,7 @@ func (tm *TopicManager) loadExistingTopics() error {
 
 		topicName := entry.Name()
 		topicDir := filepath.Join(tm.storageDir, topicName)
-		logger.Debug("loading topic", zap.String("topic", topicName), zap.String("dir", topicDir))
+		fmt.Printf("[TOPIC-LOAD] Loading topic: %s from %s\n", topicName, topicDir)
 
 		// Count partitions by looking for partition directories
 		partitionEntries, err := os.ReadDir(topicDir)
@@ -95,19 +93,15 @@ func (tm *TopicManager) loadExistingTopics() error {
 
 			// Load the partition with storage recovery
 			partitionDir := filepath.Join(topicDir, partEntry.Name())
-			logger.Debug("creating log for partition",
-				zap.Uint32("partition", partitionID),
-				zap.String("dir", partitionDir))
+			fmt.Printf("[TOPIC-LOAD] Creating log for partition %d at %s\n", partitionID, partitionDir)
 			config := storage.DefaultConfig()
 			log, err := storage.NewLog(partitionDir, *config)
 			if err != nil {
-				logger.Warn("failed to create log for partition",
-					zap.Uint32("partition", partitionID),
-					zap.Error(err))
+				fmt.Printf("[TOPIC-LOAD] Failed to create log for partition %d: %v\n", partitionID, err)
 				continue
 			}
 
-			logger.Debug("successfully loaded partition", zap.Uint32("partition", partitionID))
+			fmt.Printf("[TOPIC-LOAD] Successfully loaded partition %d\n", partitionID)
 			topic.partitions[partitionID] = &Partition{
 				id:  partitionID,
 				log: log,
@@ -116,15 +110,17 @@ func (tm *TopicManager) loadExistingTopics() error {
 
 		if len(topic.partitions) > 0 {
 			tm.topics[topicName] = topic
-			logger.Info("registered topic",
-				zap.String("topic", topicName),
-				zap.Int("partitions", len(topic.partitions)))
+			fmt.Printf("[TOPIC-LOAD] Successfully registered topic '%s' with %d partitions\n", topicName, len(topic.partitions))
 		} else {
-			logger.Debug("skipping topic - no partitions loaded", zap.String("topic", topicName))
+			fmt.Printf("[TOPIC-LOAD] Skipping topic '%s' - no partitions loaded\n", topicName)
 		}
 	}
 
-	logger.Info("topic loading complete", zap.Int("totalTopics", len(tm.topics)))
+	fmt.Printf("[TOPIC-LOAD] Loading complete. Total topics loaded: %d\n", len(tm.topics))
+	for name := range tm.topics {
+		fmt.Printf("[TOPIC-LOAD]   - %s\n", name)
+	}
+
 	return nil
 }
 
@@ -133,17 +129,8 @@ func (tm *TopicManager) CreateTopic(name string, numPartitions uint32) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
-	if existing, exists := tm.topics[name]; exists {
-		// Check if partition count matches
-		existing.mu.RLock()
-		existingPartitions := uint32(len(existing.partitions))
-		existing.mu.RUnlock()
-
-		if existingPartitions != numPartitions {
-			return fmt.Errorf("topic %s already exists with %d partitions, cannot recreate with %d partitions",
-				name, existingPartitions, numPartitions)
-		}
-		// Topic exists with same partition count - idempotent operation
+	if _, exists := tm.topics[name]; exists {
+		// Topic already loaded, nothing to do
 		return nil
 	}
 
@@ -246,11 +233,13 @@ func (tm *TopicManager) TopicExists(name string) bool {
 	defer tm.mu.RUnlock()
 	_, exists := tm.topics[name]
 
-	// Only log at debug level to avoid flooding
-	logger.Debug("topic existence check",
-		zap.String("topic", name),
-		zap.Bool("exists", exists),
-		zap.Int("totalTopics", len(tm.topics)))
+	fmt.Printf("[TOPIC-EXISTS] Checking for topic '%s': exists=%v (total topics: %d)\n", name, exists, len(tm.topics))
+	if !exists && len(tm.topics) > 0 {
+		fmt.Printf("[TOPIC-EXISTS] Available topics:\n")
+		for topicName := range tm.topics {
+			fmt.Printf("[TOPIC-EXISTS]   - %s\n", topicName)
+		}
+	}
 
 	return exists
 }

@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gstreamio/streambus/pkg/client"
+	"github.com/shawntherrien/streambus/pkg/client"
 )
 
 // CustomRebalanceListener tracks partition assignments

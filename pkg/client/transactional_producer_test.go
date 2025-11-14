@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/gstreamio/streambus/pkg/protocol"
+	"github.com/shawntherrien/streambus/pkg/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -3,8 +3,8 @@ package server
 import (
 	"sync/atomic"
 
-	"github.com/gstreamio/streambus/pkg/protocol"
-	"github.com/gstreamio/streambus/pkg/tenancy"
+	"github.com/shawntherrien/streambus/pkg/protocol"
+	"github.com/shawntherrien/streambus/pkg/tenancy"
 )
 
 // TenancyHandler wraps a handler with multi-tenancy and quota enforcement
