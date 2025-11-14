@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"math/rand"
+	"sync"
 	"time"
 )
 
@@ -64,6 +65,7 @@ func (b *Backoff) Reset() {
 // - Cassandra
 // - Google SRE book
 type CircuitBreaker struct {
+	mu              sync.RWMutex
 	maxFailures     int
 	resetTimeout    time.Duration
 	failureCount    int
@@ -93,6 +95,9 @@ func NewCircuitBreaker() *CircuitBreaker {
 // Call attempts to execute the operation through the circuit breaker.
 // Returns true if the call should proceed, false if circuit is open.
 func (cb *CircuitBreaker) Call() bool {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
 	now := time.Now()
 
 	switch cb.state {
@@ -119,12 +124,16 @@ func (cb *CircuitBreaker) Call() bool {
 
 // RecordSuccess records a successful operation.
 func (cb *CircuitBreaker) RecordSuccess() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 	cb.failureCount = 0
 	cb.state = StateClosed
 }
 
 // RecordFailure records a failed operation.
 func (cb *CircuitBreaker) RecordFailure() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 	cb.lastFailureTime = time.Now()
 	cb.failureCount++
 
@@ -135,10 +144,14 @@ func (cb *CircuitBreaker) RecordFailure() {
 
 // IsOpen returns true if the circuit is open (rejecting requests).
 func (cb *CircuitBreaker) IsOpen() bool {
+	cb.mu.RLock()
+	defer cb.mu.RUnlock()
 	return cb.state == StateOpen && time.Since(cb.lastFailureTime) < cb.resetTimeout
 }
 
 // State returns the current circuit state.
 func (cb *CircuitBreaker) State() CircuitState {
+	cb.mu.RLock()
+	defer cb.mu.RUnlock()
 	return cb.state
 }
