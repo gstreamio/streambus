@@ -19,7 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	streambusv1alpha1 "github.com/shawntherrien/streambus/deploy/kubernetes/operator/api/v1alpha1"
+	streambusv1alpha1 "github.com/gstreamio/streambus/deploy/kubernetes/operator/api/v1alpha1"
 )
 
 const (

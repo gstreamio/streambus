@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/logging"
+	"github.com/gstreamio/streambus/pkg/logging"
 )
 
 // SchemaRegistry manages schemas and their versions

@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/client"
+	"github.com/gstreamio/streambus/pkg/client"
 )
 
 // Config holds load test configuration

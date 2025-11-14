@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/protocol"
-	"github.com/shawntherrien/streambus/pkg/transaction"
+	"github.com/gstreamio/streambus/pkg/protocol"
+	"github.com/gstreamio/streambus/pkg/transaction"
 )
 
 func TestNewTransactionalConsumer(t *testing.T) {

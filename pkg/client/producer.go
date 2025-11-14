@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/protocol"
+	"github.com/gstreamio/streambus/pkg/protocol"
 )
 
 // Producer sends messages to StreamBus topics

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/logging"
+	"github.com/gstreamio/streambus/pkg/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

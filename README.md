@@ -145,7 +145,7 @@ Perfect for microservices, event sourcing, log aggregation, real-time analytics,
 
 ```bash
 # Clone the repository
-git clone https://github.com/shawntherrien/streambus.git
+git clone https://github.com/gstreamio/streambus.git
 cd streambus
 
 # Install dependencies
@@ -175,7 +175,7 @@ go build -o bin/streambus cmd/server/main.go
 **For application development, use the official Go SDK:**
 
 ```bash
-go get github.com/stherrien/streambus-sdk
+go get github.com/gstreamio/streambus-sdk
 ```
 
 ```go
@@ -183,7 +183,7 @@ package main
 
 import (
     "log"
-    "github.com/stherrien/streambus-sdk/client"
+    "github.com/gstreamio/streambus-sdk/client"
 )
 
 func main() {
@@ -232,9 +232,9 @@ func main() {
 }
 ```
 
-**SDK Repository:** [github.com/stherrien/streambus-sdk](https://github.com/stherrien/streambus-sdk)
+**SDK Repository:** [github.com/gstreamio/streambus-sdk](https://github.com/gstreamio/streambus-sdk)
 
-See the [SDK README](https://github.com/stherrien/streambus-sdk#readme) for complete documentation, examples, and API reference.
+See the [SDK README](https://github.com/gstreamio/streambus-sdk#readme) for complete documentation, examples, and API reference.
 
 ---
 
@@ -393,7 +393,7 @@ docker-compose up -d
 ## Documentation
 
 ### SDKs & Client Libraries
-- **[Go SDK](https://github.com/stherrien/streambus-sdk)** - Official Go client library (Apache 2.0)
+- **[Go SDK](https://github.com/gstreamio/streambus-sdk)** - Official Go client library (Apache 2.0)
   - Full-featured with producer, consumer, and consumer groups
   - TLS/mTLS and SASL authentication support
   - Transactional messaging with exactly-once semantics
@@ -431,73 +431,41 @@ docker-compose up -d
 
 ---
 
-## Development Status
+## Project Status
 
 StreamBus is currently in **active development** with production-ready core components.
 
-### ✅ Complete
+### Core Features ✅
 
-**Phase 1: Core Platform**
-- ✅ LSM-tree storage engine with WAL
-- ✅ Binary protocol layer with encoding/decoding
-- ✅ Producer and consumer clients with connection pooling
-- ✅ Server request handling and routing
-- ✅ End-to-end integration tests
+**Distributed System**
+- LSM-tree storage engine with WAL
+- Raft consensus for cluster coordination
+- Multi-broker replication with automatic failover
+- Binary protocol with producer/consumer clients
 
-**Phase 2: Distributed System**
-- ✅ Raft consensus implementation with leader election
-- ✅ Metadata store with replication
-- ✅ Cluster coordination and partition assignment
-- ✅ Multi-broker data replication with ISR tracking
-- ✅ Automatic failover and recovery
+**Advanced Streaming**
+- Consumer groups with automatic rebalancing
+- Transactions and exactly-once semantics
+- Schema registry (Avro/Protobuf/JSON Schema)
+- Idempotent producers
 
-**Phase 2.6: Production Hardening**
-- ✅ Circuit breaker pattern with fail-fast
-- ✅ Health check system (liveness/readiness probes)
-- ✅ Enhanced error handling with categorization
-- ✅ Structured JSON logging with context
-- ✅ Timeout management framework
+**Enterprise Security**
+- TLS encryption and SASL authentication
+- ACL-based authorization
+- Audit logging
 
-**Phase 3: Advanced Features**
-- ✅ Consumer groups with rebalancing (Range, RoundRobin, Sticky)
-- ✅ Transactions and exactly-once semantics
-- ✅ Schema registry with Avro/Protobuf/JSON Schema support
-- ✅ Idempotent producers with sequence numbers
+**Production Reliability**
+- Circuit breakers and health checks
+- Prometheus metrics and OpenTelemetry tracing
+- Structured logging
+- Grafana dashboards
 
-**Phase 4: Enterprise Features**
-- ✅ TLS encryption (in-transit)
-- ✅ SASL authentication (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)
-- ✅ ACL-based authorization with wildcards
-- ✅ Audit logging for security events
-- ✅ Prometheus metrics integration
-- ✅ OpenTelemetry distributed tracing
-- ✅ Grafana dashboards and observability stack
+### In Development 🚧
 
-**Test Status: 1065/1072 tests passing (99.3%)**
-
-**Recent Test Coverage Improvements:**
-- Protocol package: 58.2% → 93.8%
-- Health package: 49.6% → 91.4%
-- Replication package: 43.2% → 82.2%
-- Resilience package: 75.3% → 91.5%
-- Tenancy package: 72.1% → 90.8%
-
-### 🚧 In Progress
-
-**Phase 4: Enterprise Features**
-- 🔄 Cross-datacenter replication framework (config validation complete, implementation in progress)
-- 🔄 Disaster recovery and backup/restore
-
-**Phase 5: Ecosystem & Tools**
-- 🔄 Admin CLI tool (tenant management complete, additional commands in progress)
-- 📅 Web management UI
-- 📅 Kubernetes operator
-- 📅 Kafka compatibility layer
-
-**Phase 6: Test Coverage & Quality**
-- 🔄 Improving test coverage from 56.1% to 90%+ target
-- 🔄 Integration testing for multi-broker scenarios
-- 🔄 Performance benchmarking and optimization
+- Cross-datacenter replication
+- Kubernetes operator
+- Additional admin tooling
+- Extended test coverage (current: 56.1%, target: 90%+)
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the complete roadmap.
 
@@ -552,8 +520,8 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the complete roadmap.
 ### Get Help
 
 - 📖 **Documentation**: [Complete docs](docs/)
-- 💬 **Discussions**: [GitHub Discussions](https://github.com/shawntherrien/streambus/discussions)
-- 🐛 **Issues**: [GitHub Issues](https://github.com/shawntherrien/streambus/issues)
+- 💬 **Discussions**: [GitHub Discussions](https://github.com/gstreamio/streambus/discussions)
+- 🐛 **Issues**: [GitHub Issues](https://github.com/gstreamio/streambus/issues)
 - 🔒 **Security**: Report vulnerabilities to security@streambus.io
 
 ### Stay Updated
@@ -586,34 +554,28 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ## Production Readiness
 
-**Current Status**: **Beta** (Phases 1-4.2 Complete)
+**Current Status**: **Beta** - Active Development
 
-StreamBus has completed core distributed system features, advanced streaming capabilities, and enterprise security with production-grade reliability patterns. The platform is entering **beta testing** phase.
+StreamBus has completed core distributed system features, advanced streaming capabilities, and enterprise security with production-grade reliability patterns.
 
-### ✅ Completed for Production
-- [x] **Security**: TLS encryption, SASL authentication, ACL authorization, audit logging
-- [x] **Distributed System**: Raft consensus, multi-broker replication, automatic failover
-- [x] **Advanced Features**: Consumer groups, transactions, schema registry, exactly-once semantics
-- [x] **Monitoring**: Prometheus metrics, OpenTelemetry tracing, Grafana dashboards
-- [x] **Reliability**: Circuit breakers, health checks, structured logging, timeout management
-- [x] **Multi-tenancy**: Resource isolation, quota management, tenant administration API
-- [x] **Test Coverage**: 1065/1072 tests passing (99.3%), 56.1% code coverage (targeting 90%+)
+### What's Ready
 
-### 🚧 In Progress for Production
-- [ ] **Cross-datacenter replication**: Geo-replication and disaster recovery
-- [ ] **Operational tools**: Admin CLI, web UI, Kubernetes operator
-- [ ] **Test coverage improvements**: Targeting 90%+ code coverage across all packages
-- [ ] **Large-scale testing**: Performance validation at production scale
-- [ ] **Complete documentation**: Operational runbooks and best practices
+- Core distributed streaming platform with Raft consensus
+- Multi-broker replication and automatic failover
+- Consumer groups, transactions, and exactly-once semantics
+- TLS/SASL authentication and ACL authorization
+- Prometheus metrics and OpenTelemetry tracing
+- Circuit breakers, health checks, and structured logging
+- Multi-tenancy with resource isolation
 
-### Estimated Timeline
-- **Q1 2025**: Multi-tenancy and advanced replication ✅ **COMPLETED**
-- **Q2 2025**: Cross-datacenter replication and tooling ecosystem (in progress)
-- **Q3 2025**: Test coverage improvements and performance validation
-- **Q4 2025**: Public beta testing program
-- **Q1 2026**: Production-ready v1.0 release
+### What's Next
 
-**Want to help?** Join our [beta testing program](docs/beta-testing.md)!
+- Cross-datacenter replication
+- Kubernetes operator and tooling
+- Extended test coverage and validation
+- Production hardening and documentation
+
+**Interested in contributing or testing?** Check out our [Contributing Guide](CONTRIBUTING.md) and [Roadmap](docs/ROADMAP.md).
 
 ---
 
@@ -647,7 +609,7 @@ Built with ❤️ in Go by developers who believe streaming platforms should be 
 
 <div align="center">
 
-**[Get Started](docs/GETTING_STARTED.md)** • **[View Examples](examples/)** • **[Read Docs](docs/)** • **[Join Community](https://github.com/shawntherrien/streambus/discussions)**
+**[Get Started](docs/GETTING_STARTED.md)** • **[View Examples](examples/)** • **[Read Docs](docs/)** • **[Join Community](https://github.com/gstreamio/streambus/discussions)**
 
 ⭐ **Star us on GitHub** — it helps!
 

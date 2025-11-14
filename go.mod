@@ -1,4 +1,4 @@
-module github.com/shawntherrien/streambus
+module github.com/gstreamio/streambus
 
 go 1.24.0
 

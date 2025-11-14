@@ -3,7 +3,7 @@ package schema
 import (
 	"testing"
 
-	"github.com/shawntherrien/streambus/pkg/logging"
+	"github.com/gstreamio/streambus/pkg/logging"
 )
 
 func testLogger() *logging.Logger {

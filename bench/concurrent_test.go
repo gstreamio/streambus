@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/client"
+	"github.com/gstreamio/streambus/pkg/client"
 )
 
 // BenchmarkConcurrent_MultiProducer tests concurrent producers

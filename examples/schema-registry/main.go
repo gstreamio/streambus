@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/shawntherrien/streambus/pkg/logging"
-	"github.com/shawntherrien/streambus/pkg/schema"
+	"github.com/gstreamio/streambus/pkg/logging"
+	"github.com/gstreamio/streambus/pkg/schema"
 )
 
 func main() {
