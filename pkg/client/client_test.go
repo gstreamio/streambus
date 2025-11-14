@@ -588,6 +588,7 @@ func TestConsumer_FetchOne(t *testing.T) {
 
 	if msg == nil {
 		t.Error("Expected non-nil message")
+		return
 	}
 
 	if string(msg.Value) != "value1" {
