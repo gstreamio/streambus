@@ -90,6 +90,7 @@ func TestGetMemStats(t *testing.T) {
 	stats := GetMemStats()
 	if stats == nil {
 		t.Error("GetMemStats() returned nil")
+		return
 	}
 
 	if stats.Alloc == 0 {

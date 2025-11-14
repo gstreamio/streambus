@@ -221,7 +221,7 @@ func (h *StreamHandler) connectToCluster(config *ClusterConfig) (*client.Client,
 
 	// Apply security configuration if present
 	if config.Security != nil && config.Security.EnableTLS {
-		// TODO: Configure TLS settings
+		// TODO: Configure TLS settings (not implemented yet)
 	}
 
 	// Create and connect client
