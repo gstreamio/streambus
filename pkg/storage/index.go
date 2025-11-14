@@ -41,6 +41,7 @@ func NewIndex(path string) (Index, error) {
 		}
 	} else {
 		// Create new index file
+		// #nosec G304 -- path is internal storage path, not user-supplied input
 		file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
 			return nil, err
@@ -164,6 +165,7 @@ func (idx *indexImpl) Close() error {
 }
 
 func (idx *indexImpl) load() error {
+	// #nosec G304 -- idx.path is internal storage path, not user-supplied input
 	file, err := os.OpenFile(idx.path, os.O_RDWR, 0600)
 	if err != nil {
 		return err
