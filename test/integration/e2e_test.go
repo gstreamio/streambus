@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -101,9 +102,12 @@ func TestEndToEndIntegration(t *testing.T) {
 		t.Log("Creating BrokerRegistry on leader...")
 		registry := cluster.NewBrokerRegistry(leaderAdapter)
 
-		// Track events
+		// Track events with proper synchronization
+		var mu sync.Mutex
 		var addedBrokers []int32
 		registry.SetOnBrokerAdded(func(broker *cluster.BrokerMetadata) {
+			mu.Lock()
+			defer mu.Unlock()
 			addedBrokers = append(addedBrokers, broker.ID)
 			t.Logf("Broker added: %d", broker.ID)
 		})

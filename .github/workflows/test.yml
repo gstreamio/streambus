@@ -198,9 +198,9 @@ jobs:
       - name: Post-process SARIF file
         if: always()
         run: |
-          # Remove invalid artifactChanges fields that cause SARIF validation errors
+          # Fix invalid artifactChanges fields that cause SARIF validation errors
           if [ -f results.sarif ]; then
-            jq 'walk(if type == "object" and has("fixes") then .fixes |= map(del(.artifactChanges)) else . end)' results.sarif > results-fixed.sarif
+            jq 'walk(if type == "object" and has("fixes") then .fixes |= map(if has("artifactChanges") and (.artifactChanges | type != "array") then .artifactChanges = [] else . end) else . end)' results.sarif > results-fixed.sarif
             mv results-fixed.sarif results.sarif
           fi
 

@@ -44,8 +44,9 @@ func TestChaos_RandomLatency(t *testing.T) {
 
 	testFunc := func(ctx context.Context) error {
 		cfg := &client.Config{
-			Brokers:        brokers,
-			ConnectTimeout: 10 * time.Second,
+			Brokers:                 brokers,
+			ConnectTimeout:          10 * time.Second,
+			MaxConnectionsPerBroker: 5,
 		}
 
 		c, err := client.New(cfg)
@@ -119,8 +120,9 @@ func TestChaos_IntermittentErrors(t *testing.T) {
 
 	testFunc := func(ctx context.Context) error {
 		cfg := &client.Config{
-			Brokers:        brokers,
-			ConnectTimeout: 10 * time.Second,
+			Brokers:                 brokers,
+			ConnectTimeout:          10 * time.Second,
+			MaxConnectionsPerBroker: 5,
 		}
 
 		c, err := client.New(cfg)
@@ -193,8 +195,9 @@ func TestChaos_SlowNetwork(t *testing.T) {
 
 	testFunc := func(ctx context.Context) error {
 		cfg := &client.Config{
-			Brokers:        brokers,
-			ConnectTimeout: 10 * time.Second,
+			Brokers:                 brokers,
+			ConnectTimeout:          10 * time.Second,
+			MaxConnectionsPerBroker: 5,
 		}
 
 		c, err := client.New(cfg)
@@ -266,8 +269,9 @@ func TestChaos_CombinedFaults(t *testing.T) {
 
 	testFunc := func(ctx context.Context) error {
 		cfg := &client.Config{
-			Brokers:        brokers,
-			ConnectTimeout: 10 * time.Second,
+			Brokers:                 brokers,
+			ConnectTimeout:          10 * time.Second,
+			MaxConnectionsPerBroker: 5,
 		}
 
 		c, err := client.New(cfg)
