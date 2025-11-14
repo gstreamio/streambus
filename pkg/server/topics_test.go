@@ -203,6 +203,7 @@ func TestTopicManager_MultiplePartitions(t *testing.T) {
 		}
 		if partition == nil {
 			t.Errorf("Partition %d is nil", i)
+			continue
 		}
 		if partition.id != i {
 			t.Errorf("Partition ID = %d, want %d", partition.id, i)

@@ -72,7 +72,7 @@ func (b *Broker) getTenants(w http.ResponseWriter, r *http.Request) {
 	tenants := b.tenancyManager.ListTenants()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"tenants": tenants,
 		"count":   len(tenants),
 	})
@@ -123,7 +123,7 @@ func (b *Broker) createTenant(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(tenant)
+	_ = json.NewEncoder(w).Encode(tenant)
 }
 
 // getTenant handles GET /api/v1/tenants/:id
@@ -135,7 +135,7 @@ func (b *Broker) getTenant(w http.ResponseWriter, r *http.Request, tenantID tena
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(tenant)
+	_ = json.NewEncoder(w).Encode(tenant)
 }
 
 // updateTenant handles PUT /api/v1/tenants/:id
@@ -164,7 +164,7 @@ func (b *Broker) updateTenant(w http.ResponseWriter, r *http.Request, tenantID t
 	// Return updated tenant
 	tenant, _ := b.tenancyManager.GetTenant(tenantID)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(tenant)
+	_ = json.NewEncoder(w).Encode(tenant)
 }
 
 // deleteTenant handles DELETE /api/v1/tenants/:id
@@ -205,5 +205,5 @@ func (b *Broker) getTenantStats(w http.ResponseWriter, r *http.Request, tenantID
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	_ = json.NewEncoder(w).Encode(stats)
 }

@@ -85,7 +85,7 @@ func (c *Client) sendRequest(ctx context.Context, broker string, req *protocol.R
 	go func() {
 		// Set write deadline
 		if c.config.WriteTimeout > 0 {
-			conn.conn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout))
+			_ = conn.conn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout))
 		}
 
 		// Encode and send request
@@ -97,7 +97,7 @@ func (c *Client) sendRequest(ctx context.Context, broker string, req *protocol.R
 
 		// Set read deadline
 		if c.config.ReadTimeout > 0 {
-			conn.conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout))
+			_ = conn.conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout))
 		}
 
 		// Read response
@@ -121,11 +121,11 @@ func (c *Client) sendRequest(ctx context.Context, broker string, req *protocol.R
 	select {
 	case <-timeoutCtx.Done():
 		// Connection is likely dead, remove from pool
-		c.pool.Remove(conn)
+		_ = c.pool.Remove(conn)
 		return nil, ErrRequestTimeout
 	case err := <-errChan:
 		// Connection had an error, remove from pool
-		c.pool.Remove(conn)
+		_ = c.pool.Remove(conn)
 		return nil, err
 	case resp := <-respChan:
 		// Verify request ID matches

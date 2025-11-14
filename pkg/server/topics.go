@@ -36,7 +36,7 @@ type Partition struct {
 // NewTopicManager creates a new topic manager
 func NewTopicManager(dataDir string) *TopicManager {
 	storageDir := filepath.Join(dataDir, "topics")
-	os.MkdirAll(storageDir, 0755)
+	_ = os.MkdirAll(storageDir, 0750)
 
 	tm := &TopicManager{
 		topics:     make(map[string]*Topic),
@@ -45,7 +45,7 @@ func NewTopicManager(dataDir string) *TopicManager {
 	}
 
 	// Load existing topics from disk
-	tm.loadExistingTopics()
+	_ = tm.loadExistingTopics()
 
 	return tm
 }
@@ -259,7 +259,7 @@ func (tm *TopicManager) TopicExists(name string) bool {
 func (tm *TopicManager) createPartition(topic string, partitionID uint32) (*Partition, error) {
 	// Create partition directory
 	partitionDir := filepath.Join(tm.storageDir, topic, fmt.Sprintf("partition-%d", partitionID))
-	if err := os.MkdirAll(partitionDir, 0755); err != nil {
+	if err := os.MkdirAll(partitionDir, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create partition directory: %w", err)
 	}
 

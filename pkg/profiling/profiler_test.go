@@ -90,6 +90,7 @@ func TestGetMemStats(t *testing.T) {
 	stats := GetMemStats()
 	if stats == nil {
 		t.Error("GetMemStats() returned nil")
+		return
 	}
 
 	if stats.Alloc == 0 {
@@ -135,7 +136,9 @@ func TestProfiler_StatsEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	defer p.Stop()
+	defer func() {
+		_ = p.Stop()
+	}()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -160,7 +163,9 @@ func TestProfiler_GCEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	defer p.Stop()
+	defer func() {
+		_ = p.Stop()
+	}()
 
 	time.Sleep(100 * time.Millisecond)
 

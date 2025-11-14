@@ -65,8 +65,8 @@ type LoadTest struct {
 	config  *Config
 	results *Results
 
-	producers []*client.Producer
-	consumers []*client.Consumer
+	producers []*client.Producer //nolint:unused // Reserved for future use when producer implementation is complete
+	consumers []*client.Consumer //nolint:unused // Reserved for future use when consumer implementation is complete
 
 	latencies []time.Duration
 	mu        sync.Mutex

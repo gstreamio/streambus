@@ -277,8 +277,8 @@ func TestRegistry_All(t *testing.T) {
 	counter := NewCounter("counter", "test", nil)
 	gauge := NewGauge("gauge", "test", nil)
 
-	registry.Register(counter)
-	registry.Register(gauge)
+	_ = registry.Register(counter)
+	_ = registry.Register(gauge)
 
 	all := registry.All()
 	assert.Len(t, all, 2)
@@ -290,8 +290,8 @@ func TestRegistry_Reset(t *testing.T) {
 	counter := NewCounter("counter", "test", nil)
 	gauge := NewGauge("gauge", "test", nil)
 
-	registry.Register(counter)
-	registry.Register(gauge)
+	_ = registry.Register(counter)
+	_ = registry.Register(gauge)
 
 	counter.Add(5)
 	gauge.Set(10.0)
@@ -306,7 +306,7 @@ func TestRegistry_Clear(t *testing.T) {
 	registry := NewRegistry()
 
 	counter := NewCounter("counter", "test", nil)
-	registry.Register(counter)
+	_ = registry.Register(counter)
 
 	assert.Len(t, registry.All(), 1)
 
@@ -372,7 +372,7 @@ func TestHTTPHandler_Counter(t *testing.T) {
 	registry := NewRegistry()
 	counter := NewCounter("http_requests_total", "Total HTTP requests", map[string]string{"method": "GET"})
 	counter.Add(42)
-	registry.Register(counter)
+	_ = registry.Register(counter)
 
 	handler := NewHandler(registry)
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
@@ -393,7 +393,7 @@ func TestHTTPHandler_Gauge(t *testing.T) {
 	registry := NewRegistry()
 	gauge := NewGauge("temperature_celsius", "Current temperature", nil)
 	gauge.Set(23.5)
-	registry.Register(gauge)
+	_ = registry.Register(gauge)
 
 	handler := NewHandler(registry)
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
@@ -414,7 +414,7 @@ func TestHTTPHandler_Histogram(t *testing.T) {
 	histogram.Observe(0.3)
 	histogram.Observe(0.75)
 	histogram.Observe(2.0)
-	registry.Register(histogram)
+	_ = registry.Register(histogram)
 
 	handler := NewHandler(registry)
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)

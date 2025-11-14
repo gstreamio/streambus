@@ -48,10 +48,10 @@ func init() {
 	rootCmd.PersistentFlags().Int("port", 0, "port to bind (overrides config file)")
 	rootCmd.PersistentFlags().String("data-dir", "", "data directory (overrides config file)")
 
-	viper.BindPFlag("server.broker_id", rootCmd.PersistentFlags().Lookup("broker-id"))
-	viper.BindPFlag("server.host", rootCmd.PersistentFlags().Lookup("host"))
-	viper.BindPFlag("server.port", rootCmd.PersistentFlags().Lookup("port"))
-	viper.BindPFlag("storage.data_dir", rootCmd.PersistentFlags().Lookup("data-dir"))
+	_ = viper.BindPFlag("server.broker_id", rootCmd.PersistentFlags().Lookup("broker-id"))
+	_ = viper.BindPFlag("server.host", rootCmd.PersistentFlags().Lookup("host"))
+	_ = viper.BindPFlag("server.port", rootCmd.PersistentFlags().Lookup("port"))
+	_ = viper.BindPFlag("storage.data_dir", rootCmd.PersistentFlags().Lookup("data-dir"))
 }
 
 func initConfig() {

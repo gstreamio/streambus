@@ -14,7 +14,7 @@ func TestReplicationManager_BecomeLeader_FromFollower(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// First become follower
 	err = rm.BecomeFollower(2, 1)
@@ -60,7 +60,7 @@ func TestReplicationManager_UpdateLogEndOffset_NotLeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Try to update LEO when not leader
 	err = rm.UpdateLogEndOffset(150)
@@ -79,7 +79,7 @@ func TestReplicationManager_NotifyReplication_NotLeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Call NotifyReplication when not leader (should just return)
 	rm.NotifyReplication()
@@ -96,7 +96,7 @@ func TestReplicationManager_GetISR_NotLeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Try to get ISR when not leader
 	_, err = rm.GetISR()
@@ -115,7 +115,7 @@ func TestReplicationManager_GetHighWaterMark_NotLeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Try to get HW when not leader or follower
 	_, err = rm.GetHighWaterMark()
@@ -134,7 +134,7 @@ func TestReplicationManager_HandleFetchRequest_NotLeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Create fetch request
 	req := &FetchRequest{

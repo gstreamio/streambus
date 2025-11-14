@@ -173,7 +173,7 @@ func TestLoggingFunctions(t *testing.T) {
 	)
 
 	globalLogger = zap.New(core)
-	defer globalLogger.Sync()
+	defer func() { _ = globalLogger.Sync() }()
 
 	tests := []struct {
 		name     string

@@ -139,9 +139,9 @@ func (mc *MetricsCollector) GetAllPartitionMetrics() map[string]*PartitionMetric
 }
 
 // GetGlobalMetrics returns global replication metrics
-func (mc *MetricsCollector) GetGlobalMetrics() GlobalReplicationMetrics {
+func (mc *MetricsCollector) GetGlobalMetrics() *GlobalReplicationMetrics {
 	// Snapshot current values
-	return mc.global
+	return &mc.global
 }
 
 // UpdateFromReplicationMetrics updates metrics from ReplicationMetrics
@@ -311,7 +311,7 @@ func (mc *MetricsCollector) ComputeGlobalMetrics() {
 // GetGlobalSnapshot returns a snapshot of global metrics
 func (mc *MetricsCollector) GetGlobalSnapshot() GlobalMetricsSnapshot {
 	mc.ComputeGlobalMetrics()
-	gm := mc.global
+	gm := &mc.global
 
 	return GlobalMetricsSnapshot{
 		TotalPartitions:           gm.TotalPartitions.Load(),

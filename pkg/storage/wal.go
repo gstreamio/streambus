@@ -31,7 +31,7 @@ type walImpl struct {
 
 // NewWAL creates a new Write-Ahead Log
 func NewWAL(dir string, config WALConfig) (WAL, error) {
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create WAL directory: %w", err)
 	}
 
@@ -250,7 +250,7 @@ func (w *walImpl) fsyncLoop() {
 	for {
 		select {
 		case <-w.fsyncTicker.C:
-			w.Sync()
+			_ = w.Sync()
 		case <-w.fsyncDone:
 			return
 		}
@@ -278,7 +278,8 @@ const (
 )
 
 func createWALSegment(path string, baseOffset Offset) (*walSegment, error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
+	// #nosec G304 -- path is internal WAL segment path, not user-supplied input
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +305,8 @@ func createWALSegment(path string, baseOffset Offset) (*walSegment, error) {
 }
 
 func openWALSegment(path string) (*walSegment, error) {
-	file, err := os.OpenFile(path, os.O_RDWR, 0644)
+	// #nosec G304 -- path is internal WAL segment path, not user-supplied input
+	file, err := os.OpenFile(path, os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -486,7 +488,7 @@ func (s *walSegment) scan() error {
 
 		// Rebuild index if it's empty
 		if s.index.(*indexImpl).Size() == 0 {
-			s.index.Add(offset, recordStart)
+			_ = s.index.Add(offset, recordStart)
 		}
 
 		// Skip data

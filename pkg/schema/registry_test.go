@@ -291,7 +291,7 @@ func TestGetSchemaBySubjectVersion(t *testing.T) {
 		Definition: `{"type": "string"}`,
 	}
 
-	registry.RegisterSchema(req)
+	_, _ = registry.RegisterSchema(req)
 
 	// Get by subject and version
 	getReq := &GetSchemaBySubjectVersionRequest{
@@ -329,7 +329,7 @@ func TestGetLatestSchema(t *testing.T) {
 			Format:     FormatJSON,
 			Definition: `{"type": "string", "version": ` + string(rune('0'+i)) + `}`,
 		}
-		registry.RegisterSchema(req)
+		_, _ = registry.RegisterSchema(req)
 	}
 
 	// Get latest
@@ -364,7 +364,7 @@ func TestListSubjects(t *testing.T) {
 			Format:     FormatJSON,
 			Definition: `{"type": "string"}`,
 		}
-		registry.RegisterSchema(req)
+		_, _ = registry.RegisterSchema(req)
 	}
 
 	// List all subjects
@@ -392,7 +392,7 @@ func TestListSubjects_WithPrefix(t *testing.T) {
 			Format:     FormatJSON,
 			Definition: `{"type": "string"}`,
 		}
-		registry.RegisterSchema(req)
+		_, _ = registry.RegisterSchema(req)
 	}
 
 	// List with prefix
@@ -422,7 +422,7 @@ func TestListVersions(t *testing.T) {
 			Format:     FormatJSON,
 			Definition: `{"type": "string", "v": ` + string(rune('0'+i)) + `}`,
 		}
-		registry.RegisterSchema(req)
+		_, _ = registry.RegisterSchema(req)
 	}
 
 	// List versions
@@ -452,7 +452,7 @@ func TestDeleteSchema(t *testing.T) {
 		Definition: `{"type": "string"}`,
 	}
 
-	registry.RegisterSchema(req)
+	_, _ = registry.RegisterSchema(req)
 
 	// Delete schema
 	deleteReq := &DeleteSchemaRequest{
@@ -488,7 +488,7 @@ func TestDeleteSubject(t *testing.T) {
 			Format:     FormatJSON,
 			Definition: `{"type": "string", "v": ` + string(rune('0'+i)) + `}`,
 		}
-		registry.RegisterSchema(req)
+		_, _ = registry.RegisterSchema(req)
 	}
 
 	// Delete subject
@@ -594,7 +594,7 @@ func TestTestCompatibility(t *testing.T) {
 		Definition: schemaV1,
 	}
 
-	registry.RegisterSchema(regReq)
+	_, _ = registry.RegisterSchema(regReq)
 
 	// Test compatibility with compatible schema
 	schemaV2 := `{
@@ -662,7 +662,7 @@ func TestStats(t *testing.T) {
 			Format:     FormatJSON,
 			Definition: `{"type": "string"}`,
 		}
-		registry.RegisterSchema(req)
+		_, _ = registry.RegisterSchema(req)
 	}
 
 	stats = registry.Stats()

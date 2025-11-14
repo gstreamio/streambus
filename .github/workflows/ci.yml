@@ -169,7 +169,7 @@ jobs:
           output: 'trivy-results.sarif'
 
       - name: Upload Trivy results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'
@@ -177,10 +177,20 @@ jobs:
       - name: Run gosec security scanner
         uses: securego/gosec@master
         with:
-          args: '-no-fail -fmt sarif -out gosec-results.sarif ./...'
+          args: '-no-fail -fmt sarif -out gosec-results.sarif -stdout -verbose=text ./...'
+
+      - name: Post-process SARIF file
+        if: always()
+        run: |
+          # Remove invalid fixes objects that cause SARIF validation errors
+          # SARIF spec requires artifactChanges to have at least 1 element if present
+          if [ -f gosec-results.sarif ]; then
+            jq 'walk(if type == "object" and has("results") then .results |= map(del(.fixes)) else . end)' gosec-results.sarif > gosec-results-fixed.sarif
+            mv gosec-results-fixed.sarif gosec-results.sarif
+          fi
 
       - name: Upload gosec results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: 'gosec-results.sarif'

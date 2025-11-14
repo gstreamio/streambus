@@ -59,7 +59,7 @@ func NewManager(config *SecurityConfig, logger *logging.Logger) (*Manager, error
 		// Load default ACLs if configured
 		if config.UseDefaultACLs {
 			for _, acl := range DefaultACLs() {
-				manager.authorizer.(*ACLAuthorizer).AddACL(acl)
+				_ = manager.authorizer.(*ACLAuthorizer).AddACL(acl)
 			}
 		}
 	}

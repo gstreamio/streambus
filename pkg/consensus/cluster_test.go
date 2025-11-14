@@ -46,7 +46,7 @@ func TestThreeNodeCluster(t *testing.T) {
 	for i, node := range nodes {
 		err := node.Start()
 		require.NoError(t, err, "node %d failed to start", i+1)
-		defer node.Stop()
+		defer func(n *RaftNode) { _ = n.Stop() }(node)
 	}
 
 	// Wait for leader election
@@ -198,7 +198,7 @@ func TestLeaderFailover(t *testing.T) {
 	// Stop remaining nodes
 	for i, node := range nodes {
 		if i != leaderIndex {
-			node.Stop()
+			_ = node.Stop()
 		}
 	}
 
@@ -235,7 +235,7 @@ func BenchmarkThreeNodeProposal(b *testing.B) {
 		require.NoError(b, err)
 
 		nodes[i] = node
-		defer node.Stop()
+		defer func(n *RaftNode) { _ = n.Stop() }(node)
 	}
 
 	// Wait for leader
@@ -286,6 +286,7 @@ func waitForLeader(nodes []*RaftNode, timeout time.Duration) (uint64, error) {
 }
 
 // Helper function to count leaders in a cluster.
+//nolint:unused // Used in integration tests for cluster validation
 func countLeaders(nodes []*RaftNode) int {
 	count := 0
 	for _, node := range nodes {

@@ -35,7 +35,7 @@ type DiskStorage struct {
 
 // NewDiskStorage creates a new disk-based storage.
 func NewDiskStorage(dir string) (*DiskStorage, error) {
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
 

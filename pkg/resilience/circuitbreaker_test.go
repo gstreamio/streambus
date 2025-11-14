@@ -3,6 +3,7 @@ package resilience
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -83,7 +84,7 @@ func TestCircuitBreaker_TransitionsToHalfOpen(t *testing.T) {
 
 	// Fail twice to open circuit
 	for i := 0; i < 2; i++ {
-		cb.Call(ctx, func() error { return testErr })
+		_ = cb.Call(ctx, func() error { return testErr })
 	}
 
 	assert.Equal(t, StateOpen, cb.State())
@@ -115,7 +116,7 @@ func TestCircuitBreaker_HalfOpenToClosedOnSuccess(t *testing.T) {
 
 	// Open the circuit
 	for i := 0; i < 2; i++ {
-		cb.Call(ctx, func() error { return testErr })
+		_ = cb.Call(ctx, func() error { return testErr })
 	}
 
 	assert.Equal(t, StateOpen, cb.State())
@@ -151,22 +152,23 @@ func TestCircuitBreaker_HalfOpenToOpenOnFailure(t *testing.T) {
 
 	// Open the circuit
 	for i := 0; i < 2; i++ {
-		cb.Call(ctx, func() error { return testErr })
+		_ = cb.Call(ctx, func() error { return testErr })
 	}
 
 	// Wait for timeout
 	time.Sleep(100 * time.Millisecond)
 
 	// First call transitions to half-open and succeeds
-	cb.Call(ctx, func() error { return nil })
+	_ = cb.Call(ctx, func() error { return nil })
 	assert.Equal(t, StateHalfOpen, cb.State())
 
 	// Next call fails, should immediately open circuit
-	cb.Call(ctx, func() error { return testErr })
+	_ = cb.Call(ctx, func() error { return testErr })
 	assert.Equal(t, StateOpen, cb.State())
 }
 
 func TestCircuitBreaker_StateChangeCallback(t *testing.T) {
+	var mu sync.Mutex
 	var stateChanges []struct {
 		from State
 		to   State
@@ -175,6 +177,8 @@ func TestCircuitBreaker_StateChangeCallback(t *testing.T) {
 	config := DefaultConfig("test")
 	config.MaxFailures = 2
 	config.OnStateChange = func(from, to State) {
+		mu.Lock()
+		defer mu.Unlock()
 		stateChanges = append(stateChanges, struct {
 			from State
 			to   State
@@ -187,12 +191,14 @@ func TestCircuitBreaker_StateChangeCallback(t *testing.T) {
 
 	// Open the circuit
 	for i := 0; i < 2; i++ {
-		cb.Call(ctx, func() error { return testErr })
+		_ = cb.Call(ctx, func() error { return testErr })
 	}
 
 	// Give callback time to execute
 	time.Sleep(10 * time.Millisecond)
 
+	mu.Lock()
+	defer mu.Unlock()
 	require.Len(t, stateChanges, 1)
 	assert.Equal(t, StateClosed, stateChanges[0].from)
 	assert.Equal(t, StateOpen, stateChanges[0].to)
@@ -208,7 +214,7 @@ func TestCircuitBreaker_Reset(t *testing.T) {
 
 	// Open the circuit
 	for i := 0; i < 2; i++ {
-		cb.Call(ctx, func() error { return testErr })
+		_ = cb.Call(ctx, func() error { return testErr })
 	}
 
 	assert.Equal(t, StateOpen, cb.State())
@@ -242,13 +248,13 @@ func TestCircuitBreaker_Stats(t *testing.T) {
 
 	// Make some successful calls
 	for i := 0; i < 5; i++ {
-		cb.Call(ctx, func() error { return nil })
+		_ = cb.Call(ctx, func() error { return nil })
 	}
 
 	// Make some failed calls
 	testErr := errors.New("test error")
 	for i := 0; i < 3; i++ {
-		cb.Call(ctx, func() error { return testErr })
+		_ = cb.Call(ctx, func() error { return testErr })
 	}
 
 	stats := cb.Stats()
@@ -271,7 +277,7 @@ func TestCircuitBreaker_ConcurrentCalls(t *testing.T) {
 	for g := 0; g < goroutines; g++ {
 		go func() {
 			for i := 0; i < callsPerGoroutine; i++ {
-				cb.Call(ctx, func() error {
+				_ = cb.Call(ctx, func() error {
 					return nil
 				})
 			}
@@ -311,7 +317,7 @@ func TestCircuitBreaker_OpenCircuitResetsTimeoutOnFailure(t *testing.T) {
 	testErr := errors.New("test error")
 
 	// Open the circuit
-	cb.Call(ctx, func() error { return testErr })
+	_ = cb.Call(ctx, func() error { return testErr })
 	assert.Equal(t, StateOpen, cb.State())
 
 	// Wait half the timeout
@@ -319,7 +325,7 @@ func TestCircuitBreaker_OpenCircuitResetsTimeoutOnFailure(t *testing.T) {
 
 	// Try to call (will fail with ErrCircuitOpen)
 	// This updates openUntil, but since we're still open, it extends the timeout
-	cb.Call(ctx, func() error { return nil })
+	_ = cb.Call(ctx, func() error { return nil })
 
 	// Wait another 150ms (total 250ms from first failure)
 	// If timeout wasn't reset, we'd be past the original 200ms timeout
@@ -335,7 +341,7 @@ func BenchmarkCircuitBreaker_ClosedState(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cb.Call(ctx, func() error { return nil })
+		_ = cb.Call(ctx, func() error { return nil })
 	}
 }
 
@@ -346,10 +352,10 @@ func BenchmarkCircuitBreaker_OpenState(b *testing.B) {
 	ctx := context.Background()
 
 	// Open the circuit
-	cb.Call(ctx, func() error { return errors.New("fail") })
+	_ = cb.Call(ctx, func() error { return errors.New("fail") })
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cb.Call(ctx, func() error { return nil })
+		_ = cb.Call(ctx, func() error { return nil })
 	}
 }

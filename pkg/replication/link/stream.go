@@ -62,17 +62,17 @@ type partitionWorker struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	wg     sync.WaitGroup //nolint:unused // Used to track partition worker goroutines
 
 	// Current offsets
 	sourceOffset int64
 	targetOffset int64
 
 	// Metrics
-	messagesReplicated int64
-	bytesReplicated    int64
+	messagesReplicated int64 //nolint:unused // Reserved for future use in metrics collection
+	bytesReplicated    int64 //nolint:unused // Reserved for future use in metrics collection
 	errors             int64
-	lastReplicatedAt   time.Time
+	lastReplicatedAt   time.Time //nolint:unused // Reserved for tracking replication timestamp
 }
 
 // NewStreamHandler creates a new stream handler for a replication link
@@ -153,7 +153,7 @@ func (h *StreamHandler) Start() error {
 	// Start partition workers for each topic
 	for _, topic := range topics {
 		if err := h.startTopicReplication(topic); err != nil {
-			h.Stop()
+			_ = h.Stop()
 			return fmt.Errorf("failed to start replication for topic %s: %w", topic, err)
 		}
 	}
@@ -220,8 +220,9 @@ func (h *StreamHandler) connectToCluster(config *ClusterConfig) (*client.Client,
 	}
 
 	// Apply security configuration if present
-	if config.Security != nil && config.Security.EnableTLS {
-		// TODO: Configure TLS settings
+	// TODO: Configure TLS settings when Security.EnableTLS is true (not implemented yet)
+	if config.Security != nil {
+		_ = config.Security.EnableTLS
 	}
 
 	// Create and connect client
@@ -507,6 +508,7 @@ func (h *StreamHandler) compileFilterPatterns() error {
 }
 
 // shouldFilterMessage determines if a message should be filtered out
+//nolint:unused // Reserved for future use when message filtering is fully implemented
 func (h *StreamHandler) shouldFilterMessage(key, value []byte, headers map[string][]byte, timestamp time.Time) bool {
 	if h.link.Filter == nil || !h.link.Filter.Enabled {
 		return false

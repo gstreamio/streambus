@@ -25,17 +25,17 @@ func TestBidirectionalTransport_SendReceive(t *testing.T) {
 	transport2 := NewBidirectionalTransport(2, "localhost:31002", handler)
 
 	// Add peers (bidirectional)
-	transport1.AddPeer(2, "localhost:31002")
-	transport2.AddPeer(1, "localhost:31001")
+	_ = transport1.AddPeer(2, "localhost:31002")
+	_ = transport2.AddPeer(1, "localhost:31001")
 
 	// Start transports
 	err := transport1.Start()
 	require.NoError(t, err)
-	defer transport1.Stop()
+	defer func() { _ = transport1.Stop() }()
 
 	err = transport2.Start()
 	require.NoError(t, err)
-	defer transport2.Stop()
+	defer func() { _ = transport2.Stop() }()
 
 	// Give time for listeners to start
 	time.Sleep(200 * time.Millisecond)
@@ -93,13 +93,13 @@ func TestBidirectionalTransport_Bidirectional(t *testing.T) {
 	transport1 := NewBidirectionalTransport(1, "localhost:31011", handler1)
 	transport2 := NewBidirectionalTransport(2, "localhost:31012", handler2)
 
-	transport1.AddPeer(2, "localhost:31012")
-	transport2.AddPeer(1, "localhost:31011")
+	_ = transport1.AddPeer(2, "localhost:31012")
+	_ = transport2.AddPeer(1, "localhost:31011")
 
 	require.NoError(t, transport1.Start())
-	defer transport1.Stop()
+	defer func() { _ = transport1.Stop() }()
 	require.NoError(t, transport2.Start())
-	defer transport2.Stop()
+	defer func() { _ = transport2.Stop() }()
 
 	time.Sleep(200 * time.Millisecond)
 
@@ -166,22 +166,22 @@ func TestBidirectionalTransport_ThreeNodes(t *testing.T) {
 	transport3 := NewBidirectionalTransport(3, "localhost:31023", handler3)
 
 	// Add all peers
-	transport1.AddPeer(2, "localhost:31022")
-	transport1.AddPeer(3, "localhost:31023")
+	_ = transport1.AddPeer(2, "localhost:31022")
+	_ = transport1.AddPeer(3, "localhost:31023")
 
-	transport2.AddPeer(1, "localhost:31021")
-	transport2.AddPeer(3, "localhost:31023")
+	_ = transport2.AddPeer(1, "localhost:31021")
+	_ = transport2.AddPeer(3, "localhost:31023")
 
-	transport3.AddPeer(1, "localhost:31021")
-	transport3.AddPeer(2, "localhost:31022")
+	_ = transport3.AddPeer(1, "localhost:31021")
+	_ = transport3.AddPeer(2, "localhost:31022")
 
 	// Start all transports
 	require.NoError(t, transport1.Start())
-	defer transport1.Stop()
+	defer func() { _ = transport1.Stop() }()
 	require.NoError(t, transport2.Start())
-	defer transport2.Stop()
+	defer func() { _ = transport2.Stop() }()
 	require.NoError(t, transport3.Start())
-	defer transport3.Stop()
+	defer func() { _ = transport3.Stop() }()
 
 	time.Sleep(300 * time.Millisecond)
 
@@ -244,13 +244,13 @@ func TestBidirectionalTransport_MultipleMessages(t *testing.T) {
 	transport1 := NewBidirectionalTransport(1, "localhost:31031", handler)
 	transport2 := NewBidirectionalTransport(2, "localhost:31032", handler)
 
-	transport1.AddPeer(2, "localhost:31032")
-	transport2.AddPeer(1, "localhost:31031")
+	_ = transport1.AddPeer(2, "localhost:31032")
+	_ = transport2.AddPeer(1, "localhost:31031")
 
 	require.NoError(t, transport1.Start())
-	defer transport1.Stop()
+	defer func() { _ = transport1.Stop() }()
 	require.NoError(t, transport2.Start())
-	defer transport2.Stop()
+	defer func() { _ = transport2.Stop() }()
 
 	time.Sleep(200 * time.Millisecond)
 
@@ -281,13 +281,13 @@ func TestBidirectionalTransport_ConnectionReuse(t *testing.T) {
 	transport1 := NewBidirectionalTransport(1, "localhost:31041", func(msg raftpb.Message) {})
 	transport2 := NewBidirectionalTransport(2, "localhost:31042", func(msg raftpb.Message) {})
 
-	transport1.AddPeer(2, "localhost:31042")
-	transport2.AddPeer(1, "localhost:31041")
+	_ = transport1.AddPeer(2, "localhost:31042")
+	_ = transport2.AddPeer(1, "localhost:31041")
 
 	require.NoError(t, transport1.Start())
-	defer transport1.Stop()
+	defer func() { _ = transport1.Stop() }()
 	require.NoError(t, transport2.Start())
-	defer transport2.Stop()
+	defer func() { _ = transport2.Stop() }()
 
 	time.Sleep(200 * time.Millisecond)
 

@@ -44,7 +44,9 @@ func TestMultiTenancyIntegration(t *testing.T) {
 	if err := broker.Start(); err != nil {
 		t.Fatalf("Failed to start broker: %v", err)
 	}
-	defer broker.Stop()
+	defer func() {
+		_ = broker.Stop()
+	}()
 
 	// Wait for broker to be ready
 	time.Sleep(2 * time.Second)

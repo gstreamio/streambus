@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -63,7 +64,7 @@ func TestEndToEndIntegration(t *testing.T) {
 	for i, node := range nodes {
 		err := node.Start()
 		require.NoError(t, err, "node %d failed to start", i+1)
-		defer node.Stop()
+		defer func(n *consensus.RaftNode) { _ = n.Stop() }(node)
 	}
 
 	// Wait for leader election
@@ -101,9 +102,12 @@ func TestEndToEndIntegration(t *testing.T) {
 		t.Log("Creating BrokerRegistry on leader...")
 		registry := cluster.NewBrokerRegistry(leaderAdapter)
 
-		// Track events
+		// Track events with proper synchronization
+		var mu sync.Mutex
 		var addedBrokers []int32
 		registry.SetOnBrokerAdded(func(broker *cluster.BrokerMetadata) {
+			mu.Lock()
+			defer mu.Unlock()
 			addedBrokers = append(addedBrokers, broker.ID)
 			t.Logf("Broker added: %d", broker.ID)
 		})
@@ -248,7 +252,7 @@ func TestEndToEndIntegration(t *testing.T) {
 		heartbeat.SetInterval(1 * time.Second)
 		err = heartbeat.Start()
 		require.NoError(t, err)
-		defer heartbeat.Stop()
+		defer func() { _ = heartbeat.Stop() }()
 
 		// Wait for heartbeats
 		time.Sleep(2 * time.Second)
@@ -316,7 +320,7 @@ func TestEndToEndIntegration(t *testing.T) {
 		// Start coordinator (enables automatic rebalancing)
 		err = coordinator.Start()
 		require.NoError(t, err)
-		defer coordinator.Stop()
+		defer func() { _ = coordinator.Stop() }()
 
 		// Get initial rebalance count
 		statsBefore := coordinator.GetRebalanceStats()
