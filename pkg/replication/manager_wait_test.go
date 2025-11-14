@@ -16,7 +16,7 @@ func TestReplicationManager_WaitForISR_NotLeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Try to wait when not leader
 	ctx := context.Background()
@@ -36,7 +36,7 @@ func TestReplicationManager_WaitForISR_AlreadyReplicated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Become leader
 	replicas := []ReplicaID{1, 2, 3}
@@ -63,7 +63,7 @@ func TestReplicationManager_WaitForISR_Timeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Become leader
 	replicas := []ReplicaID{1, 2, 3}
@@ -97,7 +97,7 @@ func TestReplicationManager_WaitForISR_ContextCancelled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Become leader
 	replicas := []ReplicaID{1, 2, 3}
@@ -139,7 +139,7 @@ func TestReplicationManager_WaitForISR_DefaultTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Become leader
 	replicas := []ReplicaID{1, 2, 3}

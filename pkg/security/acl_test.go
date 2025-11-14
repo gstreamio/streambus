@@ -131,7 +131,7 @@ func TestACLAuthorizer_Authorize_DenyTakesPrecedence(t *testing.T) {
 		Permission:   PermissionAllow,
 		CreatedAt:    time.Now(),
 	}
-	auth.AddACL(allowACL)
+	_ = auth.AddACL(allowACL)
 
 	// Add DENY rule (should take precedence)
 	denyACL := &ACLEntry{
@@ -144,7 +144,7 @@ func TestACLAuthorizer_Authorize_DenyTakesPrecedence(t *testing.T) {
 		Permission:   PermissionDeny,
 		CreatedAt:    time.Now(),
 	}
-	auth.AddACL(denyACL)
+	_ = auth.AddACL(denyACL)
 
 	principal := &Principal{
 		ID:   "user1",
@@ -210,7 +210,7 @@ func TestACLAuthorizer_Authorize_LiteralMatch(t *testing.T) {
 		Action:       ActionTopicWrite,
 		Permission:   PermissionAllow,
 	}
-	auth.AddACL(acl)
+	_ = auth.AddACL(acl)
 
 	principal := &Principal{
 		ID:   "user1",
@@ -255,7 +255,7 @@ func TestACLAuthorizer_Authorize_PrefixMatch(t *testing.T) {
 		Action:       ActionTopicWrite,
 		Permission:   PermissionAllow,
 	}
-	auth.AddACL(acl)
+	_ = auth.AddACL(acl)
 
 	principal := &Principal{
 		ID:   "user1",
@@ -305,7 +305,7 @@ func TestACLAuthorizer_Authorize_WildcardMatch(t *testing.T) {
 		Action:       ActionTopicWrite,
 		Permission:   PermissionAllow,
 	}
-	auth.AddACL(acl)
+	_ = auth.AddACL(acl)
 
 	principal := &Principal{
 		ID:   "user1",
@@ -354,7 +354,7 @@ func TestACLAuthorizer_Authorize_WildcardPrincipal(t *testing.T) {
 		Action:       ActionTopicRead,
 		Permission:   PermissionAllow,
 	}
-	auth.AddACL(acl)
+	_ = auth.AddACL(acl)
 
 	tests := []struct {
 		name      string
@@ -401,7 +401,7 @@ func TestACLAuthorizer_Authorize_GroupMatch(t *testing.T) {
 		Action:       ActionTopicWrite,
 		Permission:   PermissionAllow,
 	}
-	auth.AddACL(acl)
+	_ = auth.AddACL(acl)
 
 	principal := &Principal{
 		ID:   "user1",
@@ -456,7 +456,7 @@ func TestACLAuthorizer_Authorize_TypeMatch(t *testing.T) {
 		Action:       ActionTopicWrite,
 		Permission:   PermissionAllow,
 	}
-	auth.AddACL(acl)
+	_ = auth.AddACL(acl)
 
 	// Service principal should match
 	servicePrincipal := &Principal{
@@ -536,7 +536,7 @@ func TestACLAuthorizer_RemoveACL(t *testing.T) {
 		Permission:   PermissionAllow,
 	}
 
-	auth.AddACL(acl)
+	_ = auth.AddACL(acl)
 
 	// Remove it
 	err := auth.RemoveACL("test-acl")
@@ -578,8 +578,8 @@ func TestACLAuthorizer_ListACLs(t *testing.T) {
 		Permission:   PermissionAllow,
 	}
 
-	auth.AddACL(acl1)
-	auth.AddACL(acl2)
+	_ = auth.AddACL(acl1)
+	_ = auth.AddACL(acl2)
 
 	acls := auth.ListACLs()
 	if len(acls) != 2 {
@@ -620,9 +620,9 @@ func TestACLAuthorizer_FindACLs(t *testing.T) {
 		Permission:   PermissionAllow,
 	}
 
-	auth.AddACL(acl1)
-	auth.AddACL(acl2)
-	auth.AddACL(acl3)
+	_ = auth.AddACL(acl1)
+	_ = auth.AddACL(acl2)
+	_ = auth.AddACL(acl3)
 
 	// Find ACLs for specific resource and action
 	matches := auth.FindACLs(ResourceTypeTopic, "logs.app1.errors", ActionTopicWrite)
@@ -648,7 +648,7 @@ func TestACLAuthorizer_ClearACLs(t *testing.T) {
 		Permission:   PermissionAllow,
 	}
 
-	auth.AddACL(acl)
+	_ = auth.AddACL(acl)
 
 	// Verify it exists
 	if len(auth.ListACLs()) != 1 {

@@ -23,9 +23,9 @@ func TestClusterCoordinator_AssignPartitions(t *testing.T) {
 			Status:   BrokerStatusAlive,
 			Capacity: 100,
 		}
-		registry.RegisterBroker(ctx, broker)
+		_ = registry.RegisterBroker(ctx, broker)
 		// Mark broker as alive by sending heartbeat
-		registry.RecordHeartbeat(i)
+		_ = registry.RecordHeartbeat(i)
 	}
 
 	// Create partition assignment
@@ -76,9 +76,9 @@ func TestClusterCoordinator_TriggerRebalance(t *testing.T) {
 			Status:   BrokerStatusAlive,
 			Capacity: 100,
 		}
-		registry.RegisterBroker(ctx, broker)
+		_ = registry.RegisterBroker(ctx, broker)
 		// Mark broker as alive by sending heartbeat
-		registry.RecordHeartbeat(i)
+		_ = registry.RecordHeartbeat(i)
 	}
 
 	// Create initial assignment
@@ -93,7 +93,7 @@ func TestClusterCoordinator_TriggerRebalance(t *testing.T) {
 		ExcludedBrokers: make(map[int32]bool),
 	}
 
-	coordinator.AssignPartitions(ctx, partitions, constraints)
+	_, _ = coordinator.AssignPartitions(ctx, partitions, constraints)
 
 	// Add a new broker
 	newBroker := &BrokerMetadata{
@@ -103,7 +103,7 @@ func TestClusterCoordinator_TriggerRebalance(t *testing.T) {
 		Status:   BrokerStatusAlive,
 		Capacity: 100,
 	}
-	registry.RegisterBroker(ctx, newBroker)
+	_ = registry.RegisterBroker(ctx, newBroker)
 
 	// Trigger rebalance
 	err := coordinator.TriggerRebalance(ctx)
@@ -131,8 +131,8 @@ func TestClusterCoordinator_RebalanceOnBrokerAdd(t *testing.T) {
 	ctx := context.Background()
 
 	// Start coordinator
-	coordinator.Start()
-	defer coordinator.Stop()
+	_ = coordinator.Start()
+	defer func() { _ = coordinator.Stop() }()
 
 	// Register initial brokers
 	for i := int32(1); i <= 2; i++ {
@@ -143,9 +143,9 @@ func TestClusterCoordinator_RebalanceOnBrokerAdd(t *testing.T) {
 			Status:   BrokerStatusAlive,
 			Capacity: 100,
 		}
-		registry.RegisterBroker(ctx, broker)
+		_ = registry.RegisterBroker(ctx, broker)
 		// Mark broker as alive by sending heartbeat
-		registry.RecordHeartbeat(i)
+		_ = registry.RecordHeartbeat(i)
 	}
 
 	// Create initial assignment
@@ -158,7 +158,7 @@ func TestClusterCoordinator_RebalanceOnBrokerAdd(t *testing.T) {
 		ExcludedBrokers: make(map[int32]bool),
 	}
 
-	coordinator.AssignPartitions(ctx, partitions, constraints)
+	_, _ = coordinator.AssignPartitions(ctx, partitions, constraints)
 
 	// Track rebalance count before
 	statsBefore := coordinator.GetRebalanceStats()
@@ -171,7 +171,7 @@ func TestClusterCoordinator_RebalanceOnBrokerAdd(t *testing.T) {
 		Status:   BrokerStatusAlive,
 		Capacity: 100,
 	}
-	registry.RegisterBroker(ctx, newBroker)
+	_ = registry.RegisterBroker(ctx, newBroker)
 
 	// Wait for async rebalance
 	time.Sleep(100 * time.Millisecond)
@@ -249,9 +249,9 @@ func TestClusterCoordinator_ConcurrentRebalance(t *testing.T) {
 			Status:   BrokerStatusAlive,
 			Capacity: 100,
 		}
-		registry.RegisterBroker(ctx, broker)
+		_ = registry.RegisterBroker(ctx, broker)
 		// Mark broker as alive by sending heartbeat
-		registry.RecordHeartbeat(i)
+		_ = registry.RecordHeartbeat(i)
 	}
 
 	// Create assignment
@@ -264,7 +264,7 @@ func TestClusterCoordinator_ConcurrentRebalance(t *testing.T) {
 		ExcludedBrokers: make(map[int32]bool),
 	}
 
-	coordinator.AssignPartitions(ctx, partitions, constraints)
+	_, _ = coordinator.AssignPartitions(ctx, partitions, constraints)
 
 	// Try to trigger multiple concurrent rebalances using goroutines
 	errChan1 := make(chan error, 1)

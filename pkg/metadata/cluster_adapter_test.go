@@ -236,7 +236,7 @@ func TestClusterMetadataStore_StatusConversion(t *testing.T) {
 			assert.Equal(t, tc.expectedAfterUpdate, retrieved.Status)
 
 			// Clean up
-			adapter.DeleteBroker(ctx, 2)
+			_ = adapter.DeleteBroker(ctx, 2)
 		})
 	}
 }

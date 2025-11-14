@@ -63,7 +63,7 @@ func TestEndToEndIntegration(t *testing.T) {
 	for i, node := range nodes {
 		err := node.Start()
 		require.NoError(t, err, "node %d failed to start", i+1)
-		defer node.Stop()
+		defer func(n *consensus.RaftNode) { _ = n.Stop() }(node)
 	}
 
 	// Wait for leader election
@@ -248,7 +248,7 @@ func TestEndToEndIntegration(t *testing.T) {
 		heartbeat.SetInterval(1 * time.Second)
 		err = heartbeat.Start()
 		require.NoError(t, err)
-		defer heartbeat.Stop()
+		defer func() { _ = heartbeat.Stop() }()
 
 		// Wait for heartbeats
 		time.Sleep(2 * time.Second)
@@ -316,7 +316,7 @@ func TestEndToEndIntegration(t *testing.T) {
 		// Start coordinator (enables automatic rebalancing)
 		err = coordinator.Start()
 		require.NoError(t, err)
-		defer coordinator.Stop()
+		defer func() { _ = coordinator.Stop() }()
 
 		// Get initial rebalance count
 		statsBefore := coordinator.GetRebalanceStats()

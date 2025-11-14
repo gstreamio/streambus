@@ -110,7 +110,7 @@ func TestMemTable_Size(t *testing.T) {
 	key := []byte("key1")
 	value := []byte("value1")
 
-	mt.Put(key, value)
+	_ = mt.Put(key, value)
 
 	expectedSize := int64(len(key) + len(value))
 	if mt.Size() != expectedSize {
@@ -129,7 +129,7 @@ func TestMemTable_Iterator(t *testing.T) {
 	}
 
 	for k, v := range data {
-		mt.Put([]byte(k), []byte(v))
+		_ = mt.Put([]byte(k), []byte(v))
 	}
 
 	// Iterate and verify order
@@ -168,7 +168,7 @@ func TestMemTable_Clear(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		key := []byte(fmt.Sprintf("key%d", i))
 		value := []byte(fmt.Sprintf("value%d", i))
-		mt.Put(key, value)
+		_ = mt.Put(key, value)
 	}
 
 	if mt.Size() == 0 {
@@ -198,7 +198,7 @@ func BenchmarkMemTable_Put(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		key := []byte(fmt.Sprintf("key%d", i))
 		value := []byte(fmt.Sprintf("value%d", i))
-		mt.Put(key, value)
+		_ = mt.Put(key, value)
 	}
 }
 
@@ -209,7 +209,7 @@ func BenchmarkMemTable_Get(b *testing.B) {
 	for i := 0; i < 10000; i++ {
 		key := []byte(fmt.Sprintf("key%d", i))
 		value := []byte(fmt.Sprintf("value%d", i))
-		mt.Put(key, value)
+		_ = mt.Put(key, value)
 	}
 
 	b.ReportAllocs()
@@ -217,7 +217,7 @@ func BenchmarkMemTable_Get(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		key := []byte(fmt.Sprintf("key%d", i%10000))
-		mt.Get(key)
+		_, _, _ = mt.Get(key)
 	}
 }
 
@@ -228,7 +228,7 @@ func BenchmarkMemTable_Iterator(b *testing.B) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key%04d", i))
 		value := []byte(fmt.Sprintf("value%d", i))
-		mt.Put(key, value)
+		_ = mt.Put(key, value)
 	}
 
 	b.ReportAllocs()

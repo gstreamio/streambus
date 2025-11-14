@@ -211,18 +211,18 @@ func TestFetcher_GetPartitionCount(t *testing.T) {
 	}
 
 	// Add partitions
-	fetcher.AddPartition("test-topic", 0, 2, 1)
+	_ = fetcher.AddPartition("test-topic", 0, 2, 1)
 	if count := fetcher.GetPartitionCount(); count != 1 {
 		t.Errorf("count after 1 add = %d, want 1", count)
 	}
 
-	fetcher.AddPartition("test-topic", 1, 2, 1)
+	_ = fetcher.AddPartition("test-topic", 1, 2, 1)
 	if count := fetcher.GetPartitionCount(); count != 2 {
 		t.Errorf("count after 2 adds = %d, want 2", count)
 	}
 
 	// Remove partition
-	fetcher.RemovePartition("test-topic", 0)
+	_ = fetcher.RemovePartition("test-topic", 0)
 	if count := fetcher.GetPartitionCount(); count != 1 {
 		t.Errorf("count after remove = %d, want 1", count)
 	}

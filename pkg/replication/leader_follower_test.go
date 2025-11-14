@@ -147,7 +147,7 @@ func TestReplicationManager_UpdateLogEndOffset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Become leader first
 	replicas := []ReplicaID{1, 2, 3}
@@ -157,7 +157,7 @@ func TestReplicationManager_UpdateLogEndOffset(t *testing.T) {
 	}
 
 	// Update LEO
-	rm.UpdateLogEndOffset(200)
+	_ = rm.UpdateLogEndOffset(200)
 
 	// Should succeed without error
 }
@@ -172,7 +172,7 @@ func TestReplicationManager_GetMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	metrics := rm.GetMetrics()
 

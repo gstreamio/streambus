@@ -471,7 +471,7 @@ func (es *EncryptionService) Close() {
 // generateKeyID generates a unique key ID
 func generateKeyID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return fmt.Sprintf("key-%x", b)
 }
 
