@@ -387,7 +387,7 @@ func (gc *GroupConsumer) heartbeatSender() {
 		case <-gc.heartbeatCtx.Done():
 			return
 		case <-ticker.C:
-			gc.sendHeartbeat()
+			_ = gc.sendHeartbeat()
 		}
 	}
 }

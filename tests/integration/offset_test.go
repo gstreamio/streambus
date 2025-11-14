@@ -337,15 +337,15 @@ func BenchmarkOffsetTracking(b *testing.B) {
 	topic := fmt.Sprintf("bench-offset-%d", time.Now().Unix())
 
 	// Create topic
-	c.CreateTopic(topic, 1, 1)
+	_ = c.CreateTopic(topic, 1, 1)
 	time.Sleep(1 * time.Second)
 
 	// Produce test messages
 	producer := client.NewProducer(c)
 	for i := 0; i < 1000; i++ {
-		producer.Send(topic, []byte(fmt.Sprintf("key-%d", i)), []byte(fmt.Sprintf("value-%d", i)))
+		_ = producer.Send(topic, []byte(fmt.Sprintf("key-%d", i)), []byte(fmt.Sprintf("value-%d", i)))
 	}
-	producer.Flush(topic)
+	_ = producer.Flush(topic)
 	producer.Close()
 	time.Sleep(1 * time.Second)
 
@@ -356,10 +356,10 @@ func BenchmarkOffsetTracking(b *testing.B) {
 
 		// Seek to random offset
 		offset := int64(i % 1000)
-		consumer.Seek(offset)
+		_ = consumer.Seek(offset)
 
 		// Fetch one message
-		consumer.FetchN(1)
+		_, _ = consumer.FetchN(1)
 
 		consumer.Close()
 	}

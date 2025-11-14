@@ -290,13 +290,13 @@ func (mm *mirrorMaker) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	_ = json.NewEncoder(w).Encode(status)
 }
 
 // handleLiveness handles GET /health/live
 func (mm *mirrorMaker) handleLiveness(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	_, _ = w.Write([]byte("OK"))
 }
 
 // handleReadiness handles GET /health/ready
@@ -311,7 +311,7 @@ func (mm *mirrorMaker) handleReadiness(w http.ResponseWriter, r *http.Request) {
 	for _, lnk := range links {
 		if lnk.Status == link.ReplicationStatusActive {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("Ready"))
+			_, _ = w.Write([]byte("Ready"))
 			return
 		}
 	}
@@ -409,7 +409,7 @@ func (mm *mirrorMaker) handleLinks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(links)
+	_ = json.NewEncoder(w).Encode(links)
 }
 
 // handleLinkDetails handles GET /api/v1/links/:id
@@ -433,5 +433,5 @@ func (mm *mirrorMaker) handleLinkDetails(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(link)
+	_ = json.NewEncoder(w).Encode(link)
 }

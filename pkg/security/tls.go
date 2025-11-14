@@ -65,8 +65,8 @@ func NewTLSConfig(cfg *TLSConfig) (*tls.Config, error) {
 		tlsConfig.CipherSuites = cfg.CipherSuites
 	}
 
-	// Prefer server cipher suites
-	tlsConfig.PreferServerCipherSuites = true
+	// Note: PreferServerCipherSuites is deprecated since Go 1.18 and is now ignored
+	// The server's cipher suite preference is always used when the client supports it
 
 	cfg.config = tlsConfig
 	return tlsConfig, nil

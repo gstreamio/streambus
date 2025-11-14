@@ -196,7 +196,9 @@ func TestMetadataReplication(t *testing.T) {
 	for i, node := range nodes {
 		err := node.Start()
 		require.NoError(t, err, "node %d failed to start", i+1)
-		defer node.Stop()
+		defer func(n *consensus.RaftNode) {
+			_ = n.Stop()
+		}(node)
 	}
 
 	// Wait for initial leader election
@@ -511,7 +513,9 @@ func TestMetadataSnapshot(t *testing.T) {
 	node.SetBindAddr("localhost:20001")
 	err = node.Start()
 	require.NoError(t, err)
-	defer node.Stop()
+	defer func() {
+		_ = node.Stop()
+	}()
 
 	// Wait for leader election (longer due to increased election timeout)
 	time.Sleep(3 * time.Second)

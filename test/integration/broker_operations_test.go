@@ -40,7 +40,7 @@ func TestBrokerOperations(t *testing.T) {
 		if err := b.Start(); err != nil {
 			t.Fatalf("Failed to start broker: %v", err)
 		}
-		defer b.Stop()
+		defer func() { _ = b.Stop() }()
 
 		// Wait for broker to be ready
 		time.Sleep(3 * time.Second)
@@ -62,7 +62,7 @@ func TestBrokerOperations(t *testing.T) {
 		if err := b.Start(); err != nil {
 			t.Fatalf("Failed to start broker: %v", err)
 		}
-		defer b.Stop()
+		defer func() { _ = b.Stop() }()
 
 		time.Sleep(3 * time.Second)
 
@@ -74,7 +74,7 @@ func TestBrokerOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 
 		// Create topic
 		topicName := "test-topic"
@@ -86,7 +86,7 @@ func TestBrokerOperations(t *testing.T) {
 
 		// Produce message
 		producer := client.NewProducer(c)
-		defer producer.Close()
+		defer func() { _ = producer.Close() }()
 
 		testData := []byte("integration test message")
 		if err := producer.Send(topicName, []byte("key1"), testData); err != nil {
@@ -95,9 +95,9 @@ func TestBrokerOperations(t *testing.T) {
 
 		// Consume message
 		consumer := client.NewConsumer(c, topicName, 0)
-		defer consumer.Close()
+		defer func() { _ = consumer.Close() }()
 
-		consumer.SeekToBeginning()
+		_ = consumer.SeekToBeginning()
 		messages, err := consumer.Fetch()
 		if err != nil {
 			t.Fatalf("Failed to consume messages: %v", err)
@@ -135,7 +135,7 @@ func TestBrokerOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 
 		// Create topic
 		if err := c.CreateTopic("shutdown-test", 1, 1); err != nil {
@@ -184,9 +184,9 @@ func TestBrokerOperations(t *testing.T) {
 			t.Fatalf("Failed to produce message: %v", err)
 		}
 
-		producer.Close()
-		c1.Close()
-		b1.Stop()
+		_ = producer.Close()
+		_ = c1.Close()
+		_ = b1.Stop()
 
 		// Wait for cleanup
 		time.Sleep(2 * time.Second)
@@ -200,7 +200,7 @@ func TestBrokerOperations(t *testing.T) {
 		if err := b2.Start(); err != nil {
 			t.Fatalf("Failed to restart broker: %v", err)
 		}
-		defer b2.Stop()
+		defer func() { _ = b2.Stop() }()
 
 		time.Sleep(3 * time.Second)
 
@@ -209,12 +209,12 @@ func TestBrokerOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create client after restart: %v", err)
 		}
-		defer c2.Close()
+		defer func() { _ = c2.Close() }()
 
 		consumer := client.NewConsumer(c2, topicName, 0)
-		defer consumer.Close()
+		defer func() { _ = consumer.Close() }()
 
-		consumer.SeekToBeginning()
+		_ = consumer.SeekToBeginning()
 		messages, err := consumer.Fetch()
 		if err != nil {
 			t.Fatalf("Failed to consume messages after restart: %v", err)
@@ -241,7 +241,7 @@ func TestBrokerOperations(t *testing.T) {
 		if err := b.Start(); err != nil {
 			t.Fatalf("Failed to start broker: %v", err)
 		}
-		defer b.Stop()
+		defer func() { _ = b.Stop() }()
 
 		time.Sleep(3 * time.Second)
 
@@ -252,7 +252,7 @@ func TestBrokerOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create client: %v", err)
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 
 		// Create multiple topics
 		topics := []string{"topic-a", "topic-b", "topic-c"}
@@ -266,7 +266,7 @@ func TestBrokerOperations(t *testing.T) {
 
 		// Produce to each topic
 		producer := client.NewProducer(c)
-		defer producer.Close()
+		defer func() { _ = producer.Close() }()
 
 		for _, topic := range topics {
 			msg := []byte("message for " + topic)
@@ -278,9 +278,9 @@ func TestBrokerOperations(t *testing.T) {
 		// Verify messages in each topic
 		for _, topic := range topics {
 			consumer := client.NewConsumer(c, topic, 0)
-			consumer.SeekToBeginning()
+			_ = consumer.SeekToBeginning()
 			messages, err := consumer.Fetch()
-			consumer.Close()
+			_ = consumer.Close()
 
 			if err != nil {
 				t.Errorf("Failed to consume from %s: %v", topic, err)
@@ -305,7 +305,7 @@ func TestBrokerOperations(t *testing.T) {
 		if err := b.Start(); err != nil {
 			t.Fatalf("Failed to start broker: %v", err)
 		}
-		defer b.Stop()
+		defer func() { _ = b.Stop() }()
 
 		time.Sleep(3 * time.Second)
 

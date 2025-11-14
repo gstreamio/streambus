@@ -273,7 +273,7 @@ func TestSingleNodeCluster(t *testing.T) {
 
 	err = node.Start()
 	require.NoError(t, err)
-	defer node.Stop()
+	defer func() { _ = node.Stop() }()
 
 	// Wait for leader election (single node should elect itself)
 	// Check periodically for up to 5 seconds
@@ -354,7 +354,7 @@ func BenchmarkPropose(b *testing.B) {
 	node.SetBindAddr("localhost:25001")
 	err = node.Start()
 	require.NoError(b, err)
-	defer node.Stop()
+	defer func() { _ = node.Stop() }()
 
 	// Wait for leader election
 	time.Sleep(500 * time.Millisecond)
@@ -402,7 +402,7 @@ func TestNode_Status(t *testing.T) {
 	node.SetBindAddr("localhost:15101")
 	err = node.Start()
 	require.NoError(t, err)
-	defer node.Stop()
+	defer func() { _ = node.Stop() }()
 
 	// Wait a bit for initialization
 	time.Sleep(200 * time.Millisecond)

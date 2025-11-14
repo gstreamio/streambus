@@ -102,10 +102,10 @@ func (rm *ReplicationManager) Stop() error {
 
 	rm.mu.Lock()
 	if rm.leaderRep != nil {
-		rm.leaderRep.Stop()
+		_ = rm.leaderRep.Stop()
 	}
 	if rm.followerRep != nil {
-		rm.followerRep.Stop()
+		_ = rm.followerRep.Stop()
 	}
 
 	// Cancel all pending waiters
@@ -133,7 +133,7 @@ func (rm *ReplicationManager) BecomeLeader(
 
 	// Stop follower replicator if running
 	if rm.followerRep != nil {
-		rm.followerRep.Stop()
+		_ = rm.followerRep.Stop()
 		rm.followerRep = nil
 	}
 
@@ -170,7 +170,7 @@ func (rm *ReplicationManager) BecomeFollower(
 
 	// Stop leader replicator if running
 	if rm.leaderRep != nil {
-		rm.leaderRep.Stop()
+		_ = rm.leaderRep.Stop()
 		rm.leaderRep = nil
 	}
 

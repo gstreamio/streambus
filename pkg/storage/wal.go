@@ -250,7 +250,7 @@ func (w *walImpl) fsyncLoop() {
 	for {
 		select {
 		case <-w.fsyncTicker.C:
-			w.Sync()
+			_ = w.Sync()
 		case <-w.fsyncDone:
 			return
 		}
@@ -486,7 +486,7 @@ func (s *walSegment) scan() error {
 
 		// Rebuild index if it's empty
 		if s.index.(*indexImpl).Size() == 0 {
-			s.index.Add(offset, recordStart)
+			_ = s.index.Add(offset, recordStart)
 		}
 
 		// Skip data

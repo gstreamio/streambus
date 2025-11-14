@@ -402,9 +402,9 @@ func TestManager_checkAllLinksHealth(t *testing.T) {
 		TargetClusterReachable: true,
 	}
 
-	manager.CreateLink(link1)
-	manager.CreateLink(link2)
-	manager.CreateLink(link3)
+	_ = manager.CreateLink(link1)
+	_ = manager.CreateLink(link2)
+	_ = manager.CreateLink(link3)
 
 	// Should not panic with active links
 	manager.checkAllLinksHealth()
@@ -426,7 +426,7 @@ func TestManager_checkLinkHealth_NoHandler(t *testing.T) {
 
 	link := createTestLink("test-link", "Test Link")
 	link.Status = ReplicationStatusActive
-	manager.CreateLink(link)
+	_ = manager.CreateLink(link)
 
 	// Should not panic when handler doesn't exist
 	manager.checkLinkHealth("test-link")
@@ -521,7 +521,7 @@ func TestManager_scheduleAutoFailback(t *testing.T) {
 		SourceClusterReachable: true,
 		TargetClusterReachable: true,
 	}
-	manager.CreateLink(link)
+	_ = manager.CreateLink(link)
 
 	// Should not panic with minimal delay
 	done := make(chan bool)

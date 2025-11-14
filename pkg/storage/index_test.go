@@ -72,9 +72,9 @@ func TestIndex_Sync(t *testing.T) {
 		t.Fatalf("Failed to create index: %v", err)
 	}
 
-	idx.Add(0, 0)
-	idx.Add(100, 1000)
-	idx.Add(200, 2000)
+	_ = idx.Add(0, 0)
+	_ = idx.Add(100, 1000)
+	_ = idx.Add(200, 2000)
 
 	// Sync to disk
 	if err := idx.Sync(); err != nil {
@@ -111,7 +111,7 @@ func TestIndex_Truncate(t *testing.T) {
 
 	// Add entries
 	for i := 0; i < 10; i++ {
-		idx.Add(Offset(i*100), int64(i*1000))
+		_ = idx.Add(Offset(i*100), int64(i*1000))
 	}
 
 	// Truncate before offset 500
@@ -172,8 +172,8 @@ func TestIndex_OutOfRange(t *testing.T) {
 	}
 	defer idx.Close()
 
-	idx.Add(100, 1000)
-	idx.Add(200, 2000)
+	_ = idx.Add(100, 1000)
+	_ = idx.Add(200, 2000)
 
 	// Lookup before first entry
 	_, err = idx.Lookup(50)
@@ -193,7 +193,7 @@ func TestIndex_Persistence(t *testing.T) {
 	}
 
 	for i := 0; i < 1000; i++ {
-		idx.Add(Offset(i*10), int64(i*100))
+		_ = idx.Add(Offset(i*10), int64(i*100))
 	}
 
 	if err := idx.Sync(); err != nil {
@@ -245,7 +245,7 @@ func BenchmarkIndex_Add(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		idx.Add(Offset(i), int64(i*100))
+		_ = idx.Add(Offset(i), int64(i*100))
 	}
 }
 
@@ -261,7 +261,7 @@ func BenchmarkIndex_Lookup(b *testing.B) {
 
 	// Populate index
 	for i := 0; i < 10000; i++ {
-		idx.Add(Offset(i*10), int64(i*100))
+		_ = idx.Add(Offset(i*10), int64(i*100))
 	}
 
 	b.ReportAllocs()

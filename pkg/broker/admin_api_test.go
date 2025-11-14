@@ -75,8 +75,8 @@ func TestHandleClusterInfo(t *testing.T) {
 		Status:   cluster.BrokerStatusAlive,
 		Capacity: 100,
 	}
-	broker.registry.RegisterBroker(context.Background(), testBroker)
-	broker.registry.RecordHeartbeat(broker.config.BrokerID)
+	_ = broker.registry.RegisterBroker(context.Background(), testBroker)
+	_ = broker.registry.RecordHeartbeat(broker.config.BrokerID)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/cluster", nil)
 	w := httptest.NewRecorder()
@@ -129,8 +129,8 @@ func TestHandleBrokerList(t *testing.T) {
 			Status:   cluster.BrokerStatusAlive,
 			Capacity: 100,
 		}
-		broker.registry.RegisterBroker(context.Background(), testBroker)
-		broker.registry.RecordHeartbeat(i)
+		_ = broker.registry.RegisterBroker(context.Background(), testBroker)
+		_ = broker.registry.RecordHeartbeat(i)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/brokers", nil)
@@ -178,8 +178,8 @@ func TestHandleBrokerDetail(t *testing.T) {
 		Status:   cluster.BrokerStatusAlive,
 		Capacity: 100,
 	}
-	broker.registry.RegisterBroker(context.Background(), testBroker)
-	broker.registry.RecordHeartbeat(2)
+	_ = broker.registry.RegisterBroker(context.Background(), testBroker)
+	_ = broker.registry.RecordHeartbeat(2)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/brokers/2", nil)
 	w := httptest.NewRecorder()
@@ -311,8 +311,8 @@ func TestHandleTopics_List(t *testing.T) {
 
 	// Create some test topics
 	ctx := context.Background()
-	metaStore.CreateTopic(ctx, "topic1", 3, 1, metadata.DefaultTopicConfig())
-	metaStore.CreateTopic(ctx, "topic2", 2, 1, metadata.DefaultTopicConfig())
+	_ = metaStore.CreateTopic(ctx, "topic1", 3, 1, metadata.DefaultTopicConfig())
+	_ = metaStore.CreateTopic(ctx, "topic2", 2, 1, metadata.DefaultTopicConfig())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/topics", nil)
 	w := httptest.NewRecorder()
@@ -410,7 +410,7 @@ func TestGetTopic(t *testing.T) {
 
 	// Create a test topic
 	ctx := context.Background()
-	metaStore.CreateTopic(ctx, "test-topic", 3, 1, metadata.DefaultTopicConfig())
+	_ = metaStore.CreateTopic(ctx, "test-topic", 3, 1, metadata.DefaultTopicConfig())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/topics/test-topic", nil)
 	w := httptest.NewRecorder()
@@ -455,7 +455,7 @@ func TestDeleteTopic(t *testing.T) {
 
 	// Create a test topic
 	ctx := context.Background()
-	metaStore.CreateTopic(ctx, "test-topic", 3, 1, metadata.DefaultTopicConfig())
+	_ = metaStore.CreateTopic(ctx, "test-topic", 3, 1, metadata.DefaultTopicConfig())
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/topics/test-topic", nil)
 	w := httptest.NewRecorder()
@@ -506,7 +506,7 @@ func TestHandleTopicPartitions(t *testing.T) {
 
 	// Create a test topic with 3 partitions
 	ctx := context.Background()
-	metaStore.CreateTopic(ctx, "test-topic", 3, 1, metadata.DefaultTopicConfig())
+	_ = metaStore.CreateTopic(ctx, "test-topic", 3, 1, metadata.DefaultTopicConfig())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/topics/test-topic/partitions", nil)
 	w := httptest.NewRecorder()
@@ -547,7 +547,7 @@ func TestHandleTopicPartitions_MethodNotAllowed(t *testing.T) {
 
 	// Create a test topic
 	ctx := context.Background()
-	metaStore.CreateTopic(ctx, "test-topic", 3, 1, metadata.DefaultTopicConfig())
+	_ = metaStore.CreateTopic(ctx, "test-topic", 3, 1, metadata.DefaultTopicConfig())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/topics/test-topic/partitions", nil)
 	w := httptest.NewRecorder()
@@ -565,7 +565,7 @@ func TestHandleTopicMessages_MethodNotAllowed(t *testing.T) {
 
 	// Create a test topic
 	ctx := context.Background()
-	metaStore.CreateTopic(ctx, "test-topic", 3, 1, metadata.DefaultTopicConfig())
+	_ = metaStore.CreateTopic(ctx, "test-topic", 3, 1, metadata.DefaultTopicConfig())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/topics/test-topic/messages", nil)
 	w := httptest.NewRecorder()

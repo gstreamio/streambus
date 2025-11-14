@@ -265,9 +265,7 @@ func TestNewTLSConfig(t *testing.T) {
 				if len(cfg.CipherSuites) != 2 {
 					t.Errorf("Expected 2 cipher suites, got %d", len(cfg.CipherSuites))
 				}
-				if !cfg.PreferServerCipherSuites {
-					t.Error("Expected PreferServerCipherSuites to be true")
-				}
+				// Note: PreferServerCipherSuites is deprecated since Go 1.18 and no longer checked
 			},
 		},
 		{

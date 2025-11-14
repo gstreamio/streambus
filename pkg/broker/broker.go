@@ -247,20 +247,20 @@ func (b *Broker) Stop() error {
 	// Stop components in reverse order
 	if b.httpServer != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		b.httpServer.Shutdown(shutdownCtx)
+		_ = b.httpServer.Shutdown(shutdownCtx)
 		cancel()
 	}
 
 	if b.heartbeat != nil {
-		b.heartbeat.Stop()
+		_ = b.heartbeat.Stop()
 	}
 
 	if b.coordinator != nil {
-		b.coordinator.Stop()
+		_ = b.coordinator.Stop()
 	}
 
 	if b.groupCoordinator != nil {
-		b.groupCoordinator.Stop()
+		_ = b.groupCoordinator.Stop()
 	}
 
 	if b.txnCoordinator != nil {
@@ -268,7 +268,7 @@ func (b *Broker) Stop() error {
 	}
 
 	if b.server != nil {
-		b.server.Stop()
+		_ = b.server.Stop()
 	}
 
 	if b.securityManager != nil {
@@ -278,7 +278,7 @@ func (b *Broker) Stop() error {
 	}
 
 	if b.raftNode != nil {
-		b.raftNode.Stop()
+		_ = b.raftNode.Stop()
 	}
 
 	if b.storage != nil {
@@ -674,7 +674,7 @@ func (b *Broker) initObservability() error {
 	// Register metrics endpoint
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte("# Metrics endpoint placeholder\n"))
+		_, _ = w.Write([]byte("# Metrics endpoint placeholder\n"))
 	})
 
 	// Register tenancy management API endpoints

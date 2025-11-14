@@ -33,7 +33,7 @@ type logImpl struct {
 	logStartOffset  int64
 
 	// Flush coordination
-	flushInProgress atomic.Bool
+	flushInProgress atomic.Bool //nolint:unused // Reserved for future use in async flush coordination
 	flushChan       chan struct{}
 
 	closed bool

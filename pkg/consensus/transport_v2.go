@@ -297,7 +297,7 @@ func (t *BidirectionalTransport) senderLoop(peer *bidirPeer) {
 				backoff *= 2
 
 				// Try to reconnect
-				t.ensureConnected(peer)
+				_ = t.ensureConnected(peer)
 			}
 		}
 	}

@@ -87,7 +87,7 @@ func TestReplicationManager_BecomeLeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Become leader
 	replicas := []ReplicaID{1, 2, 3}
@@ -121,7 +121,7 @@ func TestReplicationManager_BecomeFollower(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Become follower
 	err = rm.BecomeFollower(1, 1)
@@ -154,7 +154,7 @@ func TestReplicationManager_LeaderFollowerTransition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Start as follower
 	err = rm.BecomeFollower(2, 1)
@@ -200,7 +200,7 @@ func TestReplicationManager_WaitForISR(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Become leader
 	err = rm.BecomeLeader(1, []ReplicaID{1, 2, 3})
@@ -235,7 +235,7 @@ func TestReplicationManager_NotifyReplication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Become leader
 	err = rm.BecomeLeader(1, []ReplicaID{1, 2, 3})
@@ -285,7 +285,7 @@ func TestReplicationManager_GetHighWaterMark(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Become leader
 	err = rm.BecomeLeader(1, []ReplicaID{1, 2, 3})
@@ -313,7 +313,7 @@ func TestReplicationManager_GetISR(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Become leader
 	replicas := []ReplicaID{1, 2, 3}

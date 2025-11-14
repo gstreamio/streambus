@@ -297,8 +297,8 @@ func (l *Logger) write(entry Entry) {
 		return
 	}
 
-	output.Write(data)
-	output.Write([]byte("\n"))
+	_, _ = output.Write(data)
+	_, _ = output.Write([]byte("\n"))
 }
 
 // getFileLine returns the file and line number of the caller

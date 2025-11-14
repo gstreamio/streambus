@@ -109,7 +109,7 @@ func (b *Broker) handleClusterInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(info)
+	_ = json.NewEncoder(w).Encode(info)
 }
 
 // ==================== Broker Endpoints ====================
@@ -161,7 +161,7 @@ func (b *Broker) handleBrokerList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(brokerInfos)
+	_ = json.NewEncoder(w).Encode(brokerInfos)
 }
 
 // handleBrokerDetail handles GET /api/v1/brokers/:id
@@ -205,7 +205,7 @@ func (b *Broker) handleBrokerDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(info)
+	_ = json.NewEncoder(w).Encode(info)
 }
 
 // ==================== Topic Endpoints ====================
@@ -261,7 +261,7 @@ func (b *Broker) listTopics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(topicResponses)
+	_ = json.NewEncoder(w).Encode(topicResponses)
 }
 
 // createTopic handles POST /api/v1/topics
@@ -317,7 +317,7 @@ func (b *Broker) createTopic(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"name":               req.Name,
 		"num_partitions":     req.NumPartitions,
 		"replication_factor": req.ReplicationFactor,
@@ -398,7 +398,7 @@ func (b *Broker) getTopic(w http.ResponseWriter, r *http.Request, topicName stri
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // deleteTopic handles DELETE /api/v1/topics/:name
@@ -459,7 +459,7 @@ func (b *Broker) handleTopicPartitions(w http.ResponseWriter, r *http.Request, t
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(partitions)
+	_ = json.NewEncoder(w).Encode(partitions)
 }
 
 // MessageInfo represents message metadata for browsing
@@ -488,7 +488,7 @@ func (b *Broker) handleTopicMessages(w http.ResponseWriter, r *http.Request, top
 	messages := []MessageInfo{}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(messages)
+	_ = json.NewEncoder(w).Encode(messages)
 }
 
 // ==================== Consumer Group Endpoints ====================
@@ -521,7 +521,7 @@ func (b *Broker) handleConsumerGroups(w http.ResponseWriter, r *http.Request) {
 
 	if b.groupCoordinator == nil {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]ConsumerGroupInfo{})
+		_ = json.NewEncoder(w).Encode([]ConsumerGroupInfo{})
 		return
 	}
 
@@ -562,7 +562,7 @@ func (b *Broker) handleConsumerGroups(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(groupInfos)
+	_ = json.NewEncoder(w).Encode(groupInfos)
 }
 
 // handleConsumerGroupOperations handles consumer group-specific operations
@@ -635,7 +635,7 @@ func (b *Broker) getConsumerGroup(w http.ResponseWriter, r *http.Request, groupI
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(info)
+	_ = json.NewEncoder(w).Encode(info)
 }
 
 // LagInfo represents lag information for a partition
@@ -701,7 +701,7 @@ func (b *Broker) handleConsumerGroupLag(w http.ResponseWriter, r *http.Request, 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(lagInfos)
+	_ = json.NewEncoder(w).Encode(lagInfos)
 }
 
 // convertUint64SliceToInt32 converts []uint64 to []int32
@@ -781,7 +781,7 @@ func (b *Broker) listReplicationLinks(w http.ResponseWriter, r *http.Request) {
 	// TODO: Implement when broker has replication manager
 	// For now, return empty list
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode([]interface{}{})
+	_ = json.NewEncoder(w).Encode([]interface{}{})
 }
 
 // createReplicationLink creates a new replication link
@@ -861,7 +861,7 @@ func (b *Broker) handleSecurityStatus(w http.ResponseWriter, r *http.Request) {
 
 	if b.securityManager == nil {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"enabled":        false,
 			"authentication": false,
 			"authorization":  false,
@@ -880,7 +880,7 @@ func (b *Broker) handleSecurityStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	_ = json.NewEncoder(w).Encode(status)
 }
 
 // handleSecurityACLs handles GET /api/v1/security/acls (list) and POST (create)
@@ -894,7 +894,7 @@ func (b *Broker) handleSecurityACLs(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		acls := b.securityManager.ListACLs()
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"acls":  acls,
 			"count": len(acls),
 		})
@@ -934,7 +934,7 @@ func (b *Broker) handleSecurityACLs(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(http.StatusCreated)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(acl)
+		_ = json.NewEncoder(w).Encode(acl)
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -974,7 +974,7 @@ func (b *Broker) handleSecurityUsers(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		// TODO: Implement user listing when security manager supports it
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"users": []string{},
 			"count": 0,
 		})
@@ -1001,7 +1001,7 @@ func (b *Broker) handleSecurityUsers(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(http.StatusCreated)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"username": req.Username,
 			"status":   "created",
 		})

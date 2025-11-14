@@ -140,8 +140,8 @@ func (s *Server) acceptLoop() {
 		// Configure TCP connection
 		if tcpConn, ok := conn.(*net.TCPConn); ok {
 			if s.config.KeepAlive {
-				tcpConn.SetKeepAlive(true)
-				tcpConn.SetKeepAlivePeriod(s.config.KeepAlivePeriod)
+				_ = tcpConn.SetKeepAlive(true)
+				_ = tcpConn.SetKeepAlivePeriod(s.config.KeepAlivePeriod)
 			}
 		}
 
@@ -170,10 +170,10 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 	// Set initial timeouts
 	if s.config.ReadTimeout > 0 {
-		conn.SetReadDeadline(time.Now().Add(s.config.ReadTimeout))
+		_ = conn.SetReadDeadline(time.Now().Add(s.config.ReadTimeout))
 	}
 	if s.config.WriteTimeout > 0 {
-		conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
+		_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
 	}
 
 	for {
@@ -207,7 +207,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 		// Update read deadline
 		if s.config.ReadTimeout > 0 {
-			conn.SetReadDeadline(time.Now().Add(s.config.ReadTimeout))
+			_ = conn.SetReadDeadline(time.Now().Add(s.config.ReadTimeout))
 		}
 
 		// Handle request
@@ -215,7 +215,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 		// Update write deadline
 		if s.config.WriteTimeout > 0 {
-			conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
+			_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
 		}
 
 		// Write response

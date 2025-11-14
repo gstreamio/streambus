@@ -41,9 +41,8 @@ func (v *DefaultValidator) validateJSON(definition string) error {
 	}
 
 	// Check for required JSON Schema fields
-	if _, ok := schema["$schema"]; !ok {
-		// Accept schemas without $schema for flexibility
-	}
+	// Accept schemas without $schema for flexibility
+	_ = schema["$schema"]
 
 	return nil
 }
@@ -120,9 +119,8 @@ func (v *DefaultValidator) validateProtobuf(definition string) error {
 		}
 	}
 
-	if !hasSyntax {
-		// Accept proto without explicit syntax (defaults to proto2)
-	}
+	// Accept proto without explicit syntax (defaults to proto2)
+	_ = hasSyntax
 
 	if !hasMessage && !strings.Contains(definition, "enum") {
 		return fmt.Errorf("protobuf schema must contain at least one message or enum definition")
@@ -367,10 +365,9 @@ func (v *DefaultValidator) checkAvroForwardCompatible(oldDef, newDef map[string]
 					break
 				}
 			}
-			if !found {
-				// New field - should have default (simplified check)
-				// In real implementation, we'd check the field definition
-			}
+			// New field - should have default (simplified check)
+			// In real implementation, we'd check the field definition
+			_ = found
 		}
 	}
 

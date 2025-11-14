@@ -163,7 +163,7 @@ func TestBrokerRegistry_DeregisterBroker(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	registry.RegisterBroker(ctx, broker)
+	_ = registry.RegisterBroker(ctx, broker)
 
 	// Deregister broker
 	err := registry.DeregisterBroker(ctx, 1)
@@ -193,7 +193,7 @@ func TestBrokerRegistry_RecordHeartbeat(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	registry.RegisterBroker(ctx, broker)
+	_ = registry.RegisterBroker(ctx, broker)
 
 	// Record heartbeat
 	time.Sleep(10 * time.Millisecond)
@@ -227,7 +227,7 @@ func TestBrokerRegistry_ListBrokers(t *testing.T) {
 			Host: "localhost",
 			Port: 9090 + int(i),
 		}
-		registry.RegisterBroker(ctx, broker)
+		_ = registry.RegisterBroker(ctx, broker)
 	}
 
 	// List all brokers
@@ -244,15 +244,15 @@ func TestBrokerRegistry_ListActiveBrokers(t *testing.T) {
 	ctx := context.Background()
 
 	// Register brokers with different statuses
-	registry.RegisterBroker(ctx, &BrokerMetadata{ID: 1, Host: "host1", Port: 9092})
-	registry.RegisterBroker(ctx, &BrokerMetadata{ID: 2, Host: "host2", Port: 9092})
-	registry.RegisterBroker(ctx, &BrokerMetadata{ID: 3, Host: "host3", Port: 9092})
+	_ = registry.RegisterBroker(ctx, &BrokerMetadata{ID: 1, Host: "host1", Port: 9092})
+	_ = registry.RegisterBroker(ctx, &BrokerMetadata{ID: 2, Host: "host2", Port: 9092})
+	_ = registry.RegisterBroker(ctx, &BrokerMetadata{ID: 3, Host: "host3", Port: 9092})
 
 	// Mark broker 1 as alive
-	registry.RecordHeartbeat(1)
+	_ = registry.RecordHeartbeat(1)
 
 	// Decommission broker 3
-	registry.DeregisterBroker(ctx, 3)
+	_ = registry.DeregisterBroker(ctx, 3)
 
 	// List active brokers (should only include broker 1 and 2)
 	active := registry.ListActiveBrokers()
@@ -288,7 +288,7 @@ func TestBrokerRegistry_GetBrokerCount(t *testing.T) {
 			Host: "localhost",
 			Port: 9090 + int(i),
 		}
-		registry.RegisterBroker(ctx, broker)
+		_ = registry.RegisterBroker(ctx, broker)
 	}
 
 	if registry.GetBrokerCount() != 5 {
@@ -310,14 +310,14 @@ func TestBrokerRegistry_HealthMonitoring(t *testing.T) {
 		Host: "localhost",
 		Port: 9092,
 	}
-	registry.RegisterBroker(ctx, broker)
+	_ = registry.RegisterBroker(ctx, broker)
 
 	// Mark as alive
-	registry.RecordHeartbeat(1)
+	_ = registry.RecordHeartbeat(1)
 
 	// Start health monitoring
-	registry.Start()
-	defer registry.Stop()
+	_ = registry.Start()
+	defer func() { _ = registry.Stop() }()
 
 	// Wait for heartbeat timeout
 	time.Sleep(200 * time.Millisecond)
@@ -362,7 +362,7 @@ func TestBrokerRegistry_Callbacks(t *testing.T) {
 		Host: "localhost",
 		Port: 9092,
 	}
-	registry.RegisterBroker(ctx, broker)
+	_ = registry.RegisterBroker(ctx, broker)
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -373,7 +373,7 @@ func TestBrokerRegistry_Callbacks(t *testing.T) {
 	mu.Unlock()
 
 	// Deregister broker (should trigger onRemoved)
-	registry.DeregisterBroker(ctx, 1)
+	_ = registry.DeregisterBroker(ctx, 1)
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -391,7 +391,7 @@ func TestBrokerRegistry_GetBrokerStats(t *testing.T) {
 	ctx := context.Background()
 
 	// Register brokers with different statuses and disk usage
-	registry.RegisterBroker(ctx, &BrokerMetadata{
+	_ = registry.RegisterBroker(ctx, &BrokerMetadata{
 		ID:             1,
 		Host:           "host1",
 		Port:           9092,
@@ -399,7 +399,7 @@ func TestBrokerRegistry_GetBrokerStats(t *testing.T) {
 		DiskUsedGB:     500,
 	})
 
-	registry.RegisterBroker(ctx, &BrokerMetadata{
+	_ = registry.RegisterBroker(ctx, &BrokerMetadata{
 		ID:             2,
 		Host:           "host2",
 		Port:           9092,
@@ -408,7 +408,7 @@ func TestBrokerRegistry_GetBrokerStats(t *testing.T) {
 	})
 
 	// Mark broker 1 as alive
-	registry.RecordHeartbeat(1)
+	_ = registry.RecordHeartbeat(1)
 
 	stats := registry.GetBrokerStats()
 

@@ -100,10 +100,8 @@ func (rs *RangeStrategy) assignTopicPartitions(
 		return nil
 	}
 
-	replicationFactor := partitions[0].Replicas
-	if replicationFactor > len(brokers) {
-		replicationFactor = len(brokers)
-	}
+	// Note: replicationFactor is determined per partition in selectReplicas
+	// based on partition.Replicas and available brokers
 
 	// Calculate partitions per broker
 	numPartitions := len(partitions)

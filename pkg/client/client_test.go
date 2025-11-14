@@ -68,7 +68,7 @@ func TestClient_NewWithInvalidConfig(t *testing.T) {
 
 func TestClient_HealthCheck(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -87,7 +87,7 @@ func TestClient_HealthCheck(t *testing.T) {
 
 func TestClient_CreateTopic(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -106,7 +106,7 @@ func TestClient_CreateTopic(t *testing.T) {
 
 func TestClient_DeleteTopic(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -131,7 +131,7 @@ func TestClient_DeleteTopic(t *testing.T) {
 
 func TestClient_ListTopics(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -197,7 +197,7 @@ func TestProducer_New(t *testing.T) {
 
 func TestProducer_Send(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -231,7 +231,7 @@ func TestProducer_Send(t *testing.T) {
 
 func TestProducer_SendToPartition(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -259,7 +259,7 @@ func TestProducer_SendToPartition(t *testing.T) {
 
 func TestProducer_SendMessages(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -293,7 +293,7 @@ func TestProducer_SendMessages(t *testing.T) {
 
 func TestProducer_Batching(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -334,7 +334,7 @@ func TestProducer_Batching(t *testing.T) {
 
 func TestProducer_Flush(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -430,7 +430,7 @@ func TestConsumer_New(t *testing.T) {
 
 func TestConsumer_Fetch(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -449,8 +449,8 @@ func TestConsumer_Fetch(t *testing.T) {
 
 	// Produce some messages
 	producer := NewProducer(client)
-	producer.Send("test-topic", []byte("key1"), []byte("value1"))
-	producer.Send("test-topic", []byte("key2"), []byte("value2"))
+	_ = producer.Send("test-topic", []byte("key1"), []byte("value1"))
+	_ = producer.Send("test-topic", []byte("key2"), []byte("value2"))
 	producer.Close()
 
 	// Now consume
@@ -512,7 +512,7 @@ func TestConsumer_SeekToBeginning(t *testing.T) {
 	defer consumer.Close()
 
 	// Set offset to something non-zero
-	consumer.Seek(100)
+	_ = consumer.Seek(100)
 
 	err = consumer.SeekToBeginning()
 	if err != nil {
@@ -548,7 +548,7 @@ func TestConsumer_Close(t *testing.T) {
 
 func TestConsumer_FetchOne(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -567,7 +567,7 @@ func TestConsumer_FetchOne(t *testing.T) {
 
 	// Produce a message
 	producer := NewProducer(client)
-	producer.Send("test-topic", []byte("key1"), []byte("value1"))
+	_ = producer.Send("test-topic", []byte("key1"), []byte("value1"))
 	producer.Close()
 
 	// Now consume
@@ -598,7 +598,7 @@ func TestConsumer_FetchOne(t *testing.T) {
 
 func TestConsumer_FetchOne_NoMessages(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -632,7 +632,7 @@ func TestConsumer_FetchOne_NoMessages(t *testing.T) {
 
 func TestConsumer_SeekToEnd(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -650,8 +650,8 @@ func TestConsumer_SeekToEnd(t *testing.T) {
 	}
 
 	producer := NewProducer(client)
-	producer.Send("test-topic", []byte("key1"), []byte("value1"))
-	producer.Send("test-topic", []byte("key2"), []byte("value2"))
+	_ = producer.Send("test-topic", []byte("key1"), []byte("value1"))
+	_ = producer.Send("test-topic", []byte("key2"), []byte("value2"))
 	producer.Close()
 
 	consumer := NewConsumer(client, "test-topic", 0)
@@ -671,7 +671,7 @@ func TestConsumer_SeekToEnd(t *testing.T) {
 
 func TestConsumer_GetEndOffset(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -689,8 +689,8 @@ func TestConsumer_GetEndOffset(t *testing.T) {
 	}
 
 	producer := NewProducer(client)
-	producer.Send("test-topic", []byte("key1"), []byte("value1"))
-	producer.Send("test-topic", []byte("key2"), []byte("value2"))
+	_ = producer.Send("test-topic", []byte("key1"), []byte("value1"))
+	_ = producer.Send("test-topic", []byte("key2"), []byte("value2"))
 	producer.Close()
 
 	consumer := NewConsumer(client, "test-topic", 0)
@@ -728,7 +728,7 @@ func TestConsumer_GetEndOffset_Closed(t *testing.T) {
 
 func TestConsumer_Stats(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -746,7 +746,7 @@ func TestConsumer_Stats(t *testing.T) {
 	}
 
 	producer := NewProducer(client)
-	producer.Send("test-topic", []byte("key1"), []byte("value1"))
+	_ = producer.Send("test-topic", []byte("key1"), []byte("value1"))
 	producer.Close()
 
 	consumer := NewConsumer(client, "test-topic", 0)
@@ -785,7 +785,7 @@ func TestConsumer_Stats(t *testing.T) {
 
 func TestConnectionPool_GetAndPut(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -837,7 +837,7 @@ func TestConnectionPool_GetAndPut(t *testing.T) {
 
 func TestConnectionPool_Stats(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -877,7 +877,7 @@ func TestConnectionPool_Stats(t *testing.T) {
 
 func TestConnectionPool_Close(t *testing.T) {
 	srv, addr := setupTestServer(t)
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -908,7 +908,7 @@ func TestConnectionPool_Close(t *testing.T) {
 
 func BenchmarkProducer_Send(b *testing.B) {
 	srv, addr := setupTestServer(&testing.T{})
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -918,7 +918,7 @@ func BenchmarkProducer_Send(b *testing.B) {
 	defer client.Close()
 
 	// Create topic first
-	client.CreateTopic("test-topic", 1, 1)
+	_ = client.CreateTopic("test-topic", 1, 1)
 
 	producer := NewProducerWithConfig(client, config.ProducerConfig)
 	defer producer.Close()
@@ -939,7 +939,7 @@ func BenchmarkProducer_Send(b *testing.B) {
 
 func BenchmarkConsumer_Fetch(b *testing.B) {
 	srv, addr := setupTestServer(&testing.T{})
-	defer srv.Stop()
+	defer func() { _ = srv.Stop() }()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -948,16 +948,16 @@ func BenchmarkConsumer_Fetch(b *testing.B) {
 	defer client.Close()
 
 	// Create topic and produce some messages
-	client.CreateTopic("test-topic", 1, 1)
+	_ = client.CreateTopic("test-topic", 1, 1)
 	producer := NewProducer(client)
 	for i := 0; i < 100; i++ {
-		producer.Send("test-topic", []byte("key"), []byte("value"))
+		_ = producer.Send("test-topic", []byte("key"), []byte("value"))
 	}
 	producer.Close()
 
 	consumer := NewConsumer(client, "test-topic", 0)
 	defer consumer.Close()
-	consumer.SeekToBeginning()
+	_ = consumer.SeekToBeginning()
 
 	b.ResetTimer()
 	b.ReportAllocs()

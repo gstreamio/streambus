@@ -252,7 +252,7 @@ func TestMemoryAuditLogger_GetEvents_Copy(t *testing.T) {
 		Result:    AuditResultSuccess,
 	}
 
-	logger.LogEvent(event)
+	_ = logger.LogEvent(event)
 
 	// Get events
 	events1 := logger.GetEvents()
@@ -274,7 +274,7 @@ func TestMemoryAuditLogger_Clear(t *testing.T) {
 		Result:    AuditResultSuccess,
 	}
 
-	logger.LogEvent(event)
+	_ = logger.LogEvent(event)
 
 	// Verify event was logged
 	if len(logger.GetEvents()) != 1 {
@@ -671,7 +671,7 @@ func TestConcurrentAuditLogging(t *testing.T) {
 					Resource:  Resource{Type: ResourceTypeTopic, Name: "test"},
 					Result:    AuditResultSuccess,
 				}
-				logger.LogEvent(event)
+				_ = logger.LogEvent(event)
 			}
 			done <- true
 		}(i)

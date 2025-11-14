@@ -341,9 +341,8 @@ func (tc *TransactionalConsumer) Close() error {
 	}
 
 	// Commit offsets if auto-commit is enabled
-	if tc.config.AutoCommitEnabled {
-		// Final offset commit would happen here (no-op for now)
-	}
+	// Note: Final offset commit would happen here when auto-commit is implemented
+	_ = tc.config.AutoCommitEnabled
 
 	tc.closed = true
 	return nil

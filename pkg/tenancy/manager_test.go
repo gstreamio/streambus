@@ -286,9 +286,9 @@ func TestManager_GetUsage(t *testing.T) {
 	}
 
 	// Add some usage
-	manager.EnforceConnectionQuota("tenant1")
-	manager.EnforceConnectionQuota("tenant1")
-	manager.EnforceProduceQuota("tenant1", 100, 10)
+	_ = manager.EnforceConnectionQuota("tenant1")
+	_ = manager.EnforceConnectionQuota("tenant1")
+	_ = manager.EnforceProduceQuota("tenant1", 100, 10)
 
 	usage, err := manager.GetUsage("tenant1")
 	if err != nil {
@@ -308,15 +308,15 @@ func TestManager_GetAllUsage(t *testing.T) {
 	manager := NewManager()
 
 	// Create multiple tenants
-	manager.CreateTenant("tenant1", "Tenant 1", nil)
-	manager.CreateTenant("tenant2", "Tenant 2", nil)
-	manager.CreateTenant("tenant3", "Tenant 3", nil)
+	_, _ = manager.CreateTenant("tenant1", "Tenant 1", nil)
+	_, _ = manager.CreateTenant("tenant2", "Tenant 2", nil)
+	_, _ = manager.CreateTenant("tenant3", "Tenant 3", nil)
 
 	// Add usage to each
-	manager.EnforceConnectionQuota("tenant1")
-	manager.EnforceConnectionQuota("tenant2")
-	manager.EnforceConnectionQuota("tenant2")
-	manager.EnforceConnectionQuota("tenant3")
+	_ = manager.EnforceConnectionQuota("tenant1")
+	_ = manager.EnforceConnectionQuota("tenant2")
+	_ = manager.EnforceConnectionQuota("tenant2")
+	_ = manager.EnforceConnectionQuota("tenant3")
 
 	usage := manager.GetAllUsage()
 
@@ -349,9 +349,9 @@ func TestManager_GetUtilization(t *testing.T) {
 
 	// Add usage
 	for i := 0; i < 50; i++ {
-		manager.EnforceConnectionQuota("tenant1")
+		_ = manager.EnforceConnectionQuota("tenant1")
 	}
-	manager.UpdateStorageUsage("tenant1", 500)
+	_ = manager.UpdateStorageUsage("tenant1", 500)
 
 	utilization, err := manager.GetUtilization("tenant1")
 	if err != nil {
@@ -381,7 +381,7 @@ func TestManager_GetTenantStats(t *testing.T) {
 
 	// Add usage
 	for i := 0; i < 25; i++ {
-		manager.EnforceConnectionQuota("tenant1")
+		_ = manager.EnforceConnectionQuota("tenant1")
 	}
 
 	stats, err := manager.GetTenantStats("tenant1")
@@ -406,9 +406,9 @@ func TestManager_ListTenants(t *testing.T) {
 	manager := NewManager()
 
 	// Create multiple tenants
-	manager.CreateTenant("tenant1", "Tenant 1", nil)
-	manager.CreateTenant("tenant2", "Tenant 2", nil)
-	manager.CreateTenant("tenant3", "Tenant 3", nil)
+	_ , _ = manager.CreateTenant("tenant1", "Tenant 1", nil)
+	_ , _ = manager.CreateTenant("tenant2", "Tenant 2", nil)
+	_ , _ = manager.CreateTenant("tenant3", "Tenant 3", nil)
 
 	tenants := manager.ListTenants()
 

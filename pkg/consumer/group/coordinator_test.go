@@ -12,7 +12,7 @@ func TestGroupCoordinator_JoinGroup(t *testing.T) {
 	storage := NewMemoryOffsetStorage()
 	config := DefaultCoordinatorConfig()
 	coordinator := NewGroupCoordinator(storage, config)
-	defer coordinator.Stop()
+	defer func() { _ = coordinator.Stop() }()
 
 	// Test first member joining
 	req1 := &JoinGroupRequest{
@@ -74,7 +74,7 @@ func TestGroupCoordinator_SyncGroup(t *testing.T) {
 	storage := NewMemoryOffsetStorage()
 	config := DefaultCoordinatorConfig()
 	coordinator := NewGroupCoordinator(storage, config)
-	defer coordinator.Stop()
+	defer func() { _ = coordinator.Stop() }()
 
 	// Join group
 	joinReq := &JoinGroupRequest{
@@ -115,7 +115,7 @@ func TestGroupCoordinator_Heartbeat(t *testing.T) {
 	storage := NewMemoryOffsetStorage()
 	config := DefaultCoordinatorConfig()
 	coordinator := NewGroupCoordinator(storage, config)
-	defer coordinator.Stop()
+	defer func() { _ = coordinator.Stop() }()
 
 	// Join group
 	joinReq := &JoinGroupRequest{
@@ -164,7 +164,7 @@ func TestGroupCoordinator_LeaveGroup(t *testing.T) {
 	storage := NewMemoryOffsetStorage()
 	config := DefaultCoordinatorConfig()
 	coordinator := NewGroupCoordinator(storage, config)
-	defer coordinator.Stop()
+	defer func() { _ = coordinator.Stop() }()
 
 	// Join group
 	joinReq := &JoinGroupRequest{
@@ -203,7 +203,7 @@ func TestGroupCoordinator_OffsetCommit(t *testing.T) {
 	storage := NewMemoryOffsetStorage()
 	config := DefaultCoordinatorConfig()
 	coordinator := NewGroupCoordinator(storage, config)
-	defer coordinator.Stop()
+	defer func() { _ = coordinator.Stop() }()
 
 	// Commit offset (without group membership, like simple consumer)
 	commitReq := &OffsetCommitRequest{
@@ -243,7 +243,7 @@ func TestGroupCoordinator_ExpiredMembers(t *testing.T) {
 	config := DefaultCoordinatorConfig()
 	config.HeartbeatCheckIntervalMs = 100 // Check frequently
 	coordinator := NewGroupCoordinator(storage, config)
-	defer coordinator.Stop()
+	defer func() { _ = coordinator.Stop() }()
 
 	// Join group with short timeout
 	joinReq := &JoinGroupRequest{
@@ -295,7 +295,7 @@ func TestGroupCoordinator_MultipleGroups(t *testing.T) {
 	storage := NewMemoryOffsetStorage()
 	config := DefaultCoordinatorConfig()
 	coordinator := NewGroupCoordinator(storage, config)
-	defer coordinator.Stop()
+	defer func() { _ = coordinator.Stop() }()
 
 	// Create group 1
 	joinReq1 := &JoinGroupRequest{

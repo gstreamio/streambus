@@ -8,7 +8,7 @@ func TestGroupCoordinator_ListGroups(t *testing.T) {
 	offsetStorage := NewMemoryOffsetStorage()
 	config := DefaultCoordinatorConfig()
 	gc := NewGroupCoordinator(offsetStorage, config)
-	defer gc.Stop()
+	defer func() { _ = gc.Stop() }()
 
 	// Initially empty
 	groups := gc.ListGroups()
@@ -28,7 +28,7 @@ func TestGroupCoordinator_ListGroups(t *testing.T) {
 				{Name: "range", Metadata: []byte("test")},
 			},
 		}
-		gc.HandleJoinGroup(req)
+		_, _ = gc.HandleJoinGroup(req)
 	}
 
 	// List groups
@@ -55,7 +55,7 @@ func TestGroupCoordinator_GetGroup(t *testing.T) {
 	offsetStorage := NewMemoryOffsetStorage()
 	config := DefaultCoordinatorConfig()
 	gc := NewGroupCoordinator(offsetStorage, config)
-	defer gc.Stop()
+	defer func() { _ = gc.Stop() }()
 
 	// Get non-existent group
 	group := gc.GetGroup("non-existent")
@@ -74,7 +74,7 @@ func TestGroupCoordinator_GetGroup(t *testing.T) {
 			{Name: "range", Metadata: []byte("test")},
 		},
 	}
-	gc.HandleJoinGroup(req)
+	_, _ = gc.HandleJoinGroup(req)
 
 	// Get existing group
 	group = gc.GetGroup("test-group")
@@ -99,7 +99,7 @@ func TestGroupCoordinator_GetGroup_ImmutabilityCopy(t *testing.T) {
 	offsetStorage := NewMemoryOffsetStorage()
 	config := DefaultCoordinatorConfig()
 	gc := NewGroupCoordinator(offsetStorage, config)
-	defer gc.Stop()
+	defer func() { _ = gc.Stop() }()
 
 	// Create a group
 	req := &JoinGroupRequest{
@@ -112,7 +112,7 @@ func TestGroupCoordinator_GetGroup_ImmutabilityCopy(t *testing.T) {
 			{Name: "range", Metadata: []byte("test")},
 		},
 	}
-	gc.HandleJoinGroup(req)
+	_, _ = gc.HandleJoinGroup(req)
 
 	// Get the group twice
 	group1 := gc.GetGroup("test-group")
@@ -133,7 +133,7 @@ func TestGroupCoordinator_GetCommittedOffset(t *testing.T) {
 	offsetStorage := NewMemoryOffsetStorage()
 	config := DefaultCoordinatorConfig()
 	gc := NewGroupCoordinator(offsetStorage, config)
-	defer gc.Stop()
+	defer func() { _ = gc.Stop() }()
 
 	// Get offset before committing - should return 0
 	offset, err := gc.GetCommittedOffset("test-group", "test-topic", 0)
@@ -168,7 +168,7 @@ func TestGroupCoordinator_GetCommittedOffset_MultiplePartitions(t *testing.T) {
 	offsetStorage := NewMemoryOffsetStorage()
 	config := DefaultCoordinatorConfig()
 	gc := NewGroupCoordinator(offsetStorage, config)
-	defer gc.Stop()
+	defer func() { _ = gc.Stop() }()
 
 	// Commit offsets for multiple partitions
 	partitionOffsets := map[int32]int64{
@@ -204,7 +204,7 @@ func TestGroupCoordinator_ListGroups_ConcurrentSafety(t *testing.T) {
 	offsetStorage := NewMemoryOffsetStorage()
 	config := DefaultCoordinatorConfig()
 	gc := NewGroupCoordinator(offsetStorage, config)
-	defer gc.Stop()
+	defer func() { _ = gc.Stop() }()
 
 	// Create a group
 	req := &JoinGroupRequest{
@@ -217,7 +217,7 @@ func TestGroupCoordinator_ListGroups_ConcurrentSafety(t *testing.T) {
 			{Name: "range", Metadata: []byte("test")},
 		},
 	}
-	gc.HandleJoinGroup(req)
+	_, _ = gc.HandleJoinGroup(req)
 
 	// Concurrent reads
 	done := make(chan bool, 10)

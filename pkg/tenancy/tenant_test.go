@@ -137,9 +137,9 @@ func TestTenantStore_DeleteTenant(t *testing.T) {
 func TestTenantStore_ListTenants(t *testing.T) {
 	store := NewTenantStore()
 
-	store.CreateTenant("tenant1", "Tenant 1", nil)
-	store.CreateTenant("tenant2", "Tenant 2", nil)
-	store.CreateTenant("tenant3", "Tenant 3", nil)
+	_, _ = store.CreateTenant("tenant1", "Tenant 1", nil)
+	_, _ = store.CreateTenant("tenant2", "Tenant 2", nil)
+	_, _ = store.CreateTenant("tenant3", "Tenant 3", nil)
 
 	tenants := store.ListTenants()
 	if len(tenants) != 3 {

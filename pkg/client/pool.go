@@ -33,6 +33,7 @@ func (c *connection) nextRequestID() uint64 {
 }
 
 // markUsed marks the connection as used
+//nolint:unused // Reserved for future use in connection tracking
 func (c *connection) markUsed() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -60,11 +61,12 @@ func (c *connection) isHealthyLocked() bool {
 	}
 
 	// Reset deadline
-	c.conn.SetDeadline(time.Time{})
+	_ = c.conn.SetDeadline(time.Time{})
 	return true
 }
 
 // isHealthy checks if the connection is healthy
+//nolint:unused // Reserved for future use in connection health monitoring
 func (c *connection) isHealthy() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -216,8 +218,8 @@ func (p *ConnectionPool) createConnection(broker string) (*connection, error) {
 	// Configure TCP connection
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
 		if p.config.KeepAlive {
-			tcpConn.SetKeepAlive(true)
-			tcpConn.SetKeepAlivePeriod(p.config.KeepAlivePeriod)
+			_ = tcpConn.SetKeepAlive(true)
+			_ = tcpConn.SetKeepAlivePeriod(p.config.KeepAlivePeriod)
 		}
 	}
 

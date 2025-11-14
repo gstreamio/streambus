@@ -235,10 +235,10 @@ func (p *Producer) batchFlusher() {
 		select {
 		case <-p.batchCtx.Done():
 			// Flush all remaining batches before exiting
-			p.FlushAll()
+			_ = p.FlushAll()
 			return
 		case <-p.batchTicker.C:
-			p.FlushAll()
+			_ = p.FlushAll()
 		}
 	}
 }
@@ -290,7 +290,7 @@ func (p *Producer) Close() error {
 	}
 
 	// Flush all pending batches before closing
-	p.FlushAll()
+	_ = p.FlushAll()
 
 	// Now mark as closed
 	atomic.StoreInt32(&p.closed, 1)

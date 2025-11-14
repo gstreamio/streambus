@@ -36,7 +36,7 @@ type Partition struct {
 // NewTopicManager creates a new topic manager
 func NewTopicManager(dataDir string) *TopicManager {
 	storageDir := filepath.Join(dataDir, "topics")
-	os.MkdirAll(storageDir, 0755)
+	_ = os.MkdirAll(storageDir, 0755)
 
 	tm := &TopicManager{
 		topics:     make(map[string]*Topic),
@@ -45,7 +45,7 @@ func NewTopicManager(dataDir string) *TopicManager {
 	}
 
 	// Load existing topics from disk
-	tm.loadExistingTopics()
+	_ = tm.loadExistingTopics()
 
 	return tm
 }

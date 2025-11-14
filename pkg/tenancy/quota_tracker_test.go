@@ -232,10 +232,10 @@ func TestQuotaTracker_GetUsage(t *testing.T) {
 	tracker := NewQuotaTracker("tenant1", quotas)
 
 	// Add some resources
-	tracker.AddConnection()
-	tracker.AddConnection()
-	tracker.AddProducer()
-	tracker.AddTopic(5)
+	_ = tracker.AddConnection()
+	_ = tracker.AddConnection()
+	_ = tracker.AddProducer()
+	_ = tracker.AddTopic(5)
 	tracker.UpdateStorage(1000)
 	tracker.RecordThroughput(100, 10)
 
@@ -278,7 +278,7 @@ func TestQuotaTracker_UtilizationPercent(t *testing.T) {
 
 	// Add resources
 	for i := 0; i < 50; i++ {
-		tracker.AddConnection()
+		_ = tracker.AddConnection()
 	}
 	tracker.UpdateStorage(500)
 

@@ -65,7 +65,9 @@ func TestServer_HealthCheck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
-	defer server.Stop()
+	defer func() {
+		_ = server.Stop()
+	}()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -124,7 +126,9 @@ func TestServer_ProduceRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
-	defer server.Stop()
+	defer func() {
+		_ = server.Stop()
+	}()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -228,7 +232,9 @@ func TestServer_FetchRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
-	defer server.Stop()
+	defer func() {
+		_ = server.Stop()
+	}()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -328,7 +334,7 @@ func TestServer_MultipleConnections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
-	defer server.Stop()
+	defer func() { _ = server.Stop() }()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -384,7 +390,7 @@ func TestServer_ConnectionLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
-	defer server.Stop()
+	defer func() { _ = server.Stop() }()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -445,7 +451,7 @@ func TestServer_Stats(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
-	defer server.Stop()
+	defer func() { _ = server.Stop() }()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -512,7 +518,7 @@ func BenchmarkServer_HealthCheck(b *testing.B) {
 	if err != nil {
 		b.Fatalf("Failed to start server: %v", err)
 	}
-	defer server.Stop()
+	defer func() { _ = server.Stop() }()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -536,7 +542,7 @@ func BenchmarkServer_HealthCheck(b *testing.B) {
 
 	// Pre-encode request
 	buf := &bytes.Buffer{}
-	codec.EncodeRequest(buf, req)
+	_ = codec.EncodeRequest(buf, req)
 	requestData := buf.Bytes()
 
 	b.ResetTimer()
@@ -544,7 +550,7 @@ func BenchmarkServer_HealthCheck(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		// Send request
-		conn.Write(requestData)
+		_, _ = conn.Write(requestData)
 
 		// Read response
 		resp, err := codec.DecodeResponse(conn)

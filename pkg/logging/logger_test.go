@@ -281,11 +281,11 @@ func TestLogger_LevelFiltering(t *testing.T) {
 	assert.Len(t, lines, 2)
 
 	var entry1 Entry
-	json.Unmarshal([]byte(lines[0]), &entry1)
+	_ = json.Unmarshal([]byte(lines[0]), &entry1)
 	assert.Equal(t, "WARN", entry1.Level)
 
 	var entry2 Entry
-	json.Unmarshal([]byte(lines[1]), &entry2)
+	_ = json.Unmarshal([]byte(lines[1]), &entry2)
 	assert.Equal(t, "ERROR", entry2.Level)
 }
 
