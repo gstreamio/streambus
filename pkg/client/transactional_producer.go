@@ -219,7 +219,7 @@ func (tp *TransactionalProducer) CommitTransaction(ctx context.Context) error {
 	// Write all pending messages
 	if err := tp.flushMessages(ctx, txn); err != nil {
 		// On error, try to abort
-		tp.AbortTransaction(ctx)
+		_ = tp.AbortTransaction(ctx)
 		return fmt.Errorf("failed to flush messages: %w", err)
 	}
 

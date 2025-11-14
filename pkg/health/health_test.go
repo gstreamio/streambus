@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -205,8 +206,11 @@ func TestSimpleChecker(t *testing.T) {
 }
 
 func TestPeriodicChecker(t *testing.T) {
+	var mu sync.Mutex
 	callCount := 0
 	underlying := NewSimpleChecker("test", func(ctx context.Context) Check {
+		mu.Lock()
+		defer mu.Unlock()
 		callCount++
 		return Check{Status: StatusHealthy, Message: "ok"}
 	})
@@ -222,7 +226,10 @@ func TestPeriodicChecker(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	// Should have run at least 2 times (initial + 2 intervals)
-	assert.GreaterOrEqual(t, callCount, 2)
+	mu.Lock()
+	count := callCount
+	mu.Unlock()
+	assert.GreaterOrEqual(t, count, 2)
 
 	// Check should return cached result
 	ctx := context.Background()

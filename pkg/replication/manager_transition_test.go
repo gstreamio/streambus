@@ -15,7 +15,7 @@ func TestReplicationManager_BecomeFollower_FromLeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// First become leader
 	replicas := []ReplicaID{1, 2, 3}
@@ -75,7 +75,7 @@ func TestReplicationManager_GetHighWaterMark_AsFollower(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Become follower
 	err = rm.BecomeFollower(2, 1)
@@ -105,7 +105,7 @@ func TestReplicationManager_GetMetrics_AsFollower(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Become follower
 	err = rm.BecomeFollower(2, 1)
@@ -132,7 +132,7 @@ func TestReplicationManager_GetMetrics_NoRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer rm.Stop()
+	defer func() { _ = rm.Stop() }()
 
 	// Get metrics without being leader or follower
 	metrics := rm.GetMetrics()

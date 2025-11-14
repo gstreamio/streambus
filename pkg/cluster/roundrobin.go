@@ -110,11 +110,9 @@ func (rr *RoundRobinStrategy) selectReplicas(
 			continue
 		}
 
-		// Check capacity constraint
-		if constraints.MaxPartitionsPerBroker > 0 {
-			// In a real implementation, we'd track current load
-			// For now, we assume capacity is available
-		}
+		// Check capacity constraint (not implemented yet)
+		// TODO: Track current load and enforce capacity limits when MaxPartitionsPerBroker > 0
+		_ = constraints.MaxPartitionsPerBroker
 
 		replicas = append(replicas, broker.ID)
 		selectedBrokers[broker.ID] = true

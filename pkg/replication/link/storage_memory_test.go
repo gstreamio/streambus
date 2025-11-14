@@ -334,15 +334,15 @@ func TestMemoryStorage_ConcurrentAccess(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		go func(id int) {
 			link := createTestLink("concurrent-test", "Concurrent Test")
-			storage.SaveLink(link)
-			storage.LoadLink("concurrent-test")
+			_ = storage.SaveLink(link)
+			_, _ = storage.LoadLink("concurrent-test")
 			done <- true
 		}(i)
 	}
 
 	for i := 0; i < 5; i++ {
 		go func(id int) {
-			storage.ListLinks()
+			_, _ = storage.ListLinks()
 			done <- true
 		}(i)
 	}

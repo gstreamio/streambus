@@ -172,6 +172,8 @@ func (ss *StickyStrategy) Rebalance(
 }
 
 // allBrokersInAssignment checks if all available brokers are in the assignment
+//
+//nolint:unused // Part of StickyStrategy API, may be used in future rebalancing logic
 func (ss *StickyStrategy) allBrokersInAssignment(assignment *Assignment, brokers []BrokerInfo) bool {
 	for _, broker := range brokers {
 		if _, exists := assignment.BrokerLoad[broker.ID]; !exists {
@@ -224,6 +226,8 @@ func (ss *StickyStrategy) findRemovedBrokers(assignment *Assignment, availableBr
 }
 
 // collectPartitionsFromRemovedBrokers collects partitions that need reassignment
+//
+//nolint:unused // Part of StickyStrategy API, may be used in future rebalancing logic
 func (ss *StickyStrategy) collectPartitionsFromRemovedBrokers(
 	assignment *Assignment,
 	removedBrokers map[int32]bool,

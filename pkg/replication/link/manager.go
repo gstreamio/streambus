@@ -295,7 +295,7 @@ func (m *manager) StartLink(linkID string) error {
 	if m.storage != nil {
 		if err := m.storage.SaveLink(link); err != nil {
 			// Stop the handler if we can't persist
-			handler.Stop()
+			_ = handler.Stop()
 			delete(m.streamHandlers, linkID)
 			return fmt.Errorf("failed to persist link status: %w", err)
 		}
@@ -546,7 +546,7 @@ func (m *manager) Failover(linkID string) (*FailoverEvent, error) {
 
 				// Persist if storage available
 				if m.storage != nil {
-					m.storage.SaveOffsetMapping(mapping)
+					_ = m.storage.SaveOffsetMapping(mapping)
 				}
 			}
 		}
@@ -762,7 +762,7 @@ func (m *manager) Close() error {
 
 	// Stop all stream handlers
 	for linkID, handler := range m.streamHandlers {
-		handler.Stop()
+		_ = handler.Stop()
 		delete(m.streamHandlers, linkID)
 	}
 
@@ -852,7 +852,7 @@ func (m *manager) checkLinkHealth(linkID string) {
 
 		// Persist updated metrics/health if storage is available
 		if m.storage != nil {
-			m.storage.SaveLink(link)
+			_ = m.storage.SaveLink(link)
 		}
 
 		// Check if automatic failover should be triggered
@@ -941,6 +941,6 @@ func (m *manager) scheduleAutoFailback(linkID string, delayMs int64) {
 		}
 
 		// Restart replication after failback
-		m.StartLink(linkID)
+		_ = m.StartLink(linkID)
 	}
 }

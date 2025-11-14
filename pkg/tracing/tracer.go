@@ -6,7 +6,9 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/jaeger"
+	// Note: jaeger exporter is deprecated. Jaeger now supports OTLP natively.
+	// This import is kept for backwards compatibility but users should migrate to OTLP.
+	jaeger "go.opentelemetry.io/otel/exporters/jaeger" //nolint:staticcheck // Deprecated but kept for backwards compatibility
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"

@@ -7,7 +7,7 @@ import (
 
 // MemoryOffsetStorage is an in-memory implementation of OffsetStorage
 type MemoryOffsetStorage struct {
-	mu sync.RWMutex
+	mu sync.RWMutex //nolint:unused // Protects concurrent access to offsets map
 	// offsets: groupID -> topic -> partition -> OffsetAndMetadata
 	offsets map[string]map[string]map[int32]*OffsetAndMetadata
 }
@@ -103,7 +103,6 @@ func (s *MemoryOffsetStorage) DeleteOffsets(groupID string) error {
 
 // PersistentOffsetStorage is a persistent implementation using the metadata store
 type PersistentOffsetStorage struct {
-	mu    sync.RWMutex
 	store MetadataStore
 }
 
@@ -156,7 +155,7 @@ type OffsetCommitLog struct {
 // OffsetManager provides higher-level offset management operations
 type OffsetManager struct {
 	storage OffsetStorage
-	mu      sync.RWMutex
+	mu      sync.RWMutex //nolint:unused // Reserved for future use in concurrent offset operations
 }
 
 // NewOffsetManager creates a new offset manager

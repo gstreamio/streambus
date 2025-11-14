@@ -45,7 +45,7 @@ func TestRapidProposals(t *testing.T) {
 	for i, node := range nodes {
 		err := node.Start()
 		require.NoError(t, err, "node %d failed to start", i+1)
-		defer node.Stop()
+		defer func(n *RaftNode) { _ = n.Stop() }(node)
 	}
 
 	// Wait for leader election

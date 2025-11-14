@@ -589,7 +589,7 @@ func BenchmarkCodec_EncodeProduceRequest(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		buf.Reset()
-		codec.EncodeRequest(buf, req)
+		_ = codec.EncodeRequest(buf, req)
 	}
 }
 
@@ -617,14 +617,14 @@ func BenchmarkCodec_DecodeProduceRequest(b *testing.B) {
 	}
 
 	buf := &bytes.Buffer{}
-	codec.EncodeRequest(buf, req)
+	_ = codec.EncodeRequest(buf, req)
 	data := buf.Bytes()
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		codec.DecodeRequest(bytes.NewBuffer(data))
+		_, _ = codec.DecodeRequest(bytes.NewBuffer(data))
 	}
 }
 
@@ -653,7 +653,7 @@ func BenchmarkCodec_EncodeFetchRequest(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		buf.Reset()
-		codec.EncodeRequest(buf, req)
+		_ = codec.EncodeRequest(buf, req)
 	}
 }
 
@@ -676,14 +676,14 @@ func BenchmarkCodec_DecodeFetchRequest(b *testing.B) {
 	}
 
 	buf := &bytes.Buffer{}
-	codec.EncodeRequest(buf, req)
+	_ = codec.EncodeRequest(buf, req)
 	data := buf.Bytes()
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		codec.DecodeRequest(bytes.NewBuffer(data))
+		_, _ = codec.DecodeRequest(bytes.NewBuffer(data))
 	}
 }
 
