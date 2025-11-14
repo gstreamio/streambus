@@ -3,6 +3,7 @@ package resilience
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -167,6 +168,7 @@ func TestCircuitBreaker_HalfOpenToOpenOnFailure(t *testing.T) {
 }
 
 func TestCircuitBreaker_StateChangeCallback(t *testing.T) {
+	var mu sync.Mutex
 	var stateChanges []struct {
 		from State
 		to   State
@@ -175,6 +177,8 @@ func TestCircuitBreaker_StateChangeCallback(t *testing.T) {
 	config := DefaultConfig("test")
 	config.MaxFailures = 2
 	config.OnStateChange = func(from, to State) {
+		mu.Lock()
+		defer mu.Unlock()
 		stateChanges = append(stateChanges, struct {
 			from State
 			to   State
@@ -193,6 +197,8 @@ func TestCircuitBreaker_StateChangeCallback(t *testing.T) {
 	// Give callback time to execute
 	time.Sleep(10 * time.Millisecond)
 
+	mu.Lock()
+	defer mu.Unlock()
 	require.Len(t, stateChanges, 1)
 	assert.Equal(t, StateClosed, stateChanges[0].from)
 	assert.Equal(t, StateOpen, stateChanges[0].to)
