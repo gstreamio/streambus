@@ -5,7 +5,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/shawntherrien/streambus/ui/backend/services"
+	"github.com/gstreamio/streambus/ui/backend/services"
 )
 
 // ConsumerGroupHandler handles consumer group requests

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/client"
+	"github.com/gstreamio/streambus/pkg/client"
 )
 
 // Client provides a high-level, easy-to-use interface to StreamBus

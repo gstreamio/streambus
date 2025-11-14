@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/protocol"
+	"github.com/gstreamio/streambus/pkg/protocol"
 )
 
 // Consumer reads messages from StreamBus topics

@@ -1,6 +1,6 @@
 # StreamBus Documentation
 
-Welcome to the StreamBus documentation. This guide will help you understand, deploy, and operate StreamBus.
+Welcome to the StreamBus documentation! This guide will help you understand, deploy, and operate StreamBus.
 
 ## 📚 Documentation Structure
 
@@ -8,62 +8,71 @@ Welcome to the StreamBus documentation. This guide will help you understand, dep
 
 Start here if you're new to StreamBus:
 
-- **[Quick Start Guide](GETTING_STARTED.md)** - Get up and running in 5 minutes
+- **[Quick Start Guide](GETTING_STARTED.md)** - Get up and running in minutes
 - **[Architecture Overview](ARCHITECTURE.md)** - Understand how StreamBus works
 - **[API Reference](api-reference.md)** - Complete client API documentation
+- **[Examples](../examples/README.md)** - Complete code examples
+
+### Client SDKs
+
+- **[Go SDK](https://github.com/gstreamio/streambus-sdk)** - Official Go client library
+- **[Integration Guide](INTEGRATION_GUIDE.md)** - Integrate StreamBus into your applications
 
 ### Operations
 
 Production deployment and operations:
 
-- **[Operations Guide](operations.md)** - Deploy and operate StreamBus in production
-- **[Production Hardening](PRODUCTION_HARDENING_USAGE.md)** - Reliability and observability features
-- **[Configuration Reference](configuration.md)** - All configuration options
-- **[Monitoring Guide](monitoring.md)** - Metrics, logging, and alerting
-- **[Troubleshooting Guide](troubleshooting.md)** - Common issues and solutions
+- **[Deployment Guide](DEPLOYMENT.md)** - Deploy StreamBus in production
+- **[Operations Guide](operations.md)** - Day-to-day operations
+- **[Operational Runbooks](OPERATIONAL_RUNBOOKS.md)** - Common procedures
+- **[Production Hardening](PRODUCTION_HARDENING_USAGE.md)** - Reliability features
+- **[Monitoring Guide](MONITORING.md)** - Metrics, logging, and observability
+- **[Logging](LOGGING.md)** - Structured logging implementation
 
 ### Performance
 
 Benchmarks and optimization:
 
 - **[Benchmarks](BENCHMARKS.md)** - Comprehensive performance benchmarks
-- **[Performance Tuning](performance-tuning.md)** - Optimize for your workload
-- **[Capacity Planning](capacity-planning.md)** - Size your cluster
+- **[Performance Guide](PERFORMANCE.md)** - Performance characteristics
+- **[Performance Tuning](PERFORMANCE_TUNING.md)** - Optimize for your workload
+- **[Performance Optimization](PERFORMANCE_OPTIMIZATION_SUMMARY.md)** - Optimization summary
 
 ### Migration
 
 Moving to StreamBus from other platforms:
 
 - **[Migrating from Kafka](migration-from-kafka.md)** - Step-by-step migration guide
-- **[Compatibility Layer](kafka-compatibility.md)** - Kafka compatibility features
-- **[Migration Tools](migration-tools.md)** - Data migration utilities
+- **[Migration Overview](MIGRATION.md)** - General migration strategies
 
 ### Architecture & Design
 
 Deep technical documentation:
 
 - **[Architecture Overview](ARCHITECTURE.md)** - High-level system design
-- **[Storage Engine](storage-engine.md)** - LSM-tree implementation
-- **[Consensus Protocol](consensus.md)** - Raft consensus details
-- **[Replication](replication.md)** - Leader-follower replication
-- **[Network Protocol](protocol.md)** - Binary protocol specification
+- **[Replication](REPLICATION.md)** - Leader-follower replication
+- **[Raft Connection Improvements](RAFT_CONNECTION_IMPROVEMENTS.md)** - Consensus optimizations
+
+### Security
+
+- **[Security Guide](SECURITY.md)** - Authentication, authorization, and encryption
 
 ### Development
 
 Contributing to StreamBus:
 
 - **[Contributing Guide](../CONTRIBUTING.md)** - How to contribute
-- **[Development Setup](development.md)** - Local development environment
 - **[Testing Guide](TESTING.md)** - Test strategy and running tests
-- **[Code Style Guide](code-style.md)** - Go coding conventions
-- **[Release Process](release-process.md)** - How we release versions
+- **[CLI Guide](CLI.md)** - Command-line tools
 
 ### Project Information
 
-- **[Project Plan](PROJECT_PLAN.md)** - Detailed project roadmap
 - **[Roadmap](ROADMAP.md)** - Feature timeline and priorities
 - **[Changelog](CHANGELOG.md)** - Version history and changes
 - **[FAQ](FAQ.md)** - Frequently asked questions
+- **[Production Readiness](PRODUCTION_READINESS.md)** - Production readiness checklist
+- **[Production Guide](PRODUCTION.md)** - Production best practices
+- **[Quick Start](QUICK_START.md)** - Alternative quick start
 
 ## 🚀 Quick Links
 
@@ -85,32 +94,34 @@ Contributing to StreamBus:
 - [Submit a PR](../CONTRIBUTING.md#pull-requests)
 - [Architecture Decisions](architecture-decisions/)
 
-## 📊 Current Status
+## 📊 Project Status
 
-**Version**: Development (Phase 2 Complete)
+**Current Phase**: Beta - Active Development
 
-**Test Coverage**: 252 tests passing (100%)
+**Core Components**:
+- ✅ LSM-tree storage engine with WAL
+- ✅ Raft consensus and cluster coordination
+- ✅ Multi-broker replication with automatic failover
+- ✅ Binary protocol with producer/consumer clients
+- ✅ Consumer groups with automatic rebalancing
+- ✅ Transactions and exactly-once semantics
+- ✅ TLS/SASL authentication and ACL authorization
+- ✅ Prometheus metrics and OpenTelemetry tracing
+- ✅ Circuit breakers, health checks, and structured logging
 
-**Components**:
-- ✅ Storage Engine (LSM-tree + WAL)
-- ✅ Network Protocol (Binary protocol)
-- ✅ Client Library (Producer + Consumer)
-- ✅ Raft Consensus
-- ✅ Metadata Replication
-- ✅ Cluster Coordination
-- ✅ Production Hardening (Circuit breakers, health checks, metrics, logging)
-- 🔄 Consumer Groups (In Progress)
-- 🔄 Transactions (Planned)
-- 🔄 Security (Planned)
+**In Development**:
+- Cross-datacenter replication
+- Kubernetes operator
+- Extended test coverage (current: 56.1%, target: 90%+)
 
-See [ROADMAP.md](ROADMAP.md) for detailed timeline.
+See [ROADMAP.md](ROADMAP.md) for the complete roadmap.
 
 ## 🆘 Getting Help
 
-- **Documentation Issues**: [Create an issue](https://github.com/shawntherrien/streambus/issues/new?labels=documentation)
-- **Questions**: [GitHub Discussions](https://github.com/shawntherrien/streambus/discussions)
-- **Bug Reports**: [GitHub Issues](https://github.com/shawntherrien/streambus/issues)
+- **Questions**: [GitHub Discussions](https://github.com/gstreamio/streambus/discussions)
+- **Bug Reports**: [GitHub Issues](https://github.com/gstreamio/streambus/issues)
 - **Security Issues**: security@streambus.io
+- **Documentation Issues**: [Create an issue](https://github.com/gstreamio/streambus/issues/new?labels=documentation)
 
 ## 📝 Documentation Conventions
 
@@ -122,12 +133,13 @@ Throughout the documentation, you'll see these markers:
 - ⚠️ **Experimental** - Feature is experimental and may change
 - 🚫 **Deprecated** - Feature is deprecated and will be removed
 
-## 🗂️ Archive
+## 🗂️ Archive & Planning
 
-Historical milestone reports and session summaries are available in [archive/](archive/).
+- **[Archive](archive/)** - Historical milestone reports and session summaries
+- **[Planning](planning/)** - Internal project planning documents
 
 ---
 
 **Last Updated**: January 2025
 
-**Questions?** Check the [FAQ](FAQ.md) or ask in [Discussions](https://github.com/shawntherrien/streambus/discussions).
+**Questions?** Check the [FAQ](FAQ.md) or ask in [Discussions](https://github.com/gstreamio/streambus/discussions).

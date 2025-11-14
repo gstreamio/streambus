@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/client"
+	"github.com/gstreamio/streambus/pkg/client"
 )
 
 // Producer provides a simple interface for producing messages
