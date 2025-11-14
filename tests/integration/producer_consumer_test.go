@@ -21,10 +21,11 @@ func TestE2E_ProducerConsumerLifecycle(t *testing.T) {
 
 	// Create client
 	cfg := &client.Config{
-		Brokers:        brokers,
-		ConnectTimeout: 10 * time.Second,
-		ReadTimeout:    10 * time.Second,
-		WriteTimeout:   10 * time.Second,
+		Brokers:                 brokers,
+		ConnectTimeout:          10 * time.Second,
+		ReadTimeout:             10 * time.Second,
+		WriteTimeout:            10 * time.Second,
+		MaxConnectionsPerBroker: 5,
 	}
 
 	c, err := client.New(cfg)
@@ -96,8 +97,9 @@ func TestE2E_MultiPartition(t *testing.T) {
 	messagesPerPartition := 50
 
 	cfg := &client.Config{
-		Brokers:        brokers,
-		ConnectTimeout: 10 * time.Second,
+		Brokers:                 brokers,
+		ConnectTimeout:          10 * time.Second,
+		MaxConnectionsPerBroker: 5,
 	}
 
 	c, err := client.New(cfg)
@@ -164,8 +166,9 @@ func TestE2E_LargeMessages(t *testing.T) {
 	topic := fmt.Sprintf("test-large-%d", time.Now().Unix())
 
 	cfg := &client.Config{
-		Brokers:        brokers,
-		ConnectTimeout: 10 * time.Second,
+		Brokers:                 brokers,
+		ConnectTimeout:          10 * time.Second,
+		MaxConnectionsPerBroker: 5,
 	}
 
 	c, err := client.New(cfg)
@@ -240,8 +243,9 @@ func TestE2E_HighThroughput(t *testing.T) {
 	numMessages := 10000
 
 	cfg := &client.Config{
-		Brokers:        brokers,
-		ConnectTimeout: 10 * time.Second,
+		Brokers:                 brokers,
+		ConnectTimeout:          10 * time.Second,
+		MaxConnectionsPerBroker: 5,
 	}
 
 	c, err := client.New(cfg)
@@ -329,8 +333,9 @@ func TestE2E_OrderingGuarantee(t *testing.T) {
 	numMessages := 100
 
 	cfg := &client.Config{
-		Brokers:        brokers,
-		ConnectTimeout: 10 * time.Second,
+		Brokers:                 brokers,
+		ConnectTimeout:          10 * time.Second,
+		MaxConnectionsPerBroker: 5,
 	}
 
 	c, err := client.New(cfg)

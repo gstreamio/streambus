@@ -278,7 +278,7 @@ const (
 )
 
 func createWALSegment(path string, baseOffset Offset) (*walSegment, error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0640)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +304,7 @@ func createWALSegment(path string, baseOffset Offset) (*walSegment, error) {
 }
 
 func openWALSegment(path string) (*walSegment, error) {
-	file, err := os.OpenFile(path, os.O_RDWR, 0640)
+	file, err := os.OpenFile(path, os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err
 	}

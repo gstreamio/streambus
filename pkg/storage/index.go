@@ -41,7 +41,7 @@ func NewIndex(path string) (Index, error) {
 		}
 	} else {
 		// Create new index file
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0640)
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
 			return nil, err
 		}
@@ -164,7 +164,7 @@ func (idx *indexImpl) Close() error {
 }
 
 func (idx *indexImpl) load() error {
-	file, err := os.OpenFile(idx.path, os.O_RDWR, 0640)
+	file, err := os.OpenFile(idx.path, os.O_RDWR, 0600)
 	if err != nil {
 		return err
 	}
