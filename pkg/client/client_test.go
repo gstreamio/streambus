@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/protocol"
-	"github.com/shawntherrien/streambus/pkg/server"
+	"github.com/gstreamio/streambus/pkg/protocol"
+	"github.com/gstreamio/streambus/pkg/server"
 )
 
 // setupTestServer creates a test server for integration tests
@@ -543,6 +543,242 @@ func TestConsumer_Close(t *testing.T) {
 	_, err = consumer.Fetch()
 	if err != ErrConsumerClosed {
 		t.Errorf("Expected ErrConsumerClosed, got %v", err)
+	}
+}
+
+func TestConsumer_FetchOne(t *testing.T) {
+	srv, addr := setupTestServer(t)
+	defer srv.Stop()
+
+	config := DefaultConfig()
+	config.Brokers = []string{addr}
+
+	client, err := New(config)
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.Close()
+
+	// Create topic first
+	err = client.CreateTopic("test-topic", 1, 1)
+	if err != nil {
+		t.Fatalf("Failed to create topic: %v", err)
+	}
+
+	// Produce a message
+	producer := NewProducer(client)
+	producer.Send("test-topic", []byte("key1"), []byte("value1"))
+	producer.Close()
+
+	// Now consume
+	consumer := NewConsumer(client, "test-topic", 0)
+	defer consumer.Close()
+
+	// Seek to beginning
+	err = consumer.SeekToBeginning()
+	if err != nil {
+		t.Fatalf("Failed to seek to beginning: %v", err)
+	}
+
+	// Fetch one message
+	msg, err := consumer.FetchOne()
+	if err != nil {
+		t.Errorf("FetchOne failed: %v", err)
+	}
+
+	if msg == nil {
+		t.Error("Expected non-nil message")
+	}
+
+	if string(msg.Value) != "value1" {
+		t.Errorf("Expected value1, got %s", string(msg.Value))
+	}
+}
+
+func TestConsumer_FetchOne_NoMessages(t *testing.T) {
+	srv, addr := setupTestServer(t)
+	defer srv.Stop()
+
+	config := DefaultConfig()
+	config.Brokers = []string{addr}
+
+	client, err := New(config)
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.Close()
+
+	// Create topic but don't produce any messages
+	err = client.CreateTopic("empty-topic", 1, 1)
+	if err != nil {
+		t.Fatalf("Failed to create topic: %v", err)
+	}
+
+	consumer := NewConsumer(client, "empty-topic", 0)
+	defer consumer.Close()
+
+	err = consumer.SeekToBeginning()
+	if err != nil {
+		t.Fatalf("Failed to seek to beginning: %v", err)
+	}
+
+	// Fetch one message from empty topic
+	_, err = consumer.FetchOne()
+	if err != ErrNoMessages {
+		t.Errorf("Expected ErrNoMessages, got %v", err)
+	}
+}
+
+func TestConsumer_SeekToEnd(t *testing.T) {
+	srv, addr := setupTestServer(t)
+	defer srv.Stop()
+
+	config := DefaultConfig()
+	config.Brokers = []string{addr}
+
+	client, err := New(config)
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.Close()
+
+	// Create topic and produce messages
+	err = client.CreateTopic("test-topic", 1, 1)
+	if err != nil {
+		t.Fatalf("Failed to create topic: %v", err)
+	}
+
+	producer := NewProducer(client)
+	producer.Send("test-topic", []byte("key1"), []byte("value1"))
+	producer.Send("test-topic", []byte("key2"), []byte("value2"))
+	producer.Close()
+
+	consumer := NewConsumer(client, "test-topic", 0)
+	defer consumer.Close()
+
+	// Seek to end
+	err = consumer.SeekToEnd()
+	if err != nil {
+		t.Errorf("SeekToEnd failed: %v", err)
+	}
+
+	// After seeking to end, offset should be >= 2
+	if consumer.CurrentOffset() < 2 {
+		t.Errorf("Expected offset >= 2, got %d", consumer.CurrentOffset())
+	}
+}
+
+func TestConsumer_GetEndOffset(t *testing.T) {
+	srv, addr := setupTestServer(t)
+	defer srv.Stop()
+
+	config := DefaultConfig()
+	config.Brokers = []string{addr}
+
+	client, err := New(config)
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.Close()
+
+	// Create topic and produce messages
+	err = client.CreateTopic("test-topic", 1, 1)
+	if err != nil {
+		t.Fatalf("Failed to create topic: %v", err)
+	}
+
+	producer := NewProducer(client)
+	producer.Send("test-topic", []byte("key1"), []byte("value1"))
+	producer.Send("test-topic", []byte("key2"), []byte("value2"))
+	producer.Close()
+
+	consumer := NewConsumer(client, "test-topic", 0)
+	defer consumer.Close()
+
+	// Get end offset
+	endOffset, err := consumer.GetEndOffset()
+	if err != nil {
+		t.Errorf("GetEndOffset failed: %v", err)
+	}
+
+	// End offset should be >= 2 (since we produced 2 messages)
+	if endOffset < 2 {
+		t.Errorf("Expected end offset >= 2, got %d", endOffset)
+	}
+}
+
+func TestConsumer_GetEndOffset_Closed(t *testing.T) {
+	config := DefaultConfig()
+	client, err := New(config)
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.Close()
+
+	consumer := NewConsumer(client, "test-topic", 0)
+	consumer.Close()
+
+	// GetEndOffset on closed consumer should fail
+	_, err = consumer.GetEndOffset()
+	if err != ErrConsumerClosed {
+		t.Errorf("Expected ErrConsumerClosed, got %v", err)
+	}
+}
+
+func TestConsumer_Stats(t *testing.T) {
+	srv, addr := setupTestServer(t)
+	defer srv.Stop()
+
+	config := DefaultConfig()
+	config.Brokers = []string{addr}
+
+	client, err := New(config)
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.Close()
+
+	// Create topic and produce messages
+	err = client.CreateTopic("test-topic", 1, 1)
+	if err != nil {
+		t.Fatalf("Failed to create topic: %v", err)
+	}
+
+	producer := NewProducer(client)
+	producer.Send("test-topic", []byte("key1"), []byte("value1"))
+	producer.Close()
+
+	consumer := NewConsumer(client, "test-topic", 0)
+	defer consumer.Close()
+
+	// Fetch a message to generate stats
+	err = consumer.SeekToBeginning()
+	if err != nil {
+		t.Fatalf("Failed to seek: %v", err)
+	}
+
+	_, err = consumer.Fetch()
+	if err != nil {
+		t.Fatalf("Failed to fetch: %v", err)
+	}
+
+	// Get stats
+	stats := consumer.Stats()
+
+	if stats.Topic != "test-topic" {
+		t.Errorf("Expected topic 'test-topic', got %s", stats.Topic)
+	}
+
+	if stats.PartitionID != 0 {
+		t.Errorf("Expected partition 0, got %d", stats.PartitionID)
+	}
+
+	if stats.FetchCount == 0 {
+		t.Error("Expected FetchCount > 0")
+	}
+
+	if stats.MessagesRead == 0 {
+		t.Error("Expected MessagesRead > 0")
 	}
 }
 

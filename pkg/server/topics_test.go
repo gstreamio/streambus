@@ -164,16 +164,22 @@ func TestTopicManager_CreateTopic_DuplicateError(t *testing.T) {
 	tm := NewTopicManager(tempDir)
 	defer tm.Close()
 
-	// Create topic
+	// Create topic with 1 partition
 	err := tm.CreateTopic("duplicate-topic", 1)
 	if err != nil {
 		t.Fatalf("CreateTopic failed: %v", err)
 	}
 
-	// Try to create duplicate
+	// Try to create duplicate with same partition count (should succeed - idempotent)
 	err = tm.CreateTopic("duplicate-topic", 1)
+	if err != nil {
+		t.Errorf("Expected no error when creating topic with same partition count: %v", err)
+	}
+
+	// Try to create duplicate with different partition count (should fail)
+	err = tm.CreateTopic("duplicate-topic", 2)
 	if err == nil {
-		t.Error("Expected error when creating duplicate topic")
+		t.Error("Expected error when creating duplicate topic with different partition count")
 	}
 }
 

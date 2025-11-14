@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/broker"
-	"github.com/shawntherrien/streambus/pkg/logging"
-	"github.com/shawntherrien/streambus/pkg/security"
+	"github.com/gstreamio/streambus/pkg/broker"
+	"github.com/gstreamio/streambus/pkg/logging"
+	"github.com/gstreamio/streambus/pkg/security"
 )
 
 func main() {

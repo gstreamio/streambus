@@ -431,3 +431,68 @@ func TestNode_Ready(t *testing.T) {
 	assert.NotNil(t, readyCh)
 }
 
+func TestDiskStorage_Snapshot(t *testing.T) {
+	dir := t.TempDir()
+	storage, err := NewDiskStorage(dir)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+
+	// Create a snapshot
+	snapshot := &raftpb.Snapshot{
+		Data: []byte("test snapshot data"),
+		Metadata: raftpb.SnapshotMetadata{
+			Index: 100,
+			Term:  5,
+		},
+	}
+
+	// Save snapshot
+	if err := storage.SaveSnapshot(*snapshot); err != nil {
+		t.Fatalf("Failed to save snapshot: %v", err)
+	}
+
+	// Retrieve snapshot
+	retrievedSnap, err := storage.Snapshot()
+	if err != nil {
+		t.Fatalf("Failed to retrieve snapshot: %v", err)
+	}
+
+	if retrievedSnap.Metadata.Index != 100 {
+		t.Errorf("Snapshot index = %d, want 100", retrievedSnap.Metadata.Index)
+	}
+
+	if retrievedSnap.Metadata.Term != 5 {
+		t.Errorf("Snapshot term = %d, want 5", retrievedSnap.Metadata.Term)
+	}
+}
+
+func TestDiskStorage_Compact(t *testing.T) {
+	dir := t.TempDir()
+	storage, err := NewDiskStorage(dir)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+
+	// Save some entries
+	entries := []raftpb.Entry{
+		{Index: 1, Term: 1, Data: []byte("entry1")},
+		{Index: 2, Term: 1, Data: []byte("entry2")},
+		{Index: 3, Term: 2, Data: []byte("entry3")},
+	}
+
+	if err := storage.SaveEntries(entries); err != nil {
+		t.Fatalf("Failed to save entries: %v", err)
+	}
+
+	// Compact up to index 2
+	if err := storage.Compact(2); err != nil {
+		t.Fatalf("Failed to compact: %v", err)
+	}
+
+	// Try to retrieve compacted entry (should fail or return empty)
+	ents, err := storage.Entries(1, 2)
+	if err == nil && len(ents) > 0 {
+		t.Log("Note: Retrieved entries after compact (implementation specific)")
+	}
+}

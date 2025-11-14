@@ -277,7 +277,7 @@ func printMarkdown(issues []PerformanceIssue) {
 	fmt.Printf("- **Critical**: %d\n", critical)
 	fmt.Printf("- **Warnings**: %d\n\n", warnings)
 
-	fmt.Println("### Issues\n")
+	fmt.Println("### Issues")
 
 	for _, issue := range issues {
 		icon := "⚠️"

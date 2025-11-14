@@ -8,7 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/shawntherrien/streambus/pkg/protocol"
+	"github.com/gstreamio/streambus/pkg/logger"
+	"github.com/gstreamio/streambus/pkg/protocol"
+	"go.uber.org/zap"
 )
 
 // RequestHandler defines the interface for handling requests
@@ -70,7 +72,7 @@ func (s *Server) Start() error {
 	}
 
 	s.listener = listener
-	fmt.Printf("Server listening on %s\n", s.config.Address)
+	logger.Info("server listening", zap.String("address", s.config.Address))
 
 	// Accept connections
 	s.wg.Add(1)
@@ -81,7 +83,7 @@ func (s *Server) Start() error {
 
 // Stop stops the server gracefully
 func (s *Server) Stop() error {
-	fmt.Println("Stopping server...")
+	logger.Info("stopping server")
 
 	// Cancel context to signal shutdown
 	s.cancel()
@@ -101,7 +103,7 @@ func (s *Server) Stop() error {
 	// Wait for all goroutines to finish
 	s.wg.Wait()
 
-	fmt.Println("Server stopped")
+	logger.Info("server stopped")
 	return nil
 }
 
@@ -117,16 +119,20 @@ func (s *Server) acceptLoop() {
 				// Server is shutting down
 				return
 			default:
-				fmt.Printf("Accept error: %v\n", err)
+				logger.Debug("accept error", zap.Error(err))
 				continue
 			}
 		}
 
-		fmt.Printf("✓ New connection accepted from %s\n", conn.RemoteAddr())
+		// Log new connection at debug level
+		logger.Debug("new connection",
+			zap.String("remoteAddr", conn.RemoteAddr().String()))
 
 		// Check connection limit
 		if atomic.LoadInt64(&s.connCount) >= int64(s.config.MaxConnections) {
-			fmt.Println("Max connections reached, rejecting connection")
+			logger.Warn("max connections reached, rejecting connection",
+				zap.String("remoteAddr", conn.RemoteAddr().String()),
+				zap.Int64("maxConnections", int64(s.config.MaxConnections)))
 			conn.Close()
 			continue
 		}
@@ -186,11 +192,17 @@ func (s *Server) handleConnection(conn net.Conn) {
 				continue
 			}
 			// Connection closed or other error
-			fmt.Printf("Connection closed or decode error: %v\n", err)
+			logger.Debug("connection closed or decode error",
+				zap.String("remoteAddr", conn.RemoteAddr().String()),
+				zap.Error(err))
 			return
 		}
 
-		fmt.Printf("✓ Received request: type=%d, id=%d\n", req.Header.Type, req.Header.RequestID)
+		// Log at debug level for high-frequency events
+		logger.Debug("received request",
+			zap.Int("type", int(req.Header.Type)),
+			zap.Uint64("id", req.Header.RequestID))
+
 		atomic.AddInt64(&s.totalRequests, 1)
 
 		// Update read deadline
@@ -209,7 +221,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 		// Write response
 		err = s.codec.EncodeResponse(conn, resp)
 		if err != nil {
-			fmt.Printf("Failed to write response: %v\n", err)
+			logger.Debug("failed to write response",
+				zap.String("remoteAddr", conn.RemoteAddr().String()),
+				zap.Error(err))
 			atomic.AddInt64(&s.totalErrors, 1)
 			return
 		}
