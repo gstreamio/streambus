@@ -39,8 +39,10 @@ func (b *Backoff) Next() time.Duration {
 
 	// Apply jitter: random value between (1-jitter) and (1+jitter)
 	// This prevents thundering herd problem
+	// Note: math/rand is sufficient here - we don't need cryptographic randomness
+	// for backoff jitter, which is only used to distribute retry timing.
 	jitterRange := float64(interval) * b.Jitter
-	jitterOffset := (rand.Float64() * 2 * jitterRange) - jitterRange
+	jitterOffset := (rand.Float64() * 2 * jitterRange) - jitterRange // #nosec G404
 	jitteredInterval := time.Duration(float64(interval) + jitterOffset)
 
 	// Update for next call (exponential)
