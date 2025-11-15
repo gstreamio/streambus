@@ -136,8 +136,14 @@ func (tm *TopicManager) CreateTopic(name string, numPartitions uint32) error {
 	if existing, exists := tm.topics[name]; exists {
 		// Check if partition count matches
 		existing.mu.RLock()
-		existingPartitions := uint32(len(existing.partitions))
+		partitionCount := len(existing.partitions)
 		existing.mu.RUnlock()
+
+		// Safe conversion with bounds check
+		if partitionCount < 0 || partitionCount > int(^uint32(0)) {
+			return fmt.Errorf("invalid partition count: %d", partitionCount)
+		}
+		existingPartitions := uint32(partitionCount)
 
 		if existingPartitions != numPartitions {
 			return fmt.Errorf("topic %s already exists with %d partitions, cannot recreate with %d partitions",
@@ -230,9 +236,15 @@ func (tm *TopicManager) ListTopics() []TopicInfo {
 	topics := make([]TopicInfo, 0, len(tm.topics))
 	for name, topic := range tm.topics {
 		topic.mu.RLock()
+		partitionCount := len(topic.partitions)
+		// Safe conversion - partition count should always be valid
+		numPartitions := uint32(partitionCount)
+		if partitionCount > int(^uint32(0)) {
+			numPartitions = ^uint32(0) // Cap at max uint32 if overflow
+		}
 		topics = append(topics, TopicInfo{
 			Name:          name,
-			NumPartitions: uint32(len(topic.partitions)),
+			NumPartitions: numPartitions,
 		})
 		topic.mu.RUnlock()
 	}
