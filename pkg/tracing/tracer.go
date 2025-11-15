@@ -37,8 +37,7 @@ func New(cfg *Config) (*Tracer, error) {
 	// Create resource
 	res, err := resource.Merge(
 		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
+		resource.NewSchemaless(
 			semconv.ServiceName(cfg.ServiceName),
 			semconv.ServiceVersion(cfg.ServiceVersion),
 			semconv.DeploymentEnvironment(cfg.Environment),
@@ -54,7 +53,7 @@ func New(cfg *Config) (*Tracer, error) {
 		for k, v := range cfg.ResourceAttributes {
 			attrs = append(attrs, attribute.String(k, v))
 		}
-		res, err = resource.Merge(res, resource.NewWithAttributes(semconv.SchemaURL, attrs...))
+		res, err = resource.Merge(res, resource.NewSchemaless(attrs...))
 		if err != nil {
 			return nil, fmt.Errorf("failed to merge custom attributes: %w", err)
 		}

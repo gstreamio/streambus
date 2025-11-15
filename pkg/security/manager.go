@@ -42,7 +42,7 @@ func NewManager(config *SecurityConfig, logger *logging.Logger) (*Manager, error
 		config:         config,
 		logger:         logger,
 		authenticators: make(map[AuthMethod]Authenticator),
-		authEnabled:    config.TLS != nil && config.TLS.Enabled || config.SASL != nil && config.SASL.Enabled,
+		authEnabled:    config.TLS != nil && config.TLS.Enabled || config.SASL != nil && config.SASL.Enabled || config.APIKeyEnabled,
 		authzEnabled:   config.AuthzEnabled,
 		auditEnabled:   config.AuditEnabled,
 	}
