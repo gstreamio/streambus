@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="StreamBus - Next-generation distributed streaming platform. 10-100x lower latency, 95% less memory than Kafka. Built for performance, reliability, and operational simplicity.">
+    <meta name="keywords" content="streaming, kafka alternative, event streaming, real-time data, message broker, distributed systems">
+    <title>gstream.io - Next-Generation Streaming Platform</title>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="images/icon.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="images/icon.png">
+    <link rel="apple-touch-icon" href="images/icon.png">
+    <link rel="shortcut icon" href="images/icon.png">
+
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container">
+            <div class="nav-content">
+                <a href="#" class="logo">
+                    <img src="images/logo.png" alt="gstream.io" class="logo-full">
+                    <img src="images/logo_small_one.png" alt="gstream.io" class="logo-mobile">
+                </a>
+                <div class="nav-links">
+                    <a href="#features">Features</a>
+                    <a href="#performance">Performance</a>
+                    <a href="#enterprise">Enterprise</a>
+                    <a href="#community">Community</a>
+                    <a href="https://github.com/gstreamio/streambus" target="_blank" class="nav-link-github">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                        </svg>
+                        GitHub
+                    </a>
+                    <a href="#getting-started" class="btn-primary">Get Started</a>
+                </div>
+                <button class="mobile-menu-toggle" aria-label="Toggle menu">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-background"></div>
+        <div class="container">
+            <div class="hero-content">
+                <div class="hero-badge">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M8 2L9.5 6H13.5L10.5 8.5L11.5 12.5L8 10L4.5 12.5L5.5 8.5L2.5 6H6.5L8 2Z" fill="currentColor"/>
+                    </svg>
+                    Open Source • Apache 2.0 License
+                </div>
+                <h1 class="hero-title">
+                    Next-Generation
+                    <span class="gradient-text">Streaming Platform</span>
+                </h1>
+                <p class="hero-description">
+                    A high-performance, distributed streaming platform built for modern cloud-native applications.
+                    <strong>10-100x lower latency</strong>, <strong>95% less memory</strong>, and <strong>instant startup</strong> compared to traditional solutions.
+                </p>
+                <div class="hero-cta">
+                    <a href="#getting-started" class="btn-primary btn-lg">
+                        Get Started
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <path d="M7.5 5L12.5 10L7.5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </a>
+                    <a href="https://github.com/gstreamio/streambus" target="_blank" class="btn-secondary btn-lg">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                        </svg>
+                        View on GitHub
+                    </a>
+                </div>
+                <div class="hero-stats">
+                    <div class="stat">
+                        <div class="stat-value">25µs</div>
+                        <div class="stat-label">Latency</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">&lt;100MB</div>
+                        <div class="stat-label">Memory</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">&lt;1s</div>
+                        <div class="stat-label">Cold Start</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">0</div>
+                        <div class="stat-label">Dependencies</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">Why Choose StreamBus?</h2>
+                <p class="section-description">
+                    Built for performance, reliability, and operational simplicity
+                </p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <h3>Lightning Fast</h3>
+                    <p>Sub-millisecond latency (~25µs) with optimized LSM-tree storage and efficient binary protocol.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <path d="M12 2v20M2 12h20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/>
+                        </svg>
+                    </div>
+                    <h3>Memory Efficient</h3>
+                    <p>Runs in &lt;100MB footprint. Perfect for containers and resource-constrained environments.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/>
+                            <path d="M3 9h18M9 3v18" stroke="currentColor" stroke-width="2"/>
+                        </svg>
+                    </div>
+                    <h3>Single Binary</h3>
+                    <p>No complex setup, no JVM tuning, no ZooKeeper. Just a single 15MB binary and you're ready to go.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <h3>Production Hardened</h3>
+                    <p>Circuit breakers, health checks, structured logging, and Prometheus metrics built-in.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+                            <path d="M12 6v6l4 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </div>
+                    <h3>Instant Startup</h3>
+                    <p>Cold start in under 1 second vs 15-45 seconds for JVM-based solutions. Fast recovery and failover.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <h3>Developer Friendly</h3>
+                    <p>Idiomatic Go client, automatic batching, connection pooling, and rich examples out of the box.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Performance Comparison Section -->
+    <section id="performance" class="performance">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">Performance That Matters</h2>
+                <p class="section-description">
+                    Real-world benchmarks on Apple M4 Max, Go 1.23
+                </p>
+            </div>
+            <div class="comparison-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <th>StreamBus</th>
+                            <th>Apache Kafka</th>
+                            <th>Advantage</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Producer Latency</strong></td>
+                            <td class="highlight">25 µs</td>
+                            <td>0.5-5 ms</td>
+                            <td><span class="badge-success">20-200x faster</span></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Memory Footprint</strong></td>
+                            <td class="highlight">&lt;100 MB</td>
+                            <td>2-8 GB</td>
+                            <td><span class="badge-success">95% less memory</span></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Cold Start</strong></td>
+                            <td class="highlight">&lt;1 second</td>
+                            <td>15-45 seconds</td>
+                            <td><span class="badge-success">15-45x faster</span></td>
+                        </tr>
+                        <tr>
+                            <td><strong>GC Pauses</strong></td>
+                            <td class="highlight">&lt;1 ms</td>
+                            <td>10-200 ms</td>
+                            <td><span class="badge-success">10-200x less</span></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Binary Size</strong></td>
+                            <td class="highlight">15 MB</td>
+                            <td>N/A (JVM)</td>
+                            <td><span class="badge-success">Single binary</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="performance-metrics">
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                            <path d="M22 12h-4l-3 9L9 3l-3 9H2" stroke="url(#gradient3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <h3>Throughput</h3>
+                    </div>
+                    <div class="metric-value">40K msg/s</div>
+                    <p>Per connection with minimal CPU usage</p>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                            <circle cx="12" cy="12" r="10" stroke="url(#gradient3)" stroke-width="2"/>
+                            <polyline points="12 6 12 12 16 14" stroke="url(#gradient3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <h3>Latency</h3>
+                    </div>
+                    <div class="metric-value">25 µs</div>
+                    <p>End-to-end producer send latency</p>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke="url(#gradient3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <polyline points="9 22 9 12 15 12 15 22" stroke="url(#gradient3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <h3>Storage</h3>
+                    </div>
+                    <div class="metric-value">1.1 µs</div>
+                    <p>LSM-tree write operation</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Code Examples Section -->
+    <section id="code-examples" class="code-examples">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">Simple, Powerful API</h2>
+                <p class="section-description">
+                    Get started in minutes with our idiomatic Go SDK
+                </p>
+            </div>
+            <div class="code-showcase">
+                <div class="code-tabs">
+                    <button class="code-tab active" data-tab="producer">Producer</button>
+                    <button class="code-tab" data-tab="consumer">Consumer</button>
+                    <button class="code-tab" data-tab="group">Consumer Group</button>
+                </div>
+                <div class="code-content">
+                    <div class="code-panel active" data-panel="producer">
+                        <pre><code>package main
+
+import (
+    "log"
+    "github.com/gstreamio/streambus-sdk/client"
+)
+
+func main() {
+    // Connect to StreamBus
+    config := client.DefaultConfig()
+    config.Brokers = []string{"localhost:9092"}
+
+    c, err := client.New(config)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Close()
+
+    // Create producer
+    producer := client.NewProducer(c)
+    defer producer.Close()
+
+    // Send message
+    err = producer.Send("events",
+        []byte("key"),
+        []byte(`{"event": "user.signup", "userId": "123"}`))
+
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    log.Println("Message sent!")
+}</code></pre>
+                    </div>
+                    <div class="code-panel" data-panel="consumer">
+                        <pre><code>package main
+
+import (
+    "log"
+    "github.com/gstreamio/streambus-sdk/client"
+)
+
+func main() {
+    config := client.DefaultConfig()
+    config.Brokers = []string{"localhost:9092"}
+
+    c, err := client.New(config)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Close()
+
+    // Create consumer
+    consumer := client.NewConsumer(c, "events", 0)
+    defer consumer.Close()
+
+    // Start from beginning
+    if err := consumer.Seek(0); err != nil {
+        log.Fatal(err)
+    }
+
+    // Fetch messages
+    record, err := consumer.FetchOne()
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    log.Printf("Received: %s", record.Value)
+}</code></pre>
+                    </div>
+                    <div class="code-panel" data-panel="group">
+                        <pre><code>package main
+
+import (
+    "context"
+    "log"
+    "github.com/gstreamio/streambus-sdk/client"
+)
+
+func main() {
+    config := client.DefaultConfig()
+    config.Brokers = []string{"localhost:9092"}
+
+    c, err := client.New(config)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Close()
+
+    // Create consumer group
+    groupConfig := &client.GroupConsumerConfig{
+        GroupID: "analytics",
+        Topics:  []string{"events"},
+    }
+
+    consumer, err := client.NewGroupConsumer(c, groupConfig)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer consumer.Close()
+
+    // Process messages
+    ctx := context.Background()
+    consumer.Start(ctx, func(record *client.Record) error {
+        log.Printf("Processing: %s", record.Value)
+        return nil
+    })
+}</code></pre>
+                    </div>
+                </div>
+            </div>
+            <div class="quickstart">
+                <h3>Install the SDK</h3>
+                <div class="install-command">
+                    <code>go get github.com/gstreamio/streambus-sdk</code>
+                    <button class="copy-btn" aria-label="Copy to clipboard">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                            <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2"/>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="2"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Enterprise Section -->
+    <section id="enterprise" class="enterprise">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">Enterprise Ready</h2>
+                <p class="section-description">
+                    Production-grade features for mission-critical workloads
+                </p>
+            </div>
+            <div class="enterprise-grid">
+                <div class="enterprise-feature">
+                    <div class="enterprise-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="2"/>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </div>
+                    <h4>Enterprise Security</h4>
+                    <p>TLS encryption, SASL authentication, ACL-based authorization, and comprehensive audit logging.</p>
+                </div>
+                <div class="enterprise-feature">
+                    <div class="enterprise-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" stroke-width="2"/>
+                            <path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </div>
+                    <h4>High Availability</h4>
+                    <p>Multi-broker replication, automatic failover, and Raft consensus for zero-downtime operations.</p>
+                </div>
+                <div class="enterprise-feature">
+                    <div class="enterprise-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <line x1="12" y1="2" x2="12" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="12" y1="18" x2="12" y2="22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="2" y1="12" x2="6" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="18" y1="12" x2="22" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </div>
+                    <h4>Observability</h4>
+                    <p>Prometheus metrics, OpenTelemetry tracing, structured logging, and pre-built Grafana dashboards.</p>
+                </div>
+                <div class="enterprise-feature">
+                    <div class="enterprise-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" stroke="currentColor" stroke-width="2"/>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="12" y1="22.08" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </div>
+                    <h4>Multi-Tenancy</h4>
+                    <p>Resource isolation, quota management, and tenant-level security for SaaS deployments.</p>
+                </div>
+                <div class="enterprise-feature">
+                    <div class="enterprise-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2"/>
+                            <polyline points="14 2 14 8 20 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <line x1="12" y1="18" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="9" y1="15" x2="15" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </div>
+                    <h4>Schema Registry</h4>
+                    <p>Built-in schema validation for Avro, Protobuf, and JSON Schema with version management.</p>
+                </div>
+                <div class="enterprise-feature">
+                    <div class="enterprise-icon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <h4>Exactly-Once Semantics</h4>
+                    <p>Transactional producers and consumers with idempotent message delivery guarantees.</p>
+                </div>
+            </div>
+            <div class="enterprise-cta">
+                <h3>Need enterprise support?</h3>
+                <p>Get dedicated support, SLAs, and custom feature development</p>
+                <a href="mailto:enterprise@gstream.io" class="btn-primary btn-lg">Contact Sales</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Community Section -->
+    <section id="community" class="community">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">Join the Community</h2>
+                <p class="section-description">
+                    Open source and community-driven
+                </p>
+            </div>
+            <div class="community-grid">
+                <a href="https://github.com/gstreamio/streambus" target="_blank" class="community-card">
+                    <div class="community-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                        </svg>
+                    </div>
+                    <h4>GitHub</h4>
+                    <p>Star the project, report issues, and contribute code</p>
+                    <span class="link-arrow">→</span>
+                </a>
+                <a href="https://github.com/gstreamio/streambus/discussions" target="_blank" class="community-card">
+                    <div class="community-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <h4>Discussions</h4>
+                    <p>Ask questions, share ideas, and get help</p>
+                    <span class="link-arrow">→</span>
+                </a>
+                <a href="https://github.com/gstreamio/streambus-sdk" target="_blank" class="community-card">
+                    <div class="community-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                            <polyline points="16 18 22 12 16 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <polyline points="8 6 2 12 8 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <h4>SDK Documentation</h4>
+                    <p>Complete API reference and examples</p>
+                    <span class="link-arrow">→</span>
+                </a>
+                <a href="mailto:hello@gstream.io" class="community-card">
+                    <div class="community-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="currentColor" stroke-width="2"/>
+                            <polyline points="22,6 12,13 2,6" stroke="currentColor" stroke-width="2"/>
+                        </svg>
+                    </div>
+                    <h4>Email</h4>
+                    <p>Get in touch with the team</p>
+                    <span class="link-arrow">→</span>
+                </a>
+            </div>
+            <div class="community-stats">
+                <div class="stat-item">
+                    <div class="stat-icon">⭐</div>
+                    <div class="stat-text">Apache 2.0 License</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-icon">🚀</div>
+                    <div class="stat-text">Active Development</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-icon">💙</div>
+                    <div class="stat-text">Built with Go</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Getting Started Section -->
+    <section id="getting-started" class="getting-started">
+        <div class="container">
+            <div class="getting-started-content">
+                <h2>Ready to Get Started?</h2>
+                <p>Install StreamBus and start building high-performance streaming applications</p>
+                <div class="install-steps">
+                    <div class="install-step">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Clone the repository</h4>
+                            <code>git clone https://github.com/gstreamio/streambus.git</code>
+                        </div>
+                    </div>
+                    <div class="install-step">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Build and run</h4>
+                            <code>go build -o bin/streambus cmd/server/main.go<br>./bin/streambus --port 9092</code>
+                        </div>
+                    </div>
+                    <div class="install-step">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h4>Install the SDK</h4>
+                            <code>go get github.com/gstreamio/streambus-sdk</code>
+                        </div>
+                    </div>
+                </div>
+                <div class="cta-buttons">
+                    <a href="https://github.com/gstreamio/streambus" target="_blank" class="btn-primary btn-lg">
+                        View Documentation
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <path d="M7.5 5L12.5 10L7.5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </a>
+                    <a href="https://github.com/gstreamio/streambus/tree/main/examples" target="_blank" class="btn-secondary btn-lg">
+                        Browse Examples
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <div class="footer-logo">
+                        <img src="images/logo_small_one.png" alt="gstream.io" width="48" height="48">
+                        <span>gstream.io</span>
+                    </div>
+                    <p>Next-generation distributed streaming platform</p>
+                    <div class="social-links">
+                        <a href="https://github.com/gstreamio" target="_blank" aria-label="GitHub">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+                <div class="footer-section">
+                    <h4>Product</h4>
+                    <ul>
+                        <li><a href="#features">Features</a></li>
+                        <li><a href="#performance">Performance</a></li>
+                        <li><a href="https://github.com/gstreamio/streambus" target="_blank">Documentation</a></li>
+                        <li><a href="https://github.com/gstreamio/streambus/tree/main/examples" target="_blank">Examples</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>Resources</h4>
+                    <ul>
+                        <li><a href="https://github.com/gstreamio/streambus-sdk" target="_blank">SDK</a></li>
+                        <li><a href="https://github.com/gstreamio/streambus/blob/main/CONTRIBUTING.md" target="_blank">Contributing</a></li>
+                        <li><a href="https://github.com/gstreamio/streambus/blob/main/docs/ROADMAP.md" target="_blank">Roadmap</a></li>
+                        <li><a href="https://github.com/gstreamio/streambus/blob/main/LICENSE" target="_blank">License</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>Community</h4>
+                    <ul>
+                        <li><a href="https://github.com/gstreamio/streambus" target="_blank">GitHub</a></li>
+                        <li><a href="https://github.com/gstreamio/streambus/discussions" target="_blank">Discussions</a></li>
+                        <li><a href="https://github.com/gstreamio/streambus/issues" target="_blank">Issues</a></li>
+                        <li><a href="mailto:hello@gstream.io">Contact</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2025 gstream.io. Licensed under Apache 2.0.</p>
+                <p>Built with ❤️ by developers who believe streaming platforms should be fast, simple, and reliable.</p>
+            </div>
+        </div>
+    </footer>
+
+    <svg style="display: none;">
+        <defs>
+            <linearGradient id="gradient3" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:#667EEA;stop-opacity:1" />
+                <stop offset="100%" style="stop-color:#764BA2;stop-opacity:1" />
+            </linearGradient>
+        </defs>
+    </svg>
+
+    <script src="js/main.js"></script>
+</body>
+</html>

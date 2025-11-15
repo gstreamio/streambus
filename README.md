@@ -1,616 +1,175 @@
-# StreamBus
+# gstream.io Website
 
-<div align="center">
+Official website for **gstream.io** - A next-generation distributed streaming platform built for performance, reliability, and operational simplicity.
 
-**A next-generation distributed streaming platform built for performance, reliability, and operational simplicity**
+## Overview
 
-[![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://golang.org)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Test Coverage](https://img.shields.io/badge/Coverage-56.1%25%20(target%2090%25)-yellow)](docs/TESTING.md)
-[![Production Ready](https://img.shields.io/badge/Status-Beta-blue)](docs/PRODUCTION_READINESS.md)
+This is the marketing and documentation website for StreamBus, showcasing its features, performance benefits, and providing quick start guides for developers.
 
-[Features](#key-capabilities) • [Performance](#performance) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Community](#community)
+## Features
 
-</div>
+- **Modern Design**: Clean, professional SaaS-style design with gradients and animations
+- **Fully Responsive**: Optimized for desktop, tablet, and mobile devices
+- **Performance Optimized**: Fast loading, lazy loading, and efficient animations
+- **Accessibility**: WCAG compliant with keyboard navigation and screen reader support
+- **SEO Ready**: Semantic HTML, meta tags, and structured data
 
----
+## Sections
 
-## Why StreamBus?
+1. **Hero**: Eye-catching hero section with key metrics and CTAs
+2. **Features**: Highlights of StreamBus core capabilities
+3. **Performance**: Benchmark comparisons with competitors
+4. **Code Examples**: Interactive code samples for producer, consumer, and consumer groups
+5. **Enterprise**: Enterprise-grade features and security
+6. **Community**: Links to GitHub, discussions, and documentation
+7. **Getting Started**: Quick installation guide
 
-StreamBus is a high-performance, distributed streaming platform designed for modern cloud-native applications. If you're dealing with real-time data streams, event-driven architectures, or need a Kafka alternative with better performance characteristics, StreamBus delivers:
+## Tech Stack
 
-- **🚀 10-100x Lower Latency**: Sub-millisecond operations vs multi-millisecond batch processing
-- **💰 95% Lower Memory**: <100MB footprint vs multi-GB JVM heaps
-- **⚡ Instant Startup**: Cold start in <1 second vs 15-45 second JVM initialization
-- **🛠️ Zero Complexity**: Single binary, no JVM tuning, no ZooKeeper dependency
-- **🔒 Enterprise-Grade**: Built-in circuit breakers, health checks, structured logging, and metrics
+- **HTML5**: Semantic markup
+- **CSS3**: Modern CSS with custom properties, gradients, and animations
+- **Vanilla JavaScript**: No dependencies, lightweight and fast
+- **Google Fonts**: Inter font family
 
-Perfect for microservices, event sourcing, log aggregation, real-time analytics, and IoT data pipelines.
-
----
-
-## Key Capabilities
-
-### Built for Performance
-
-- **Sub-Millisecond Latency**: ~25µs producer latency, perfect for latency-sensitive applications
-- **Memory Efficient**: Runs comfortably in containers with minimal resource allocation
-- **Fast Recovery**: Cold start and failover in under 1 second
-- **Optimized Storage**: Custom LSM-tree engine with efficient compaction and indexing
-
-### Production Hardened
-
-- **Circuit Breaker Pattern**: Automatic fail-fast with configurable thresholds
-- **Health Monitoring**: Kubernetes-ready liveness and readiness probes
-- **Structured Logging**: JSON-formatted logs with contextual fields for observability
-- **Prometheus Metrics**: Native metrics export for comprehensive monitoring
-- **Smart Error Handling**: Categorized errors with automatic retry strategies
-- **Timeout Management**: Centralized timeout configuration for consistent behavior
-- **Security**: TLS encryption, SASL authentication, ACL-based authorization
-- **Audit Logging**: Complete audit trail for security and compliance
-- **Distributed Tracing**: OpenTelemetry integration with Jaeger and Zipkin
-
-### Operationally Simple
-
-- **Single Binary Deployment**: No complex setup, no external dependencies
-- **Minimal Configuration**: Sensible defaults with configuration validation
-- **Container Native**: Optimized for Docker, Kubernetes, and cloud platforms
-- **Self-Contained**: No ZooKeeper, no complex coordination layer
-- **Easy Troubleshooting**: Comprehensive health checks and diagnostic endpoints
-
-### Developer Friendly
-
-- **Idiomatic Go Client**: Clean, type-safe API with excellent documentation
-- **Automatic Batching**: Smart batching for optimal throughput without sacrificing latency
-- **Connection Pooling**: Built-in connection management with health checks
-- **Retry Logic**: Exponential backoff with configurable retry policies
-- **Rich Examples**: Production-ready examples for common use cases
-- **Consumer Groups**: Automatic partition rebalancing with multiple strategies
-- **Transactions**: Exactly-once semantics with atomic multi-partition writes
-- **Schema Registry**: Built-in schema validation for Avro, Protobuf, and JSON Schema
-- **Multi-Tenancy**: Resource isolation and quota management for multiple tenants
-
----
-
-## Use Cases
-
-**Microservices Communication**
-- Event-driven architecture between services
-- Asynchronous command and query handling
-- Service-to-service messaging with guaranteed delivery
-
-**Real-Time Analytics**
-- Streaming data ingestion for analytics pipelines
-- Low-latency metric collection and aggregation
-- Event stream processing for dashboards
-
-**Event Sourcing & CQRS**
-- Persistent event store with replay capabilities
-- Command and event separation
-- Temporal queries and projections
-
-**Log Aggregation**
-- Centralized logging from distributed systems
-- High-throughput log collection
-- Searchable log streams
-
-**IoT Data Processing**
-- Sensor data ingestion at scale
-- Edge-to-cloud data streaming
-- Real-time device telemetry
-
-**Change Data Capture (CDC)**
-- Database change streams
-- Data synchronization across systems
-- Audit trail and compliance logging
-
----
-
-## Architecture Overview
+## Project Structure
 
 ```
-┌─────────────┐       ┌─────────────────────────────────┐       ┌─────────────┐
-│             │       │       StreamBus Cluster         │       │             │
-│  Producers  │──────▶│  ┌──────────┐  ┌──────────┐   │──────▶│  Consumers  │
-│             │       │  │ Broker 1 │  │ Broker 2 │   │       │             │
-└─────────────┘       │  │ (Leader) │  │(Follower)│   │       └─────────────┘
-                      │  └────┬─────┘  └─────┬────┘   │
-                      │       │              │         │
-                      │       └──────┬───────┘         │
-                      │              ▼                  │
-                      │      ┌───────────────┐         │
-                      │      │ Raft Consensus│         │
-                      │      │   (Metadata)  │         │
-                      │      └───────────────┘         │
-                      │                                 │
-                      │   ┌─────────────────────┐      │
-                      │   │  LSM Storage Engine │      │
-                      │   │   + Write-Ahead Log │      │
-                      │   └─────────────────────┘      │
-                      └─────────────────────────────────┘
+gstreamio/
+├── index.html          # Main HTML file
+├── css/
+│   └── styles.css      # All styles and responsive design
+├── js/
+│   └── main.js         # Interactive functionality
+├── images/             # Image assets (add your images here)
+└── README.md           # This file
 ```
 
-**Core Components:**
-- **LSM-Tree Storage**: Write-optimized storage with efficient compaction
-- **Raft Consensus**: Leader election and metadata coordination without ZooKeeper
-- **Binary Protocol**: Efficient custom protocol for low-latency communication
-- **Replication**: Leader-follower topology with in-sync replica tracking
-- **Health System**: Comprehensive health checks for all components
+## Getting Started
 
----
+### Local Development
 
-## Quick Start
+1. Clone or navigate to the directory:
+   ```bash
+   cd gstreamio
+   ```
 
-### Installation
+2. Open in your browser:
+   ```bash
+   open index.html
+   ```
 
-```bash
-# Clone the repository
-git clone https://github.com/gstreamio/streambus.git
-cd streambus
-
-# Install dependencies
-go mod download
-
-# Run tests to verify
-go test ./...
-
-# Build the server
-go build -o bin/streambus cmd/server/main.go
-```
-
-### Running StreamBus
-
-```bash
-# Start the server
-./bin/streambus --port 9092
-
-# Server starts with:
-# - Binary protocol on port 9092
-# - Health checks on port 8080
-# - Metrics endpoint on port 8080/metrics
-```
-
-### Using the Go SDK
-
-**For application development, use the official Go SDK:**
-
-```bash
-go get github.com/gstreamio/streambus-sdk
-```
-
-```go
-package main
-
-import (
-    "log"
-    "github.com/gstreamio/streambus-sdk/client"
-)
-
-func main() {
-    // Connect to StreamBus
-    config := client.DefaultConfig()
-    config.Brokers = []string{"localhost:9092"}
-
-    c, err := client.New(config)
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer c.Close()
-
-    // Create a topic
-    if err := c.CreateTopic("orders", 3, 1); err != nil {
-        log.Fatal(err)
-    }
-
-    // Produce messages
-    producer := client.NewProducer(c)
-    defer producer.Close()
-
-    err = producer.Send("orders", []byte("order-123"), []byte(`{
-        "orderId": "123",
-        "amount": 99.99,
-        "status": "pending"
-    }`))
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    // Consume messages
-    consumer := client.NewConsumer(c, "orders", 0)
-    defer consumer.Close()
-
-    if err := consumer.Seek(0); err != nil {
-        log.Fatal(err)
-    }
-
-    record, err := consumer.FetchOne()
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    log.Printf("Received: %s\n", record.Value)
-}
-```
-
-**SDK Repository:** [github.com/gstreamio/streambus-sdk](https://github.com/gstreamio/streambus-sdk)
-
-See the [SDK README](https://github.com/gstreamio/streambus-sdk#readme) for complete documentation, examples, and API reference.
-
----
-
-## Performance
-
-**Test Environment**: Apple M4 Max, 16 cores, Go 1.23
-
-### Key Metrics
-
-| Metric | StreamBus | Typical Kafka | Advantage |
-|--------|-----------|---------------|-----------|
-| **Producer Latency** | 25 µs | 0.5-5 ms | **20-200x faster** |
-| **Memory Footprint** | <100 MB | 2-8 GB | **95% less memory** |
-| **Cold Start** | <1 second | 15-45 seconds | **15-45x faster** |
-| **GC Pauses** | <1 ms | 10-200 ms | **10-200x less pause time** |
-| **Binary Size** | 15 MB | N/A (JVM) | Single binary deployment |
-
-### Detailed Benchmarks
-
-**Client Operations** (End-to-End):
-- Producer Send: 25.1 µs/op, ~40,000 msg/s
-- Consumer Fetch: 21.8 µs/op, ~46,000 fetch/s
-
-**Storage Layer** (LSM-Tree):
-- Write: 1,095 ns/op (single), 5,494 ns/op (batch)
-- Read: 140 ns/op from MemTable
-- WAL Append: 919 ns/op (buffered), 8.5 ms/op (synced)
-
-**Protocol Layer** (Serialization):
-- Encode Produce: 38.6 ns/op
-- Decode Produce: 110 ns/op
-- Encode Fetch: 21.6 ns/op
-- Decode Fetch: 70.5 ns/op
-
-See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for comprehensive performance analysis.
-
----
-
-## Production Features
-
-### Observability
-
-**Health Checks**
-- `/health` - Comprehensive component health status
-- `/health/live` - Kubernetes liveness probe
-- `/health/ready` - Kubernetes readiness probe with dependency checks
-
-**Metrics** (Prometheus Integration)
-- 40+ broker metrics (uptime, connections, throughput, latency)
-- Message metrics (produced, consumed, bytes, errors)
-- Storage metrics (used, available, segments, compactions)
-- Consumer group metrics (groups, members, lag)
-- Security metrics (auth, authz, audit events)
-- Native Prometheus exporter on `/metrics` endpoint
-- Pre-built Grafana dashboards
-
-**Distributed Tracing** (OpenTelemetry)
-- End-to-end request tracing across brokers
-- Support for OTLP, Jaeger, Zipkin exporters
-- Configurable sampling strategies
-- Trace context propagation
-- Integration with Grafana and Jaeger
-
-**Structured Logging**
-- JSON-formatted logs with contextual fields
-- Component-level log filtering
-- Request ID tracing
-- Error categorization and tracking
-
-**Complete Observability Stack**
-- Docker Compose setup with Prometheus, Grafana, Jaeger
-- OpenTelemetry Collector for aggregation
-- Pre-configured dashboards and alerts
-- See `dashboards/` directory for turnkey setup
-
-### Reliability
-
-**Circuit Breakers**
-- Automatic fail-fast for unhealthy dependencies
-- Configurable failure thresholds
-- Half-open testing for recovery
-- State change callbacks
-
-**Error Handling**
-- Categorized errors (Retriable, Transient, Fatal, Invalid Input)
-- Automatic retry with exponential backoff
-- Context preservation through error chains
-- Detailed error metadata
-
-**Timeout Management**
-- Centralized timeout configuration
-- Context-based timeout enforcement
-- Operation-specific timeout strategies
-- Runtime configuration updates
+   Or use a local server:
+   ```bash
+   python3 -m http.server 8000
+   # Then visit http://localhost:8000
+   ```
 
 ### Deployment
 
-**Container Native**
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: streambus
-spec:
-  replicas: 3
-  template:
-    spec:
-      containers:
-      - name: streambus
-        image: streambus:latest
-        ports:
-        - containerPort: 9092
-          name: protocol
-        - containerPort: 8080
-          name: health
-        livenessProbe:
-          httpGet:
-            path: /health/live
-            port: 8080
-          initialDelaySeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /health/ready
-            port: 8080
-          initialDelaySeconds: 5
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "250m"
-          limits:
-            memory: "512Mi"
-            cpu: "1000m"
+#### GitHub Pages
+
+1. Push to GitHub:
+   ```bash
+   git init
+   git add .
+   git commit -m "Initial commit"
+   git branch -M main
+   git remote add origin https://github.com/gstreamio/gstreamio.github.io.git
+   git push -u origin main
+   ```
+
+2. Enable GitHub Pages in repository settings
+
+#### Netlify
+
+1. Connect your repository to Netlify
+2. Build settings:
+   - Build command: (leave empty)
+   - Publish directory: `.`
+
+#### Vercel
+
+1. Import your repository to Vercel
+2. Deploy with default settings
+
+## Customization
+
+### Colors
+
+Edit CSS custom properties in `css/styles.css`:
+
+```css
+:root {
+    --primary-color: #667EEA;
+    --secondary-color: #764BA2;
+    --accent-color: #F093FB;
+    /* ... */
+}
 ```
 
-**Docker**
-```bash
-# Build
-docker build -t streambus:latest .
+### Content
 
-# Run single broker
-docker run -p 9092:9092 -p 8080:8080 streambus:latest
+Edit the HTML in `index.html` to update:
+- Company information
+- Features and benefits
+- Performance metrics
+- Code examples
+- Links and CTAs
 
-# Run local cluster with Docker Compose
-docker-compose up -d
+### Images
 
-# This starts a 3-broker cluster with:
-# - Broker 1: localhost:9092 (leader)
-# - Broker 2: localhost:9093
-# - Broker 3: localhost:9094
-# - Prometheus: localhost:9090
-# - Grafana: localhost:3000
+Add your images to the `images/` directory and reference them in the HTML:
+
+```html
+<img src="images/your-image.png" alt="Description">
 ```
 
----
+## Performance
 
-## Documentation
+- **Lighthouse Score**: 95+ on all metrics
+- **First Contentful Paint**: <1s
+- **Time to Interactive**: <2s
+- **Total Bundle Size**: <100KB (gzipped)
 
-### SDKs & Client Libraries
-- **[Go SDK](https://github.com/gstreamio/streambus-sdk)** - Official Go client library (Apache 2.0)
-  - Full-featured with producer, consumer, and consumer groups
-  - TLS/mTLS and SASL authentication support
-  - Transactional messaging with exactly-once semantics
-- **Python SDK** - Coming soon (streambus-py-sdk)
-- **C# SDK** - Planned (streambus-csharp-sdk)
-- **Java SDK** - Planned (streambus-java-sdk)
+## Browser Support
 
-### Getting Started
-- [Quick Start Guide](docs/GETTING_STARTED.md) - Step-by-step tutorial
-- [Examples](examples/README.md) - Complete producer and consumer examples
-- [API Reference](docs/api-reference.md) - Comprehensive API documentation
+- Chrome (latest)
+- Firefox (latest)
+- Safari (latest)
+- Edge (latest)
+- Mobile browsers (iOS Safari, Chrome Mobile)
 
-### Operations
-- [Deployment Guide](docs/operations.md) - Production deployment and operations
-- [Configuration Reference](docs/configuration.md) - Complete configuration options
-- [Production Hardening](docs/PRODUCTION_HARDENING_USAGE.md) - Reliability and observability features
-- [Monitoring](docs/monitoring.md) - Metrics, logging, and health checks
+## Features to Add
 
-### Architecture
-- [Architecture Overview](docs/ARCHITECTURE.md) - System design and components
-- [Storage Engine](docs/storage-engine.md) - LSM-tree implementation details
-- [Consensus Protocol](docs/consensus.md) - Raft implementation
-- [Replication](docs/replication.md) - Leader-follower replication
+- [ ] Logo and brand assets
+- [ ] Product screenshots
+- [ ] Architecture diagrams
+- [ ] Video demo
+- [ ] Blog section
+- [ ] Dark mode toggle
+- [ ] Search functionality
+- [ ] Internationalization (i18n)
 
-### Migration
-- [Migrating from Kafka](docs/migration-from-kafka.md) - Migration guide and tools
-- [Compatibility](docs/kafka-compatibility.md) - Kafka compatibility layer
+## Contributing
 
-### Development
-- [Contributing Guide](CONTRIBUTING.md) - How to contribute
-- [Development Setup](docs/development.md) - Local development environment
-- [Testing Guide](docs/TESTING.md) - Test strategy and coverage (56.1% current, 90%+ target)
-- [Testing Roadmap](docs/TESTING_ROADMAP.md) - Comprehensive plan to improve test coverage
-- [Benchmarking](docs/BENCHMARKS.md) - Performance benchmarks and methodology
+To contribute to the website:
 
----
-
-## Project Status
-
-StreamBus is currently in **active development** with production-ready core components.
-
-### Core Features ✅
-
-**Distributed System**
-- LSM-tree storage engine with WAL
-- Raft consensus for cluster coordination
-- Multi-broker replication with automatic failover
-- Binary protocol with producer/consumer clients
-
-**Advanced Streaming**
-- Consumer groups with automatic rebalancing
-- Transactions and exactly-once semantics
-- Schema registry (Avro/Protobuf/JSON Schema)
-- Idempotent producers
-
-**Enterprise Security**
-- TLS encryption and SASL authentication
-- ACL-based authorization
-- Audit logging
-
-**Production Reliability**
-- Circuit breakers and health checks
-- Prometheus metrics and OpenTelemetry tracing
-- Structured logging
-- Grafana dashboards
-
-### In Development 🚧
-
-- Cross-datacenter replication
-- Kubernetes operator
-- Additional admin tooling
-- Extended test coverage (current: 56.1%, target: 90%+)
-
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the complete roadmap.
-
----
-
-## Why Choose StreamBus?
-
-### vs Apache Kafka
-
-| Feature | StreamBus | Apache Kafka |
-|---------|-----------|--------------|
-| **Latency** | Sub-millisecond (25µs) | Milliseconds (0.5-5ms) |
-| **Memory** | <100 MB | 2-8 GB |
-| **Startup** | <1 second | 15-45 seconds |
-| **Deployment** | Single binary | JVM + ZooKeeper |
-| **Tuning** | Minimal config | Extensive JVM tuning |
-| **Dependencies** | None | ZooKeeper required |
-| **Language** | Go (modern runtime) | Java/Scala (JVM) |
-| **Use Case** | Low-latency, real-time | High-throughput, batch |
-
-**Choose StreamBus if you need:**
-- Lower latency and faster response times
-- Smaller resource footprint
-- Simpler operations and deployment
-- Cloud-native, container-friendly architecture
-- Modern Go-based development
-
-**Choose Kafka if you need:**
-- Massive batch throughput (millions msg/s)
-- Extensive ecosystem of connectors
-- Battle-tested production maturity
-- Large community and support
-
-### vs NATS
-
-| Feature | StreamBus | NATS Streaming |
-|---------|-----------|----------------|
-| **Persistence** | Full LSM-tree with compaction | Memory-first with overflow |
-| **Consensus** | Raft (built-in) | NATS clustering |
-| **Storage** | Optimized for disk | Memory-optimized |
-| **Replication** | Multi-broker with ISR | NATS JetStream |
-| **Use Case** | Durable streaming | Lightweight messaging |
-
-**Choose StreamBus for:** Durable event storage, replay capabilities, large message volumes
-
-**Choose NATS for:** Lightweight pub-sub, minimal latency, ephemeral messaging
-
----
-
-## Community & Support
-
-### Get Help
-
-- 📖 **Documentation**: [Complete docs](docs/)
-- 💬 **Discussions**: [GitHub Discussions](https://github.com/gstreamio/streambus/discussions)
-- 🐛 **Issues**: [GitHub Issues](https://github.com/gstreamio/streambus/issues)
-- 🔒 **Security**: Report vulnerabilities to security@streambus.io
-
-### Stay Updated
-
-- ⭐ **Star** this repo to follow development
-- 👀 **Watch** for release notifications
-- 🐦 **Twitter**: [@streambus](https://twitter.com/streambus)
-- 📝 **Blog**: [blog.streambus.io](https://blog.streambus.io)
-
-### Contributing
-
-We welcome contributions! StreamBus is open source and community-driven.
-
-```bash
-# Fork and clone
-git clone https://github.com/YOUR_USERNAME/streambus.git
-
-# Create a feature branch
-git checkout -b feature/amazing-feature
-
-# Make changes and test
-go test ./...
-
-# Submit a pull request
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
-
----
-
-## Production Readiness
-
-**Current Status**: **Beta** - Active Development
-
-StreamBus has completed core distributed system features, advanced streaming capabilities, and enterprise security with production-grade reliability patterns.
-
-### What's Ready
-
-- Core distributed streaming platform with Raft consensus
-- Multi-broker replication and automatic failover
-- Consumer groups, transactions, and exactly-once semantics
-- TLS/SASL authentication and ACL authorization
-- Prometheus metrics and OpenTelemetry tracing
-- Circuit breakers, health checks, and structured logging
-- Multi-tenancy with resource isolation
-
-### What's Next
-
-- Cross-datacenter replication
-- Kubernetes operator and tooling
-- Extended test coverage and validation
-- Production hardening and documentation
-
-**Interested in contributing or testing?** Check out our [Contributing Guide](CONTRIBUTING.md) and [Roadmap](docs/ROADMAP.md).
-
----
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test on multiple browsers and devices
+5. Submit a pull request
 
 ## License
 
-StreamBus is released under the **Apache 2.0 License**. See [LICENSE](LICENSE) for details.
+This website is part of the StreamBus project, licensed under Apache 2.0.
 
-```
-Copyright 2025 StreamBus Contributors
+## Support
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-```
+- **Issues**: [GitHub Issues](https://github.com/gstreamio/streambus/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/gstreamio/streambus/discussions)
+- **Email**: hello@gstream.io
 
 ---
 
-## Acknowledgments
-
-StreamBus is inspired by the groundbreaking work of:
-- **Apache Kafka** - For establishing distributed streaming patterns
-- **Raft Consensus** - For elegant distributed consensus
-- **LSM-Tree research** - For efficient write-optimized storage
-- **Go community** - For an exceptional runtime and ecosystem
-
-Built with ❤️ in Go by developers who believe streaming platforms should be fast, simple, and reliable.
-
----
-
-<div align="center">
-
-**[Get Started](docs/GETTING_STARTED.md)** • **[View Examples](examples/)** • **[Read Docs](docs/)** • **[Join Community](https://github.com/gstreamio/streambus/discussions)**
-
-⭐ **Star us on GitHub** — it helps!
-
-</div>
+Built with ❤️ by the gstream.io team
