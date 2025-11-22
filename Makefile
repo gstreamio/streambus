@@ -99,6 +99,10 @@ coverage-report: ## Generate coverage report for CI
 	@echo "Generating coverage report..."
 	@./scripts/test-coverage.sh --format json
 
+update-coverage-badge: ## Update coverage badge and documentation automatically
+	@echo "Updating coverage badge..."
+	@./scripts/update-coverage-badge.sh
+
 benchmark: ## Run all benchmarks
 	@echo "Running all benchmarks..."
 	$(GOTEST) -bench=. -benchmem -run=^$$ ./...

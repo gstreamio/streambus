@@ -1,0 +1,155 @@
+name: Update Coverage Badge
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-coverage:
+    name: Calculate and Update Coverage
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run tests and calculate coverage
+        id: coverage
+        run: |
+          # Run the coverage update script
+          ./scripts/update-coverage-badge.sh
+          
+          # Extract coverage value for badge
+          COVERAGE=$(go tool cover -func=coverage-core.out | tail -1 | awk '{print $3}' | sed 's/%//')
+          COVERAGE_ROUNDED=$(printf "%.1f" "$COVERAGE")
+          
+          echo "coverage=${COVERAGE_ROUNDED}" >> $GITHUB_OUTPUT
+          
+          # Determine color
+          if (( $(echo "$COVERAGE_ROUNDED >= 85" | bc -l) )); then
+            COLOR="brightgreen"
+          elif (( $(echo "$COVERAGE_ROUNDED >= 75" | bc -l) )); then
+            COLOR="green"
+          elif (( $(echo "$COVERAGE_ROUNDED >= 60" | bc -l) )); then
+            COLOR="yellow"
+          else
+            COLOR="red"
+          fi
+          
+          echo "color=${COLOR}" >> $GITHUB_OUTPUT
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage-core.out
+            test-output.txt
+          retention-days: 30
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if git diff --quiet README.md docs/; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit coverage updates (main branch only)
+        if: |
+          github.event_name == 'push' && 
+          github.ref == 'refs/heads/main' && 
+          steps.check_changes.outputs.changed == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          git add README.md docs/README.md docs/TESTING.md
+          
+          git commit -m "chore: update coverage badge to ${{ steps.coverage.outputs.coverage }}% [skip ci]" || exit 0
+          
+          git push
+
+      - name: Comment on PR
+        if: |
+          github.event_name == 'pull_request' && 
+          steps.check_changes.outputs.changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const coverage = '${{ steps.coverage.outputs.coverage }}';
+            const color = '${{ steps.coverage.outputs.color }}';
+            
+            const emoji = color === 'brightgreen' ? '🟢' : 
+                         color === 'green' ? '🟢' : 
+                         color === 'yellow' ? '🟡' : '🔴';
+            
+            const message = `## ${emoji} Test Coverage Update
+            
+            **Core Library Coverage:** ${coverage}%
+            **Target:** 85%
+            
+            ${parseFloat(coverage) >= 85 ? '✅ Coverage target met!' : 
+              parseFloat(coverage) >= 75 ? '⚠️ Close to target' : 
+              '❌ Below target - please add tests'}
+            
+            <details>
+            <summary>Coverage Details</summary>
+            
+            This PR would update the coverage badge to **${coverage}%**.
+            
+            To view the full coverage report, download the \`coverage-report\` artifact from this workflow run.
+            
+            </details>`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
+
+      - name: Summary
+        run: |
+          echo "## 📊 Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Coverage:** ${{ steps.coverage.outputs.coverage }}%" >> $GITHUB_STEP_SUMMARY
+          echo "**Target:** 85%" >> $GITHUB_STEP_SUMMARY
+          echo "**Badge Color:** ${{ steps.coverage.outputs.color }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if (( $(echo "${{ steps.coverage.outputs.coverage }} >= 85" | bc -l) )); then
+            echo "✅ **Coverage target met!**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Coverage below target** (need $(echo "85 - ${{ steps.coverage.outputs.coverage }}" | bc)% more)" >> $GITHUB_STEP_SUMMARY
+          fi
