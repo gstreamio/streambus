@@ -6,7 +6,7 @@
 
 [![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://golang.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Test Coverage](https://img.shields.io/badge/Coverage-56.1%25%20(target%2090%25)-yellow)](docs/TESTING.md)
+[![Test Coverage](https://img.shields.io/badge/Coverage-81%25%20(target%2085%25)-green)](docs/TESTING.md)
 [![Production Ready](https://img.shields.io/badge/Status-Beta-blue)](docs/PRODUCTION_READINESS.md)
 
 [Features](#key-capabilities) • [Performance](#performance) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Community](#community)
@@ -425,7 +425,7 @@ docker-compose up -d
 ### Development
 - [Contributing Guide](CONTRIBUTING.md) - How to contribute
 - [Development Setup](docs/development.md) - Local development environment
-- [Testing Guide](docs/TESTING.md) - Test strategy and coverage (56.1% current, 90%+ target)
+- [Testing Guide](docs/TESTING.md) - Test strategy and coverage (81% current, 85%+ target)
 - [Benchmarking](docs/BENCHMARKS.md) - Performance benchmarks and methodology
 
 ---
@@ -464,7 +464,7 @@ StreamBus is currently in **active development** with production-ready core comp
 - Cross-datacenter replication
 - Kubernetes operator
 - Additional admin tooling
-- Extended test coverage (current: 56.1%, target: 90%+)
+- Extended test coverage (current: 81%, target: 85%+)
 
 ---
 

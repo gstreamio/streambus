@@ -318,12 +318,19 @@ func TestBrokerHealthChecker_CheckAllBrokers(t *testing.T) {
 
 	// Register some brokers
 	for i := int32(1); i <= 3; i++ {
-		registry.RegisterBroker(context.Background(), &BrokerMetadata{
+		err := registry.RegisterBroker(context.Background(), &BrokerMetadata{
 			ID:     i,
 			Host:   "localhost",
 			Port:   9090 + int(i),
 			Status: BrokerStatusAlive,
 		})
+		if err != nil {
+			t.Fatalf("Failed to register broker %d: %v", i, err)
+		}
+		// Update broker status to Alive (RegisterBroker sets new brokers to Starting)
+		broker, _ := registry.GetBroker(i)
+		broker.Status = BrokerStatusAlive
+		registry.RegisterBroker(context.Background(), broker)
 	}
 
 	bhc := NewBrokerHealthChecker(registry)

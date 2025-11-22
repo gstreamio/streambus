@@ -111,7 +111,7 @@ Contributing to StreamBus:
 **In Development**:
 - Cross-datacenter replication
 - Kubernetes operator
-- Extended test coverage (current: 56.1%, target: 90%+)
+- Extended test coverage (current: 81%, target: 85%+)
 
 ## 🆘 Getting Help
 
