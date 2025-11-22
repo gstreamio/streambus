@@ -1,0 +1,535 @@
+ok  	github.com/gstreamio/streambus/pkg/broker	15.052s	coverage: 70.8% of statements
+ok  	github.com/gstreamio/streambus/pkg/client	7.553s	coverage: 78.5% of statements
+2025/11/22 10:30:21 [ClusterCoordinator] Created assignment: 3 partitions across 3 brokers
+2025/11/22 10:30:21 [ClusterCoordinator] Created assignment: 4 partitions across 2 brokers
+2025/11/22 10:30:21 [ClusterCoordinator] Starting rebalance...
+2025/11/22 10:30:21 [ClusterCoordinator] Rebalance complete in 3.959µs: 4 partitions, 2 brokers, imbalance=0, min=2, max=2
+2025/11/22 10:30:21 [ClusterCoordinator] Started with strategy: Sticky
+2025/11/22 10:30:21 [ClusterCoordinator] Created assignment: 2 partitions across 2 brokers
+2025/11/22 10:30:21 [ClusterCoordinator] Broker 3 added, triggering rebalance
+2025/11/22 10:30:21 [ClusterCoordinator] Starting rebalance...
+2025/11/22 10:30:21 [ClusterCoordinator] Broker 1 added, triggering rebalance
+2025/11/22 10:30:21 [ClusterCoordinator] Rebalance failed after broker add: rebalance already in progress
+2025/11/22 10:30:21 [ClusterCoordinator] Rebalance complete in 91.292µs: 2 partitions, 2 brokers, imbalance=0, min=1, max=1
+2025/11/22 10:30:21 [ClusterCoordinator] Broker 2 added, triggering rebalance
+2025/11/22 10:30:21 [ClusterCoordinator] Starting rebalance...
+2025/11/22 10:30:21 [ClusterCoordinator] Rebalance complete in 44.75µs: 2 partitions, 2 brokers, imbalance=0, min=1, max=1
+2025/11/22 10:30:21 [ClusterCoordinator] Created assignment: 2 partitions across 3 brokers
+2025/11/22 10:30:21 [ClusterCoordinator] Starting rebalance...
+2025/11/22 10:30:21 [ClusterCoordinator] Rebalance complete in 61.208µs: 2 partitions, 2 brokers, imbalance=0, min=1, max=1
+--- FAIL: TestBrokerHealthChecker_CheckAllBrokers (0.00s)
+    heartbeat_test.go:350: Expected 3 brokers checked, got 0
+    heartbeat_test.go:355: Broker 1 was not checked
+    heartbeat_test.go:355: Broker 2 was not checked
+    heartbeat_test.go:355: Broker 3 was not checked
+FAIL
+coverage: 79.4% of statements
+FAIL	github.com/gstreamio/streambus/pkg/cluster	1.644s
+raft2025/11/22 10:30:23 INFO: 1 switched to configuration voters=()
+raft2025/11/22 10:30:23 INFO: 1 became follower at term 0
+raft2025/11/22 10:30:23 INFO: newRaft 1 [peers: [], term: 0, commit: 0, applied: 0, lastindex: 0, lastterm: 0]
+raft2025/11/22 10:30:23 INFO: 1 became follower at term 1
+raft2025/11/22 10:30:23 INFO: 1 switched to configuration voters=(1)
+raft2025/11/22 10:30:23 INFO: 1 switched to configuration voters=(1 2)
+raft2025/11/22 10:30:23 INFO: 1 switched to configuration voters=(1 2 3)
+raft2025/11/22 10:30:23 INFO: 2 switched to configuration voters=()
+raft2025/11/22 10:30:23 INFO: 2 became follower at term 0
+raft2025/11/22 10:30:23 INFO: newRaft 2 [peers: [], term: 0, commit: 0, applied: 0, lastindex: 0, lastterm: 0]
+raft2025/11/22 10:30:23 INFO: 2 became follower at term 1
+raft2025/11/22 10:30:23 INFO: 2 switched to configuration voters=(1)
+raft2025/11/22 10:30:23 INFO: 2 switched to configuration voters=(1 2)
+raft2025/11/22 10:30:23 INFO: 2 switched to configuration voters=(1 2 3)
+raft2025/11/22 10:30:23 INFO: 3 switched to configuration voters=()
+raft2025/11/22 10:30:23 INFO: 3 became follower at term 0
+raft2025/11/22 10:30:23 INFO: newRaft 3 [peers: [], term: 0, commit: 0, applied: 0, lastindex: 0, lastterm: 0]
+raft2025/11/22 10:30:23 INFO: 3 became follower at term 1
+raft2025/11/22 10:30:23 INFO: 3 switched to configuration voters=(1)
+raft2025/11/22 10:30:23 INFO: 3 switched to configuration voters=(1 2)
+raft2025/11/22 10:30:23 INFO: 3 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:23 [Node 1] Applying 3 committed entries
+2025/11/22 10:30:23 [Node 1] Applying entry: index=1, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:23 INFO: 1 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:23 [Node 1] Applying entry: index=2, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:23 INFO: 1 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:23 [Node 1] Applying entry: index=3, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:23 INFO: 1 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:23 [Node 1] Applied entries up to index 3
+2025/11/22 10:30:23 [Node 2] Applying 3 committed entries
+2025/11/22 10:30:23 [Node 2] Applying entry: index=1, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:23 INFO: 2 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:23 [Node 2] Applying entry: index=2, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:23 INFO: 2 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:23 [Node 2] Applying entry: index=3, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:23 INFO: 2 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:23 [Node 2] Applied entries up to index 3
+2025/11/22 10:30:23 [Node 3] Applying 3 committed entries
+2025/11/22 10:30:23 [Node 3] Applying entry: index=1, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:23 INFO: 3 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:23 [Node 3] Applying entry: index=2, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:23 INFO: 3 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:23 [Node 3] Applying entry: index=3, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:23 INFO: 3 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:23 [Node 3] Applied entries up to index 3
+raft2025/11/22 10:30:25 INFO: 1 is starting a new election at term 1
+raft2025/11/22 10:30:25 INFO: 1 became pre-candidate at term 1
+raft2025/11/22 10:30:25 INFO: 1 [logterm: 1, index: 3] sent MsgPreVote request to 2 at term 1
+raft2025/11/22 10:30:25 INFO: 1 [logterm: 1, index: 3] sent MsgPreVote request to 3 at term 1
+2025/11/22 10:30:25 [Node 1] State change: Follower->Unknown, Leader: 0->0
+raft2025/11/22 10:30:25 INFO: 3 is starting a new election at term 1
+raft2025/11/22 10:30:25 INFO: 3 became pre-candidate at term 1
+raft2025/11/22 10:30:25 INFO: 3 [logterm: 1, index: 3] sent MsgPreVote request to 1 at term 1
+raft2025/11/22 10:30:25 INFO: 3 [logterm: 1, index: 3] sent MsgPreVote request to 2 at term 1
+2025/11/22 10:30:25 [Node 3] State change: Follower->Unknown, Leader: 0->0
+{"level":"info","ts":1763825425.241077,"msg":"connected to raft peer","nodeId":1,"peerId":2,"addr":"localhost:16002"}
+raft2025/11/22 10:30:25 INFO: 2 [logterm: 1, index: 3, vote: 0] cast MsgPreVote for 1 [logterm: 1, index: 3] at term 1
+raft2025/11/22 10:30:25 INFO: 1 received MsgPreVoteResp from 2 at term 1
+raft2025/11/22 10:30:25 INFO: 1 has received 1 MsgPreVoteResp votes and 0 vote rejections
+{"level":"info","ts":1763825425.246353,"msg":"connected to raft peer","nodeId":3,"peerId":1,"addr":"localhost:16001"}
+{"level":"info","ts":1763825425.326369,"msg":"connected to raft peer","nodeId":1,"peerId":3,"addr":"localhost:16003"}
+raft2025/11/22 10:30:25 INFO: 1 received MsgPreVoteResp from 1 at term 1
+raft2025/11/22 10:30:25 INFO: 1 has received 2 MsgPreVoteResp votes and 0 vote rejections
+raft2025/11/22 10:30:25 INFO: 1 became candidate at term 2
+raft2025/11/22 10:30:25 INFO: 1 [logterm: 1, index: 3] sent MsgVote request to 2 at term 2
+raft2025/11/22 10:30:25 INFO: 1 [logterm: 1, index: 3] sent MsgVote request to 3 at term 2
+2025/11/22 10:30:25 [Node 1] State change: Unknown->Candidate, Leader: 0->0
+raft2025/11/22 10:30:25 INFO: 1 received MsgVoteResp from 1 at term 2
+raft2025/11/22 10:30:25 INFO: 1 has received 1 MsgVoteResp votes and 0 vote rejections
+raft2025/11/22 10:30:25 INFO: 2 [term: 1] received a MsgVote message with higher term from 1 [term: 2]
+raft2025/11/22 10:30:25 INFO: 2 became follower at term 2
+raft2025/11/22 10:30:25 INFO: 2 [logterm: 1, index: 3, vote: 0] cast MsgVote for 1 [logterm: 1, index: 3] at term 2
+raft2025/11/22 10:30:25 INFO: 1 received MsgVoteResp from 2 at term 2
+raft2025/11/22 10:30:25 INFO: 1 has received 2 MsgVoteResp votes and 0 vote rejections
+raft2025/11/22 10:30:25 INFO: 1 became leader at term 2
+raft2025/11/22 10:30:25 INFO: raft.node: 1 elected leader 1 at term 2
+2025/11/22 10:30:25 [Node 1] State change: Candidate->Leader, Leader: 0->1
+raft2025/11/22 10:30:25 INFO: raft.node: 2 elected leader 1 at term 2
+2025/11/22 10:30:25 [Node 2] State change: Follower->Follower, Leader: 0->1
+{"level":"info","ts":1763825425.336679,"msg":"connected to raft peer","nodeId":3,"peerId":2,"addr":"localhost:16002"}
+raft2025/11/22 10:30:25 INFO: 3 received MsgPreVoteResp from 3 at term 1
+raft2025/11/22 10:30:25 INFO: 3 has received 1 MsgPreVoteResp votes and 0 vote rejections
+raft2025/11/22 10:30:25 INFO: 2 [logterm: 2, index: 4, vote: 1] rejected MsgPreVote from 3 [logterm: 1, index: 3] at term 2
+2025/11/22 10:30:25 [Node 2] Have 1 entries but none committed yet
+raft2025/11/22 10:30:25 INFO: 3 [term: 1] received a MsgPreVoteResp message with higher term from 2 [term: 2]
+raft2025/11/22 10:30:25 INFO: 3 became follower at term 2
+2025/11/22 10:30:25 [Node 3] State change: Unknown->Follower, Leader: 0->0
+2025/11/22 10:30:25 [Node 1] Proposing data (len=29), isLeader=true, currentLeader=1
+2025/11/22 10:30:25 [Node 1] Proposal submitted successfully
+{"level":"info","ts":1763825425.43616,"msg":"connected to raft peer","nodeId":1,"peerId":3,"addr":"localhost:16003"}
+2025/11/22 10:30:25 [Node 1] Have 1 entries but none committed yet
+2025/11/22 10:30:25 [Node 1] Applying 1 committed entries
+2025/11/22 10:30:25 [Node 1] Applying entry: index=4, term=2, type=EntryNormal, dataLen=0
+2025/11/22 10:30:25 [Node 1] Applied entries up to index 4
+2025/11/22 10:30:25 [Node 2] Have 1 entries but none committed yet
+2025/11/22 10:30:25 [Node 1] Applying 1 committed entries
+2025/11/22 10:30:25 [Node 1] Applying entry: index=5, term=2, type=EntryNormal, dataLen=29
+2025/11/22 10:30:25 [Node 1] Successfully applied entry 5 to state machine
+2025/11/22 10:30:25 [Node 1] Applied entries up to index 5
+2025/11/22 10:30:25 [Node 2] Applying 1 committed entries
+2025/11/22 10:30:25 [Node 2] Applying entry: index=4, term=2, type=EntryNormal, dataLen=0
+2025/11/22 10:30:25 [Node 2] Applied entries up to index 4
+2025/11/22 10:30:25 [Node 2] Applying 1 committed entries
+2025/11/22 10:30:25 [Node 2] Applying entry: index=5, term=2, type=EntryNormal, dataLen=29
+2025/11/22 10:30:25 [Node 2] Successfully applied entry 5 to state machine
+2025/11/22 10:30:25 [Node 2] Applied entries up to index 5
+{"level":"info","ts":1763825425.5885792,"msg":"connected to raft peer","nodeId":1,"peerId":3,"addr":"localhost:16003"}
+{"level":"info","ts":1763825425.7740731,"msg":"connected to raft peer","nodeId":1,"peerId":3,"addr":"localhost:16003"}
+--- FAIL: TestThreeNodeCluster (3.04s)
+    cluster_test.go:79: Node 1 became leader
+    cluster_test.go:84: 
+        	Error Trace:	/Users/shawntherrien/Projects/streambus/pkg/consensus/cluster_test.go:84
+        	Error:      	Not equal: 
+        	            	expected: 0x1
+        	            	actual  : 0x0
+        	Test:       	TestThreeNodeCluster
+        	Messages:   	node 3 should agree on leader
+raft2025/11/22 10:30:26 INFO: 1 switched to configuration voters=()
+raft2025/11/22 10:30:26 INFO: 1 became follower at term 0
+raft2025/11/22 10:30:26 INFO: newRaft 1 [peers: [], term: 0, commit: 0, applied: 0, lastindex: 0, lastterm: 0]
+raft2025/11/22 10:30:26 INFO: 1 became follower at term 1
+raft2025/11/22 10:30:26 INFO: 1 switched to configuration voters=(1)
+raft2025/11/22 10:30:26 INFO: 1 switched to configuration voters=(1 2)
+raft2025/11/22 10:30:26 INFO: 1 switched to configuration voters=(1 2 3)
+raft2025/11/22 10:30:26 INFO: 2 switched to configuration voters=()
+raft2025/11/22 10:30:26 INFO: 2 became follower at term 0
+raft2025/11/22 10:30:26 INFO: newRaft 2 [peers: [], term: 0, commit: 0, applied: 0, lastindex: 0, lastterm: 0]
+raft2025/11/22 10:30:26 INFO: 2 became follower at term 1
+raft2025/11/22 10:30:26 INFO: 2 switched to configuration voters=(1)
+raft2025/11/22 10:30:26 INFO: 2 switched to configuration voters=(1 2)
+raft2025/11/22 10:30:26 INFO: 2 switched to configuration voters=(1 2 3)
+raft2025/11/22 10:30:26 INFO: 3 switched to configuration voters=()
+raft2025/11/22 10:30:26 INFO: 3 became follower at term 0
+raft2025/11/22 10:30:26 INFO: newRaft 3 [peers: [], term: 0, commit: 0, applied: 0, lastindex: 0, lastterm: 0]
+raft2025/11/22 10:30:26 INFO: 3 became follower at term 1
+raft2025/11/22 10:30:26 INFO: 3 switched to configuration voters=(1)
+raft2025/11/22 10:30:26 INFO: 3 switched to configuration voters=(1 2)
+raft2025/11/22 10:30:26 INFO: 3 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:26 [Node 1] Applying 3 committed entries
+2025/11/22 10:30:26 [Node 1] Applying entry: index=1, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:26 INFO: 1 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:26 [Node 1] Applying entry: index=2, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:26 INFO: 1 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:26 [Node 1] Applying entry: index=3, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:26 INFO: 1 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:26 [Node 1] Applied entries up to index 3
+2025/11/22 10:30:26 [Node 3] Applying 3 committed entries
+2025/11/22 10:30:26 [Node 3] Applying entry: index=1, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:26 INFO: 3 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:26 [Node 3] Applying entry: index=2, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:26 INFO: 3 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:26 [Node 3] Applying entry: index=3, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:26 INFO: 3 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:26 [Node 3] Applied entries up to index 3
+2025/11/22 10:30:26 [Node 2] Applying 3 committed entries
+2025/11/22 10:30:26 [Node 2] Applying entry: index=1, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:26 INFO: 2 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:26 [Node 2] Applying entry: index=2, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:26 INFO: 2 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:26 [Node 2] Applying entry: index=3, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:26 INFO: 2 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:26 [Node 2] Applied entries up to index 3
+raft2025/11/22 10:30:28 INFO: 3 is starting a new election at term 1
+raft2025/11/22 10:30:28 INFO: 3 became pre-candidate at term 1
+raft2025/11/22 10:30:28 INFO: 3 [logterm: 1, index: 3] sent MsgPreVote request to 1 at term 1
+raft2025/11/22 10:30:28 INFO: 3 [logterm: 1, index: 3] sent MsgPreVote request to 2 at term 1
+2025/11/22 10:30:28 [Node 3] State change: Follower->Unknown, Leader: 0->0
+{"level":"info","ts":1763825428.3862882,"msg":"connected to raft peer","nodeId":3,"peerId":1,"addr":"localhost:17001"}
+raft2025/11/22 10:30:28 INFO: 1 [logterm: 1, index: 3, vote: 0] cast MsgPreVote for 3 [logterm: 1, index: 3] at term 1
+raft2025/11/22 10:30:28 INFO: 3 received MsgPreVoteResp from 1 at term 1
+raft2025/11/22 10:30:28 INFO: 3 has received 1 MsgPreVoteResp votes and 0 vote rejections
+{"level":"info","ts":1763825428.483959,"msg":"connected to raft peer","nodeId":3,"peerId":2,"addr":"localhost:17002"}
+raft2025/11/22 10:30:28 INFO: 3 received MsgPreVoteResp from 3 at term 1
+raft2025/11/22 10:30:28 INFO: 3 has received 2 MsgPreVoteResp votes and 0 vote rejections
+raft2025/11/22 10:30:28 INFO: 3 became candidate at term 2
+raft2025/11/22 10:30:28 INFO: 3 [logterm: 1, index: 3] sent MsgVote request to 1 at term 2
+raft2025/11/22 10:30:28 INFO: 3 [logterm: 1, index: 3] sent MsgVote request to 2 at term 2
+2025/11/22 10:30:28 [Node 3] State change: Unknown->Candidate, Leader: 0->0
+raft2025/11/22 10:30:28 INFO: 2 [logterm: 1, index: 3, vote: 0] cast MsgPreVote for 3 [logterm: 1, index: 3] at term 1
+raft2025/11/22 10:30:28 INFO: 3 received MsgVoteResp from 3 at term 2
+raft2025/11/22 10:30:28 INFO: 3 has received 1 MsgVoteResp votes and 0 vote rejections
+raft2025/11/22 10:30:28 INFO: 1 [term: 1] received a MsgVote message with higher term from 3 [term: 2]
+raft2025/11/22 10:30:28 INFO: 2 [term: 1] received a MsgVote message with higher term from 3 [term: 2]
+raft2025/11/22 10:30:28 INFO: 2 became follower at term 2
+raft2025/11/22 10:30:28 INFO: 2 [logterm: 1, index: 3, vote: 0] cast MsgVote for 3 [logterm: 1, index: 3] at term 2
+raft2025/11/22 10:30:28 INFO: 1 became follower at term 2
+raft2025/11/22 10:30:28 INFO: 1 [logterm: 1, index: 3, vote: 0] cast MsgVote for 3 [logterm: 1, index: 3] at term 2
+raft2025/11/22 10:30:28 INFO: 3 received MsgVoteResp from 1 at term 2
+raft2025/11/22 10:30:28 INFO: 3 has received 2 MsgVoteResp votes and 0 vote rejections
+raft2025/11/22 10:30:28 INFO: 3 became leader at term 2
+raft2025/11/22 10:30:28 INFO: raft.node: 3 elected leader 3 at term 2
+2025/11/22 10:30:28 [Node 3] State change: Candidate->Leader, Leader: 0->3
+2025/11/22 10:30:28 [Node 3] Have 1 entries but none committed yet
+raft2025/11/22 10:30:28 INFO: raft.node: 2 elected leader 3 at term 2
+2025/11/22 10:30:28 [Node 2] State change: Follower->Follower, Leader: 0->3
+raft2025/11/22 10:30:28 INFO: raft.node: 1 elected leader 3 at term 2
+2025/11/22 10:30:28 [Node 1] State change: Follower->Follower, Leader: 0->3
+2025/11/22 10:30:28 [Node 1] Have 1 entries but none committed yet
+2025/11/22 10:30:28 [Node 3] Applying 1 committed entries
+2025/11/22 10:30:28 [Node 3] Applying entry: index=4, term=2, type=EntryNormal, dataLen=0
+2025/11/22 10:30:28 [Node 3] Applied entries up to index 4
+2025/11/22 10:30:28 [Node 1] Applying 1 committed entries
+2025/11/22 10:30:28 [Node 1] Applying entry: index=4, term=2, type=EntryNormal, dataLen=0
+2025/11/22 10:30:28 [Node 1] Applied entries up to index 4
+2025/11/22 10:30:28 [Node 2] Have 1 entries but none committed yet
+raft2025/11/22 10:30:30 INFO: 1 is starting a new election at term 2
+raft2025/11/22 10:30:30 INFO: 1 became pre-candidate at term 2
+raft2025/11/22 10:30:30 INFO: 1 [logterm: 2, index: 4] sent MsgPreVote request to 2 at term 2
+raft2025/11/22 10:30:30 INFO: 1 [logterm: 2, index: 4] sent MsgPreVote request to 3 at term 2
+raft2025/11/22 10:30:30 INFO: raft.node: 1 lost leader 3 at term 2
+2025/11/22 10:30:30 [Node 1] State change: Follower->Unknown, Leader: 3->0
+{"level":"info","ts":1763825430.4813068,"msg":"connected to raft peer","nodeId":1,"peerId":2,"addr":"localhost:17002"}
+raft2025/11/22 10:30:30 INFO: 1 received MsgPreVoteResp from 1 at term 2
+raft2025/11/22 10:30:30 INFO: 1 has received 1 MsgPreVoteResp votes and 0 vote rejections
+raft2025/11/22 10:30:30 INFO: 2 [logterm: 2, index: 4, vote: 3] cast MsgPreVote for 1 [logterm: 2, index: 4] at term 2
+raft2025/11/22 10:30:30 INFO: 1 received MsgPreVoteResp from 2 at term 2
+raft2025/11/22 10:30:30 INFO: 1 has received 2 MsgPreVoteResp votes and 0 vote rejections
+raft2025/11/22 10:30:30 INFO: 1 became candidate at term 3
+raft2025/11/22 10:30:30 INFO: 1 [logterm: 2, index: 4] sent MsgVote request to 2 at term 3
+raft2025/11/22 10:30:30 INFO: 1 [logterm: 2, index: 4] sent MsgVote request to 3 at term 3
+2025/11/22 10:30:30 [Node 1] State change: Unknown->Candidate, Leader: 0->0
+raft2025/11/22 10:30:30 INFO: 1 received MsgVoteResp from 1 at term 3
+raft2025/11/22 10:30:30 INFO: 1 has received 1 MsgVoteResp votes and 0 vote rejections
+raft2025/11/22 10:30:30 INFO: 2 [term: 2] received a MsgVote message with higher term from 1 [term: 3]
+raft2025/11/22 10:30:30 INFO: 2 became follower at term 3
+raft2025/11/22 10:30:30 INFO: 2 [logterm: 2, index: 4, vote: 0] cast MsgVote for 1 [logterm: 2, index: 4] at term 3
+raft2025/11/22 10:30:30 INFO: raft.node: 2 lost leader 3 at term 3
+2025/11/22 10:30:30 [Node 2] State change: Follower->Follower, Leader: 3->0
+raft2025/11/22 10:30:30 INFO: 1 received MsgVoteResp from 2 at term 3
+raft2025/11/22 10:30:30 INFO: 1 has received 2 MsgVoteResp votes and 0 vote rejections
+raft2025/11/22 10:30:30 INFO: 1 became leader at term 3
+raft2025/11/22 10:30:30 INFO: raft.node: 1 elected leader 1 at term 3
+2025/11/22 10:30:30 [Node 1] State change: Candidate->Leader, Leader: 0->1
+raft2025/11/22 10:30:30 INFO: raft.node: 2 elected leader 1 at term 3
+2025/11/22 10:30:30 [Node 2] State change: Follower->Follower, Leader: 0->1
+2025/11/22 10:30:30 [Node 2] Applying 1 committed entries
+2025/11/22 10:30:30 [Node 2] Applying entry: index=4, term=2, type=EntryNormal, dataLen=0
+2025/11/22 10:30:30 [Node 2] Applied entries up to index 4
+2025/11/22 10:30:30 [Node 1] Have 1 entries but none committed yet
+2025/11/22 10:30:31 [Node 1] Applying 1 committed entries
+2025/11/22 10:30:31 [Node 1] Applying entry: index=5, term=3, type=EntryNormal, dataLen=0
+2025/11/22 10:30:31 [Node 1] Applied entries up to index 5
+2025/11/22 10:30:31 [Node 2] Applying 1 committed entries
+2025/11/22 10:30:31 [Node 2] Applying entry: index=5, term=3, type=EntryNormal, dataLen=0
+2025/11/22 10:30:31 [Node 2] Applied entries up to index 5
+{"level":"info","ts":1763825433.5832691,"msg":"connected to raft peer","nodeId":1,"peerId":2,"addr":"localhost:17002"}
+raft2025/11/22 10:30:34 INFO: 1 switched to configuration voters=()
+raft2025/11/22 10:30:34 INFO: 1 became follower at term 0
+raft2025/11/22 10:30:34 INFO: newRaft 1 [peers: [], term: 0, commit: 0, applied: 0, lastindex: 0, lastterm: 0]
+raft2025/11/22 10:30:34 INFO: 1 became follower at term 1
+raft2025/11/22 10:30:34 INFO: 1 switched to configuration voters=(1)
+2025/11/22 10:30:34 [Node 1] Applying 1 committed entries
+2025/11/22 10:30:34 [Node 1] Applying entry: index=1, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:34 INFO: 1 switched to configuration voters=(1)
+2025/11/22 10:30:34 [Node 1] Applied entries up to index 1
+raft2025/11/22 10:30:36 INFO: 1 is starting a new election at term 1
+raft2025/11/22 10:30:36 INFO: 1 became pre-candidate at term 1
+2025/11/22 10:30:36 [Node 1] State change: Follower->Unknown, Leader: 0->0
+raft2025/11/22 10:30:36 INFO: 1 received MsgPreVoteResp from 1 at term 1
+raft2025/11/22 10:30:36 INFO: 1 has received 1 MsgPreVoteResp votes and 0 vote rejections
+raft2025/11/22 10:30:36 INFO: 1 became candidate at term 2
+2025/11/22 10:30:36 [Node 1] State change: Unknown->Candidate, Leader: 0->0
+raft2025/11/22 10:30:36 INFO: 1 received MsgVoteResp from 1 at term 2
+raft2025/11/22 10:30:36 INFO: 1 has received 1 MsgVoteResp votes and 0 vote rejections
+raft2025/11/22 10:30:36 INFO: 1 became leader at term 2
+raft2025/11/22 10:30:36 INFO: raft.node: 1 elected leader 1 at term 2
+2025/11/22 10:30:36 [Node 1] State change: Candidate->Leader, Leader: 0->1
+2025/11/22 10:30:36 [Node 1] Proposing data (len=9), isLeader=true, currentLeader=1
+2025/11/22 10:30:36 [Node 1] Proposal submitted successfully
+2025/11/22 10:30:36 [Node 1] Have 1 entries but none committed yet
+2025/11/22 10:30:36 [Node 1] Applying 1 committed entries
+2025/11/22 10:30:36 [Node 1] Applying entry: index=2, term=2, type=EntryNormal, dataLen=0
+2025/11/22 10:30:36 [Node 1] Applied entries up to index 2
+2025/11/22 10:30:36 [Node 1] Applying 1 committed entries
+2025/11/22 10:30:36 [Node 1] Applying entry: index=3, term=2, type=EntryNormal, dataLen=9
+2025/11/22 10:30:36 [Node 1] Successfully applied entry 3 to state machine
+2025/11/22 10:30:36 [Node 1] Applied entries up to index 3
+raft2025/11/22 10:30:37 INFO: 1 switched to configuration voters=()
+raft2025/11/22 10:30:37 INFO: 1 became follower at term 0
+raft2025/11/22 10:30:37 INFO: newRaft 1 [peers: [], term: 0, commit: 0, applied: 0, lastindex: 0, lastterm: 0]
+raft2025/11/22 10:30:37 INFO: 1 became follower at term 1
+raft2025/11/22 10:30:37 INFO: 1 switched to configuration voters=(1)
+2025/11/22 10:30:37 [Node 1] Applying 1 committed entries
+2025/11/22 10:30:37 [Node 1] Applying entry: index=1, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:37 INFO: 1 switched to configuration voters=(1)
+2025/11/22 10:30:37 [Node 1] Applied entries up to index 1
+raft2025/11/22 10:30:37 INFO: 1 switched to configuration voters=()
+raft2025/11/22 10:30:37 INFO: 1 became follower at term 0
+raft2025/11/22 10:30:37 INFO: newRaft 1 [peers: [], term: 0, commit: 0, applied: 0, lastindex: 0, lastterm: 0]
+raft2025/11/22 10:30:37 INFO: 1 became follower at term 1
+raft2025/11/22 10:30:37 INFO: 1 switched to configuration voters=(1)
+raft2025/11/22 10:30:37 INFO: 1 switched to configuration voters=(1 2)
+raft2025/11/22 10:30:37 INFO: 1 switched to configuration voters=(1 2 3)
+raft2025/11/22 10:30:37 INFO: 2 switched to configuration voters=()
+raft2025/11/22 10:30:37 INFO: 2 became follower at term 0
+raft2025/11/22 10:30:37 INFO: newRaft 2 [peers: [], term: 0, commit: 0, applied: 0, lastindex: 0, lastterm: 0]
+raft2025/11/22 10:30:37 INFO: 2 became follower at term 1
+raft2025/11/22 10:30:37 INFO: 2 switched to configuration voters=(1)
+raft2025/11/22 10:30:37 INFO: 2 switched to configuration voters=(1 2)
+raft2025/11/22 10:30:37 INFO: 2 switched to configuration voters=(1 2 3)
+raft2025/11/22 10:30:37 INFO: 3 switched to configuration voters=()
+raft2025/11/22 10:30:37 INFO: 3 became follower at term 0
+raft2025/11/22 10:30:37 INFO: newRaft 3 [peers: [], term: 0, commit: 0, applied: 0, lastindex: 0, lastterm: 0]
+raft2025/11/22 10:30:37 INFO: 3 became follower at term 1
+raft2025/11/22 10:30:37 INFO: 3 switched to configuration voters=(1)
+raft2025/11/22 10:30:37 INFO: 3 switched to configuration voters=(1 2)
+raft2025/11/22 10:30:37 INFO: 3 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:37 [Node 1] Applying 3 committed entries
+2025/11/22 10:30:37 [Node 1] Applying entry: index=1, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:37 INFO: 1 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:37 [Node 1] Applying entry: index=2, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:37 INFO: 1 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:37 [Node 1] Applying entry: index=3, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:37 INFO: 1 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:37 [Node 1] Applied entries up to index 3
+2025/11/22 10:30:37 [Node 2] Applying 3 committed entries
+2025/11/22 10:30:37 [Node 2] Applying entry: index=1, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:37 INFO: 2 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:37 [Node 2] Applying entry: index=2, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:37 INFO: 2 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:37 [Node 2] Applying entry: index=3, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:37 INFO: 2 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:37 [Node 2] Applied entries up to index 3
+2025/11/22 10:30:37 [Node 3] Applying 3 committed entries
+2025/11/22 10:30:37 [Node 3] Applying entry: index=1, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:37 INFO: 3 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:37 [Node 3] Applying entry: index=2, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:37 INFO: 3 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:37 [Node 3] Applying entry: index=3, term=1, type=EntryConfChange, dataLen=6
+raft2025/11/22 10:30:37 INFO: 3 switched to configuration voters=(1 2 3)
+2025/11/22 10:30:37 [Node 3] Applied entries up to index 3
+raft2025/11/22 10:30:38 INFO: 1 is starting a new election at term 1
+raft2025/11/22 10:30:38 INFO: 1 became pre-candidate at term 1
+raft2025/11/22 10:30:38 INFO: 1 [logterm: 1, index: 3] sent MsgPreVote request to 2 at term 1
+raft2025/11/22 10:30:38 INFO: 1 [logterm: 1, index: 3] sent MsgPreVote request to 3 at term 1
+2025/11/22 10:30:38 [Node 1] State change: Follower->Unknown, Leader: 0->0
+{"level":"info","ts":1763825438.983306,"msg":"connected to raft peer","nodeId":1,"peerId":2,"addr":"localhost:19502"}
+raft2025/11/22 10:30:38 INFO: 2 [logterm: 1, index: 3, vote: 0] cast MsgPreVote for 1 [logterm: 1, index: 3] at term 1
+raft2025/11/22 10:30:38 INFO: 1 received MsgPreVoteResp from 2 at term 1
+raft2025/11/22 10:30:38 INFO: 1 has received 1 MsgPreVoteResp votes and 0 vote rejections
+{"level":"info","ts":1763825439.0792909,"msg":"connected to raft peer","nodeId":1,"peerId":3,"addr":"localhost:19503"}
+raft2025/11/22 10:30:39 INFO: 1 received MsgPreVoteResp from 1 at term 1
+raft2025/11/22 10:30:39 INFO: 1 has received 2 MsgPreVoteResp votes and 0 vote rejections
+raft2025/11/22 10:30:39 INFO: 1 became candidate at term 2
+raft2025/11/22 10:30:39 INFO: 1 [logterm: 1, index: 3] sent MsgVote request to 2 at term 2
+raft2025/11/22 10:30:39 INFO: 1 [logterm: 1, index: 3] sent MsgVote request to 3 at term 2
+2025/11/22 10:30:39 [Node 1] State change: Unknown->Candidate, Leader: 0->0
+raft2025/11/22 10:30:39 INFO: 3 [logterm: 1, index: 3, vote: 0] cast MsgPreVote for 1 [logterm: 1, index: 3] at term 1
+raft2025/11/22 10:30:39 INFO: 1 received MsgVoteResp from 1 at term 2
+raft2025/11/22 10:30:39 INFO: 1 has received 1 MsgVoteResp votes and 0 vote rejections
+raft2025/11/22 10:30:39 INFO: 3 [term: 1] received a MsgVote message with higher term from 1 [term: 2]
+raft2025/11/22 10:30:39 INFO: 2 [term: 1] received a MsgVote message with higher term from 1 [term: 2]
+raft2025/11/22 10:30:39 INFO: 3 became follower at term 2
+raft2025/11/22 10:30:39 INFO: 3 [logterm: 1, index: 3, vote: 0] cast MsgVote for 1 [logterm: 1, index: 3] at term 2
+raft2025/11/22 10:30:39 INFO: 2 became follower at term 2
+raft2025/11/22 10:30:39 INFO: 2 [logterm: 1, index: 3, vote: 0] cast MsgVote for 1 [logterm: 1, index: 3] at term 2
+raft2025/11/22 10:30:39 INFO: 1 received MsgVoteResp from 2 at term 2
+raft2025/11/22 10:30:39 INFO: 1 has received 2 MsgVoteResp votes and 0 vote rejections
+raft2025/11/22 10:30:39 INFO: 1 became leader at term 2
+raft2025/11/22 10:30:39 INFO: raft.node: 1 elected leader 1 at term 2
+2025/11/22 10:30:39 [Node 1] State change: Candidate->Leader, Leader: 0->1
+2025/11/22 10:30:39 [Node 1] Proposing data (len=11), isLeader=true, currentLeader=1
+2025/11/22 10:30:39 [Node 1] Proposal submitted successfully
+2025/11/22 10:30:39 [Node 1] Have 1 entries but none committed yet
+raft2025/11/22 10:30:39 INFO: raft.node: 3 elected leader 1 at term 2
+2025/11/22 10:30:39 [Node 3] State change: Follower->Follower, Leader: 0->1
+raft2025/11/22 10:30:39 INFO: raft.node: 2 elected leader 1 at term 2
+2025/11/22 10:30:39 [Node 2] State change: Follower->Follower, Leader: 0->1
+2025/11/22 10:30:39 [Node 1] Have 1 entries but none committed yet
+2025/11/22 10:30:39 [Node 3] Have 1 entries but none committed yet
+2025/11/22 10:30:39 [Node 1] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 1] Applying entry: index=4, term=2, type=EntryNormal, dataLen=0
+2025/11/22 10:30:39 [Node 1] Applied entries up to index 4
+2025/11/22 10:30:39 [Node 2] Have 1 entries but none committed yet
+2025/11/22 10:30:39 [Node 3] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 3] Applying entry: index=4, term=2, type=EntryNormal, dataLen=0
+2025/11/22 10:30:39 [Node 3] Applied entries up to index 4
+2025/11/22 10:30:39 [Node 2] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 2] Applying entry: index=4, term=2, type=EntryNormal, dataLen=0
+2025/11/22 10:30:39 [Node 2] Applied entries up to index 4
+2025/11/22 10:30:39 [Node 1] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 1] Applying entry: index=5, term=2, type=EntryNormal, dataLen=11
+2025/11/22 10:30:39 [Node 1] Successfully applied entry 5 to state machine
+2025/11/22 10:30:39 [Node 1] Applied entries up to index 5
+2025/11/22 10:30:39 [Node 2] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 2] Applying entry: index=5, term=2, type=EntryNormal, dataLen=11
+2025/11/22 10:30:39 [Node 2] Successfully applied entry 5 to state machine
+2025/11/22 10:30:39 [Node 2] Applied entries up to index 5
+2025/11/22 10:30:39 [Node 3] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 3] Applying entry: index=5, term=2, type=EntryNormal, dataLen=11
+2025/11/22 10:30:39 [Node 3] Successfully applied entry 5 to state machine
+2025/11/22 10:30:39 [Node 3] Applied entries up to index 5
+2025/11/22 10:30:39 [Node 1] Proposing data (len=11), isLeader=true, currentLeader=1
+2025/11/22 10:30:39 [Node 1] Proposal submitted successfully
+2025/11/22 10:30:39 [Node 1] Have 1 entries but none committed yet
+2025/11/22 10:30:39 [Node 3] Have 1 entries but none committed yet
+2025/11/22 10:30:39 [Node 2] Have 1 entries but none committed yet
+2025/11/22 10:30:39 [Node 1] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 1] Applying entry: index=6, term=2, type=EntryNormal, dataLen=11
+2025/11/22 10:30:39 [Node 1] Successfully applied entry 6 to state machine
+2025/11/22 10:30:39 [Node 1] Applied entries up to index 6
+2025/11/22 10:30:39 [Node 2] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 2] Applying entry: index=6, term=2, type=EntryNormal, dataLen=11
+2025/11/22 10:30:39 [Node 2] Successfully applied entry 6 to state machine
+2025/11/22 10:30:39 [Node 2] Applied entries up to index 6
+2025/11/22 10:30:39 [Node 3] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 3] Applying entry: index=6, term=2, type=EntryNormal, dataLen=11
+2025/11/22 10:30:39 [Node 3] Successfully applied entry 6 to state machine
+2025/11/22 10:30:39 [Node 3] Applied entries up to index 6
+2025/11/22 10:30:39 [Node 1] Proposing data (len=11), isLeader=true, currentLeader=1
+2025/11/22 10:30:39 [Node 1] Proposal submitted successfully
+2025/11/22 10:30:39 [Node 1] Have 1 entries but none committed yet
+2025/11/22 10:30:39 [Node 3] Have 1 entries but none committed yet
+2025/11/22 10:30:39 [Node 2] Have 1 entries but none committed yet
+2025/11/22 10:30:39 [Node 1] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 1] Applying entry: index=7, term=2, type=EntryNormal, dataLen=11
+2025/11/22 10:30:39 [Node 1] Successfully applied entry 7 to state machine
+2025/11/22 10:30:39 [Node 1] Applied entries up to index 7
+2025/11/22 10:30:39 [Node 2] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 2] Applying entry: index=7, term=2, type=EntryNormal, dataLen=11
+2025/11/22 10:30:39 [Node 2] Successfully applied entry 7 to state machine
+2025/11/22 10:30:39 [Node 2] Applied entries up to index 7
+2025/11/22 10:30:39 [Node 3] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 3] Applying entry: index=7, term=2, type=EntryNormal, dataLen=11
+2025/11/22 10:30:39 [Node 3] Successfully applied entry 7 to state machine
+2025/11/22 10:30:39 [Node 3] Applied entries up to index 7
+2025/11/22 10:30:39 [Node 1] Proposing data (len=11), isLeader=true, currentLeader=1
+2025/11/22 10:30:39 [Node 1] Proposal submitted successfully
+2025/11/22 10:30:39 [Node 1] Have 1 entries but none committed yet
+2025/11/22 10:30:39 [Node 2] Have 1 entries but none committed yet
+2025/11/22 10:30:39 [Node 1] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 1] Applying entry: index=8, term=2, type=EntryNormal, dataLen=11
+2025/11/22 10:30:39 [Node 1] Successfully applied entry 8 to state machine
+2025/11/22 10:30:39 [Node 1] Applied entries up to index 8
+2025/11/22 10:30:39 [Node 3] Have 1 entries but none committed yet
+2025/11/22 10:30:39 [Node 2] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 2] Applying entry: index=8, term=2, type=EntryNormal, dataLen=11
+2025/11/22 10:30:39 [Node 2] Successfully applied entry 8 to state machine
+2025/11/22 10:30:39 [Node 2] Applied entries up to index 8
+2025/11/22 10:30:39 [Node 3] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 3] Applying entry: index=8, term=2, type=EntryNormal, dataLen=11
+2025/11/22 10:30:39 [Node 3] Successfully applied entry 8 to state machine
+2025/11/22 10:30:39 [Node 3] Applied entries up to index 8
+2025/11/22 10:30:39 [Node 1] Proposing data (len=11), isLeader=true, currentLeader=1
+2025/11/22 10:30:39 [Node 1] Proposal submitted successfully
+2025/11/22 10:30:39 [Node 1] Have 1 entries but none committed yet
+2025/11/22 10:30:39 [Node 2] Have 1 entries but none committed yet
+2025/11/22 10:30:39 [Node 1] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 1] Applying entry: index=9, term=2, type=EntryNormal, dataLen=11
+2025/11/22 10:30:39 [Node 1] Successfully applied entry 9 to state machine
+2025/11/22 10:30:39 [Node 1] Applied entries up to index 9
+2025/11/22 10:30:39 [Node 3] Have 1 entries but none committed yet
+2025/11/22 10:30:39 [Node 2] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 2] Applying entry: index=9, term=2, type=EntryNormal, dataLen=11
+2025/11/22 10:30:39 [Node 2] Successfully applied entry 9 to state machine
+2025/11/22 10:30:39 [Node 2] Applied entries up to index 9
+2025/11/22 10:30:39 [Node 3] Applying 1 committed entries
+2025/11/22 10:30:39 [Node 3] Applying entry: index=9, term=2, type=EntryNormal, dataLen=11
+2025/11/22 10:30:39 [Node 3] Successfully applied entry 9 to state machine
+2025/11/22 10:30:39 [Node 3] Applied entries up to index 9
+2025/11/22 10:30:41 [Node 1] Proposing data (len=18), isLeader=true, currentLeader=1
+2025/11/22 10:30:41 [Node 1] Proposal submitted successfully
+2025/11/22 10:30:41 [Node 1] Have 1 entries but none committed yet
+2025/11/22 10:30:41 [Node 3] Have 1 entries but none committed yet
+2025/11/22 10:30:41 [Node 2] Have 1 entries but none committed yet
+2025/11/22 10:30:41 [Node 1] Applying 1 committed entries
+2025/11/22 10:30:41 [Node 1] Applying entry: index=10, term=2, type=EntryNormal, dataLen=18
+2025/11/22 10:30:41 [Node 1] Successfully applied entry 10 to state machine
+2025/11/22 10:30:41 [Node 1] Applied entries up to index 10
+2025/11/22 10:30:41 [Node 2] Applying 1 committed entries
+2025/11/22 10:30:41 [Node 2] Applying entry: index=10, term=2, type=EntryNormal, dataLen=18
+2025/11/22 10:30:41 [Node 2] Successfully applied entry 10 to state machine
+2025/11/22 10:30:41 [Node 2] Applied entries up to index 10
+2025/11/22 10:30:41 [Node 3] Applying 1 committed entries
+2025/11/22 10:30:41 [Node 3] Applying entry: index=10, term=2, type=EntryNormal, dataLen=18
+2025/11/22 10:30:41 [Node 3] Successfully applied entry 10 to state machine
+2025/11/22 10:30:41 [Node 3] Applied entries up to index 10
+{"level":"info","ts":1763825442.888641,"msg":"connected to raft peer","nodeId":1,"peerId":2,"addr":"localhost:31002"}
+{"level":"info","ts":1763825443.6920042,"msg":"connected to raft peer","nodeId":1,"peerId":2,"addr":"localhost:31012"}
+{"level":"info","ts":1763825444.688027,"msg":"connected to raft peer","nodeId":1,"peerId":2,"addr":"localhost:31022"}
+{"level":"info","ts":1763825444.800389,"msg":"connected to raft peer","nodeId":1,"peerId":3,"addr":"localhost:31023"}
+{"level":"info","ts":1763825445.392191,"msg":"connected to raft peer","nodeId":2,"peerId":3,"addr":"localhost:31023"}
+{"level":"info","ts":1763825446.182657,"msg":"connected to raft peer","nodeId":1,"peerId":2,"addr":"localhost:31032"}
+{"level":"info","ts":1763825447.474837,"msg":"connected to raft peer","nodeId":1,"peerId":2,"addr":"localhost:31042"}
+FAIL
+coverage: 75.6% of statements
+FAIL	github.com/gstreamio/streambus/pkg/consensus	24.838s
+ok  	github.com/gstreamio/streambus/pkg/consumer/group	1.299s	coverage: 77.2% of statements
+ok  	github.com/gstreamio/streambus/pkg/errors	0.358s	coverage: 97.5% of statements
+ok  	github.com/gstreamio/streambus/pkg/health	1.058s	coverage: 91.4% of statements
+ok  	github.com/gstreamio/streambus/pkg/logger	0.646s	coverage: 86.1% of statements
+ok  	github.com/gstreamio/streambus/pkg/logging	0.952s	coverage: 92.9% of statements
+ok  	github.com/gstreamio/streambus/pkg/metadata	15.924s	coverage: 76.7% of statements
+ok  	github.com/gstreamio/streambus/pkg/metrics	0.507s	coverage: 94.7% of statements
+ok  	github.com/gstreamio/streambus/pkg/profiling	1.442s	coverage: 91.3% of statements
+ok  	github.com/gstreamio/streambus/pkg/protocol	1.270s	coverage: 93.7% of statements
+ok  	github.com/gstreamio/streambus/pkg/replication	2.453s	coverage: 86.8% of statements
+ok  	github.com/gstreamio/streambus/pkg/replication/link	1.076s	coverage: 65.5% of statements
+ok  	github.com/gstreamio/streambus/pkg/resilience	2.039s	coverage: 91.5% of statements
+ok  	github.com/gstreamio/streambus/pkg/schema	1.694s	coverage: 78.6% of statements
+ok  	github.com/gstreamio/streambus/pkg/security	2.034s	coverage: 88.9% of statements
+ok  	github.com/gstreamio/streambus/pkg/server	3.205s	coverage: 72.7% of statements
+ok  	github.com/gstreamio/streambus/pkg/storage	2.917s	coverage: 81.5% of statements
+ok  	github.com/gstreamio/streambus/pkg/tenancy	1.712s	coverage: 90.8% of statements
+ok  	github.com/gstreamio/streambus/pkg/timeout	3.060s	coverage: 96.7% of statements
+ok  	github.com/gstreamio/streambus/pkg/tracing	1.119s	coverage: 83.0% of statements
+ok  	github.com/gstreamio/streambus/pkg/transaction	1.445s	coverage: 76.5% of statements
+FAIL

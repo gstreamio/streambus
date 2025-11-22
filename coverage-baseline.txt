@@ -1,0 +1,77 @@
+[0;34m[INFO][0m StreamBus Test Coverage Analysis
+[0;34m[INFO][0m Package: ./...
+[0;34m[INFO][0m Target: 85.0%
+
+[0;34m[INFO][0m Running tests with coverage...
+	github.com/gstreamio/streambus/cmd/broker		coverage: 0.0% of statements
+	github.com/gstreamio/streambus/cmd/cli		coverage: 0.0% of statements
+	github.com/gstreamio/streambus/cmd/mirror-maker		coverage: 0.0% of statements
+	github.com/gstreamio/streambus/deploy/kubernetes/operator		coverage: 0.0% of statements
+	github.com/gstreamio/streambus/deploy/kubernetes/operator/api/v1alpha1		coverage: 0.0% of statements
+	github.com/gstreamio/streambus/deploy/kubernetes/operator/controllers		coverage: 0.0% of statements
+	github.com/gstreamio/streambus/examples/consumer		coverage: 0.0% of statements
+	github.com/gstreamio/streambus/examples/consumer-group		coverage: 0.0% of statements
+	github.com/gstreamio/streambus/examples/metadata		coverage: 0.0% of statements
+	github.com/gstreamio/streambus/examples/observability		coverage: 0.0% of statements
+	github.com/gstreamio/streambus/examples/producer		coverage: 0.0% of statements
+	github.com/gstreamio/streambus/examples/schema-registry		coverage: 0.0% of statements
+	github.com/gstreamio/streambus/examples/secure-client		coverage: 0.0% of statements
+	github.com/gstreamio/streambus/examples/security		coverage: 0.0% of statements
+	github.com/gstreamio/streambus/examples/tracing		coverage: 0.0% of statements
+	github.com/gstreamio/streambus/examples/transactions		coverage: 0.0% of statements
+ok  	github.com/gstreamio/streambus/pkg/broker	10.271s	coverage: 34.2% of statements
+ok  	github.com/gstreamio/streambus/pkg/client	7.392s	coverage: 78.5% of statements
+2025/11/22 14:23:24 [ClusterCoordinator] Created assignment: 3 partitions across 3 brokers
+2025/11/22 14:23:24 [ClusterCoordinator] Created assignment: 4 partitions across 2 brokers
+2025/11/22 14:23:24 [ClusterCoordinator] Starting rebalance...
+2025/11/22 14:23:24 [ClusterCoordinator] Rebalance complete in 2.708µs: 4 partitions, 2 brokers, imbalance=0, min=2, max=2
+2025/11/22 14:23:24 [ClusterCoordinator] Started with strategy: Sticky
+2025/11/22 14:23:24 [ClusterCoordinator] Created assignment: 2 partitions across 2 brokers
+2025/11/22 14:23:24 [ClusterCoordinator] Broker 3 added, triggering rebalance
+2025/11/22 14:23:24 [ClusterCoordinator] Starting rebalance...
+2025/11/22 14:23:24 [ClusterCoordinator] Broker 2 added, triggering rebalance
+2025/11/22 14:23:24 [ClusterCoordinator] Rebalance complete in 111.042µs: 2 partitions, 2 brokers, imbalance=0, min=1, max=1
+2025/11/22 14:23:24 [ClusterCoordinator] Rebalance failed after broker add: rebalance already in progress
+2025/11/22 14:23:24 [ClusterCoordinator] Broker 1 added, triggering rebalance
+2025/11/22 14:23:24 [ClusterCoordinator] Starting rebalance...
+2025/11/22 14:23:24 [ClusterCoordinator] Rebalance complete in 22.458µs: 2 partitions, 2 brokers, imbalance=0, min=1, max=1
+2025/11/22 14:23:24 [ClusterCoordinator] Created assignment: 2 partitions across 3 brokers
+2025/11/22 14:23:24 [ClusterCoordinator] Starting rebalance...
+2025/11/22 14:23:24 [ClusterCoordinator] Rebalance complete in 24µs: 2 partitions, 2 brokers, imbalance=0, min=1, max=1
+2025/11/22 14:23:24 [ClusterCoordinator] Starting rebalance...
+2025/11/22 14:23:24 [ClusterCoordinator] Rebalance complete in 4.5µs: 2 partitions, 2 brokers, imbalance=0, min=1, max=1
+--- FAIL: TestClusterCoordinator_ConcurrentRebalance (0.00s)
+    coordinator_test.go:290: Both rebalances succeeded, expected one to fail due to concurrent access
+2025/11/22 14:23:25 [Heartbeat 1] Failed to send heartbeat: heartbeat timeout after 5s
+FAIL
+coverage: 80.5% of statements
+FAIL	github.com/gstreamio/streambus/pkg/cluster	1.593s
+ok  	github.com/gstreamio/streambus/pkg/consensus	6.532s	coverage: 64.0% of statements
+ok  	github.com/gstreamio/streambus/pkg/consumer/group	1.476s	coverage: 77.2% of statements
+ok  	github.com/gstreamio/streambus/pkg/errors	1.750s	coverage: 97.5% of statements
+ok  	github.com/gstreamio/streambus/pkg/health	1.077s	coverage: 91.4% of statements
+ok  	github.com/gstreamio/streambus/pkg/logger	1.437s	coverage: 86.1% of statements
+ok  	github.com/gstreamio/streambus/pkg/logging	1.898s	coverage: 92.9% of statements
+ok  	github.com/gstreamio/streambus/pkg/metadata	1.290s	coverage: 71.0% of statements
+ok  	github.com/gstreamio/streambus/pkg/metrics	1.128s	coverage: 94.7% of statements
+ok  	github.com/gstreamio/streambus/pkg/profiling	1.909s	coverage: 91.3% of statements
+ok  	github.com/gstreamio/streambus/pkg/protocol	2.039s	coverage: 93.7% of statements
+ok  	github.com/gstreamio/streambus/pkg/replication	1.841s	coverage: 86.8% of statements
+ok  	github.com/gstreamio/streambus/pkg/replication/link	2.196s	coverage: 65.5% of statements
+ok  	github.com/gstreamio/streambus/pkg/resilience	2.861s	coverage: 91.5% of statements
+ok  	github.com/gstreamio/streambus/pkg/schema	1.332s	coverage: 78.6% of statements
+ok  	github.com/gstreamio/streambus/pkg/security	2.648s	coverage: 88.9% of statements
+ok  	github.com/gstreamio/streambus/pkg/server	2.897s	coverage: 72.7% of statements
+ok  	github.com/gstreamio/streambus/pkg/storage	2.851s	coverage: 81.5% of statements
+ok  	github.com/gstreamio/streambus/pkg/tenancy	1.738s	coverage: 90.8% of statements
+ok  	github.com/gstreamio/streambus/pkg/timeout	3.117s	coverage: 96.7% of statements
+ok  	github.com/gstreamio/streambus/pkg/tracing	1.097s	coverage: 83.0% of statements
+ok  	github.com/gstreamio/streambus/pkg/transaction	1.738s	coverage: 76.5% of statements
+	github.com/gstreamio/streambus/scripts		coverage: 0.0% of statements
+ok  	github.com/gstreamio/streambus/test/integration	1.571s	coverage: [no statements]
+ok  	github.com/gstreamio/streambus/tests/chaos	1.397s	coverage: 0.0% of statements
+ok  	github.com/gstreamio/streambus/tests/integration	1.612s	coverage: [no statements]
+	github.com/gstreamio/streambus/tests/load		coverage: 0.0% of statements
+	github.com/gstreamio/streambus/tools/loadtest		coverage: 0.0% of statements
+FAIL
+[0;31m[ERROR][0m Tests failed
