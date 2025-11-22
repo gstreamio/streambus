@@ -206,13 +206,7 @@
     }
 
     // ===== Preload Critical Resources =====
-    function preloadResource(url, type = 'script') {
-        const link = document.createElement('link');
-        link.rel = 'preload';
-        link.href = url;
-        link.as = type;
-        document.head.appendChild(link);
-    }
+
 
     // ===== Performance Monitoring =====
     if ('PerformanceObserver' in window) {
