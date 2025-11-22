@@ -33,9 +33,9 @@ deps:
 	@go mod download
 	@go mod tidy
 
-# Run integration tests (requires external broker at localhost:9092)
+# Run integration tests (requires StreamBus broker at localhost:9092)
 test-integration:
-	@echo "Running integration tests (requires broker)..."
+	@echo "Running integration tests (requires StreamBus broker)..."
 	@go test -v ./tests/integration/...
 
 .DEFAULT_GOAL := test-short

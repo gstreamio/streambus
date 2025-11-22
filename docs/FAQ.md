@@ -42,7 +42,7 @@ StreamBus eliminates these issues while maintaining Kafka's proven design princi
 - Cross-datacenter replication
 - Production-scale testing
 
-We estimate production readiness in **Q3-Q4 2025**. Follow the [Roadmap](ROADMAP.md) for updates.
+We estimate production readiness in **Q3-Q4 2025**.
 
 ### Is StreamBus compatible with Kafka?
 
@@ -90,8 +90,6 @@ All clients will use the same binary protocol.
 - Offset management
 - Group membership protocol
 
-See [Roadmap](ROADMAP.md#milestone-31-consumer-groups) for timeline.
-
 ### Does StreamBus support transactions?
 
 **Not yet.** Transactions are planned for Phase 3 (Q1-Q2 2025). The implementation will include:
@@ -99,8 +97,6 @@ See [Roadmap](ROADMAP.md#milestone-31-consumer-groups) for timeline.
 - Atomic writes across partitions
 - Exactly-once semantics
 - Read committed isolation
-
-See [Roadmap](ROADMAP.md#milestone-32-transactions) for timeline.
 
 ### How does replication work?
 
@@ -353,8 +349,6 @@ Check [Issues](https://github.com/shawntherrien/streambus/issues?q=is%3Aissue+is
 - Minor releases: Monthly
 - Patch releases: As needed
 - Major releases: Quarterly
-
-See [Roadmap](ROADMAP.md) for planned release schedule.
 
 ---
 

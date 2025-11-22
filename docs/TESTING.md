@@ -4,8 +4,6 @@ This document describes the comprehensive testing strategy for StreamBus, includ
 
 **Current Status**: 61.4% overall coverage (87% in tested packages) | 550+ tests passing
 
-📋 **See [TESTING_ROADMAP.md](TESTING_ROADMAP.md) for the comprehensive plan to improve coverage to 90%+**
-
 ## Table of Contents
 
 - [Testing Philosophy](#testing-philosophy)
@@ -26,6 +24,23 @@ StreamBus follows a multi-layered testing approach to ensure reliability, perfor
 3. **Chaos Tests**: Resilience testing with fault injection
 4. **Performance Tests**: Benchmarks and load tests
 5. **Security Tests**: Static analysis and vulnerability scanning
+
+### ⚠️ CRITICAL RULE: No Kafka Dependencies
+
+**StreamBus tests MUST NEVER depend on Apache Kafka software or competitor messaging systems.**
+
+- ✅ **DO**: Use StreamBus broker for all integration and chaos tests
+- ✅ **DO**: Run StreamBus broker on port 9092 (Kafka-compatible drop-in replacement)
+- ✅ **DO**: Use StreamBus client libraries exclusively
+- ❌ **DON'T**: Import Kafka client libraries (`kafka-go`, `sarama`, etc.) in test code
+- ❌ **DON'T**: Run tests against actual Kafka broker instances
+- ❌ **DON'T**: Depend on Kafka binaries or Docker images
+
+**Why?** StreamBus is a **drop-in replacement** for Apache Kafka. Tests use port 9092 for Kafka compatibility, but MUST connect to StreamBus broker (not Kafka). This ensures:
+- Tests validate StreamBus implementation, not Kafka's
+- No dependencies on competitor software
+- Validates the drop-in replacement experience
+- Tests reflect real-world migration scenarios from Kafka to StreamBus
 
 ### Coverage Targets
 
@@ -100,6 +115,7 @@ func TestE2E_ProducerConsumerLifecycle(t *testing.T) {
         t.Skip("Skipping integration test in short mode")
     }
 
+    // Connect to StreamBus broker (Kafka-compatible port)
     brokers := []string{"localhost:9092"}
     topic := fmt.Sprintf("test-%d", time.Now().Unix())
 
@@ -619,10 +635,10 @@ gow test -v ./...
 
 **Integration tests fail with "connection refused"**:
 ```bash
-# Start broker first
+# Start StreamBus broker first (runs on Kafka-compatible port 9092)
 make run-broker
 
-# Or check if already running
+# Or check if StreamBus broker is already running
 lsof -i :9092
 ```
 
@@ -662,17 +678,7 @@ go test -race ./...
 
 ## Coverage Improvement Roadmap
 
-StreamBus v1.0.0 ships with **61.4% overall coverage** (87% in tested packages), which provides solid production-ready quality. For a detailed plan to improve coverage to 90%+ in future releases, see:
-
-📋 **[TESTING_ROADMAP.md](TESTING_ROADMAP.md)** - Comprehensive testing improvement roadmap
-
-The roadmap includes:
-- Package-by-package coverage analysis and priorities
-- Build failures and test failures to fix
-- Implementation strategy across 5 phases
-- Coverage goals by version (v1.1.0: 80%, v1.2.0: 90%, v1.3.0: 95%)
-- Resource estimates and success criteria
-- Testing infrastructure improvements
+StreamBus v1.0.0 ships with **61.4% overall coverage** (87% in tested packages), which provides solid production-ready quality with a plan to improve coverage to 90%+ in future releases.
 
 ## Summary
 
@@ -685,4 +691,4 @@ StreamBus employs a comprehensive testing strategy with:
 - **Performance benchmarks** for regression detection
 - **Security scanning** with Gosec and CodeQL
 
-StreamBus v1.0.0 is production-ready with solid test coverage. See [TESTING_ROADMAP.md](TESTING_ROADMAP.md) for the plan to achieve 90%+ coverage in future releases.
+StreamBus v1.0.0 is production-ready with solid test coverage with a roadmap to achieve 90%+ coverage in future releases.

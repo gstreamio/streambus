@@ -68,3 +68,6 @@ docker-compose.override.yml
 # Documentation build artifacts
 site/
 docs/_build/
+
+# Project planning (kept local, not checked into GitHub)
+project-plan/

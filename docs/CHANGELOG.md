@@ -235,4 +235,4 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for how to contribute to StreamBus.
 
 ---
 
-**Questions about releases?** Check the [Roadmap](ROADMAP.md) or ask in [Discussions](https://github.com/shawntherrien/streambus/discussions).
+**Questions about releases?** Ask in [Discussions](https://github.com/shawntherrien/streambus/discussions).

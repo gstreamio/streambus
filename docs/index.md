@@ -45,7 +45,6 @@ StreamBus is a high-performance, distributed streaming platform designed for mod
 - [Contributing Guide](../CONTRIBUTING.md) - How to contribute
 - [Architecture](ARCHITECTURE.md) - System design
 - [Testing Guide](TESTING.md) - Test strategy
-- [Roadmap](ROADMAP.md) - Future plans
 
 ## Key Features
 
@@ -116,8 +115,6 @@ StreamBus has completed core distributed system features and enterprise capabili
 - Cross-datacenter replication
 - Kubernetes operator
 - Extended test coverage
-
-See the [Roadmap](ROADMAP.md) for detailed plans.
 
 ## Getting Help
 

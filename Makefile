@@ -187,7 +187,22 @@ loadtest-stress: ## Run stress test with high load
 	@echo "Running stress test..."
 	@./scripts/run-benchmarks.sh --duration 120s --stress
 
-ci: test-unit lint ## Run CI checks (unit tests + lint)
+check-kafka-deps: ## Check for prohibited Kafka software dependencies in tests
+	@echo "Checking for Kafka software dependencies..."
+	@if grep -rn "github.com/segmentio/kafka-go\|github.com/IBM/sarama\|github.com/confluentinc/confluent-kafka-go" tests/ 2>/dev/null; then \
+		echo "❌ ERROR: Found Kafka client library imports in tests."; \
+		echo "   StreamBus tests must use StreamBus client libraries only."; \
+		exit 1; \
+	fi
+	@if grep -rn "docker.*kafka\|kafkacat\|kafka-topics\|kafka-console" tests/ 2>/dev/null | grep -v "README\|\.md"; then \
+		echo "❌ ERROR: Found Kafka binary/tool references in tests."; \
+		echo "   Tests must use StreamBus broker, not Kafka software."; \
+		exit 1; \
+	fi
+	@echo "✅ No Kafka software dependencies found"
+	@echo "   (Port 9092 is OK - StreamBus is Kafka-compatible drop-in replacement)"
+
+ci: check-kafka-deps test-unit lint ## Run CI checks (Kafka check + unit tests + lint)
 	@echo "CI checks passed!"
 
 ci-full: clean test-all lint benchmark ## Run full CI suite

@@ -67,7 +67,6 @@ Contributing to StreamBus:
 
 ### Project Information
 
-- **[Roadmap](ROADMAP.md)** - Feature timeline and priorities
 - **[Changelog](CHANGELOG.md)** - Version history and changes
 - **[FAQ](FAQ.md)** - Frequently asked questions
 - **[Production Readiness](PRODUCTION_READINESS.md)** - Production readiness checklist
@@ -114,8 +113,6 @@ Contributing to StreamBus:
 - Kubernetes operator
 - Extended test coverage (current: 56.1%, target: 90%+)
 
-See [ROADMAP.md](ROADMAP.md) for the complete roadmap.
-
 ## 🆘 Getting Help
 
 - **Questions**: [GitHub Discussions](https://github.com/gstreamio/streambus/discussions)
@@ -132,11 +129,6 @@ Throughout the documentation, you'll see these markers:
 - 📅 **Planned** - Feature is on the roadmap
 - ⚠️ **Experimental** - Feature is experimental and may change
 - 🚫 **Deprecated** - Feature is deprecated and will be removed
-
-## 🗂️ Archive & Planning
-
-- **[Archive](archive/)** - Historical milestone reports and session summaries
-- **[Planning](planning/)** - Internal project planning documents
 
 ---
 

@@ -426,7 +426,6 @@ docker-compose up -d
 - [Contributing Guide](CONTRIBUTING.md) - How to contribute
 - [Development Setup](docs/development.md) - Local development environment
 - [Testing Guide](docs/TESTING.md) - Test strategy and coverage (56.1% current, 90%+ target)
-- [Testing Roadmap](docs/TESTING_ROADMAP.md) - Comprehensive plan to improve test coverage
 - [Benchmarking](docs/BENCHMARKS.md) - Performance benchmarks and methodology
 
 ---
@@ -466,8 +465,6 @@ StreamBus is currently in **active development** with production-ready core comp
 - Kubernetes operator
 - Additional admin tooling
 - Extended test coverage (current: 56.1%, target: 90%+)
-
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the complete roadmap.
 
 ---
 
@@ -575,7 +572,7 @@ StreamBus has completed core distributed system features, advanced streaming cap
 - Extended test coverage and validation
 - Production hardening and documentation
 
-**Interested in contributing or testing?** Check out our [Contributing Guide](CONTRIBUTING.md) and [Roadmap](docs/ROADMAP.md).
+**Interested in contributing or testing?** Check out our [Contributing Guide](CONTRIBUTING.md).
 
 ---
 
