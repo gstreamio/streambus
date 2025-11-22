@@ -8,18 +8,44 @@ import (
 	"time"
 )
 
+// Logger defines the interface for FSM logging
+type Logger interface {
+	Printf(format string, v ...interface{})
+}
+
+// stdLogger implements Logger using the standard log package
+type stdLogger struct{}
+
+func (l *stdLogger) Printf(format string, v ...interface{}) {
+	log.Printf(format, v...)
+}
+
+// NoOpLogger implements Logger but does nothing (for testing)
+type NoOpLogger struct{}
+
+func (l *NoOpLogger) Printf(format string, v ...interface{}) {}
+
 // FSM implements the Finite State Machine for cluster metadata.
 // It applies operations to the metadata state and supports snapshots.
 type FSM struct {
-	mu    sync.RWMutex
-	state *ClusterMetadata
+	mu     sync.RWMutex
+	state  *ClusterMetadata
+	logger Logger
 }
 
 // NewFSM creates a new metadata FSM.
 func NewFSM() *FSM {
 	return &FSM{
-		state: NewClusterMetadata(),
+		state:  NewClusterMetadata(),
+		logger: &stdLogger{},
 	}
+}
+
+// SetLogger sets the logger for the FSM
+func (f *FSM) SetLogger(l Logger) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.logger = l
 }
 
 // Apply applies a committed log entry to the state machine.
@@ -31,7 +57,7 @@ func (f *FSM) Apply(data []byte) error {
 		return fmt.Errorf("failed to decode operation: %w", err)
 	}
 
-	log.Printf("[FSM] Applying operation: type=%s, timestamp=%v", op.Type, op.Timestamp)
+	f.logger.Printf("[FSM] Applying operation: type=%s, timestamp=%v", op.Type, op.Timestamp)
 
 	// Apply operation based on type
 	f.mu.Lock()
@@ -57,10 +83,10 @@ func (f *FSM) Apply(data []byte) error {
 		applyErr = f.applyUpdatePartition(op.Data)
 	case OpUpdateLeader:
 		applyErr = f.applyUpdateLeader(op.Data)
-		log.Printf("[FSM] Applied UpdateLeader operation, error=%v", applyErr)
+		f.logger.Printf("[FSM] Applied UpdateLeader operation, error=%v", applyErr)
 	case OpUpdateISR:
 		applyErr = f.applyUpdateISR(op.Data)
-		log.Printf("[FSM] Applied UpdateISR operation, error=%v", applyErr)
+		f.logger.Printf("[FSM] Applied UpdateISR operation, error=%v", applyErr)
 	case OpUpdateReplicaList:
 		applyErr = f.applyUpdateReplicaList(op.Data)
 	case OpBatchCreatePartitions:
@@ -70,10 +96,10 @@ func (f *FSM) Apply(data []byte) error {
 	}
 
 	if applyErr != nil {
-		log.Printf("[FSM] Operation failed: type=%s, error=%v", op.Type, applyErr)
+		f.logger.Printf("[FSM] Operation failed: type=%s, error=%v", op.Type, applyErr)
 	} else {
 		// Note: version is already incremented by individual operation handlers
-		log.Printf("[FSM] Operation succeeded: type=%s, new version=%d", op.Type, f.state.Version)
+		f.logger.Printf("[FSM] Operation succeeded: type=%s, new version=%d", op.Type, f.state.Version)
 	}
 
 	return applyErr

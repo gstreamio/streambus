@@ -287,6 +287,7 @@ func newTestBrokerWithMetaStore(t *testing.T) (*Broker, *metadata.Store) {
 
 	// Create FSM and mock consensus for metadata store
 	fsm := metadata.NewFSM()
+	fsm.SetLogger(&metadata.NoOpLogger{})
 	consensus := newMockConsensusNode(fsm)
 	metaStore := metadata.NewStore(fsm, consensus)
 
