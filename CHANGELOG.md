@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Kubernetes operator
 - Advanced stream processing
 
+## [1.0.1] - 2025-11-22
+
+### Fixed
+- **CI/CD**: Fixed benchmark script flag in test workflow
+- **CI/CD**: Fixed linting errors and missing dependencies
+- **Tests**: Suppressed verbose FSM logging during unit tests
+- **Documentation**: Automated test coverage badge updates (81% coverage)
+- **Documentation**: Fixed Security Policy display on GitHub
+
 ## [1.0.0] - 2025-11-10 🎉
 
 **Production Ready Release** - StreamBus achieves 100% production readiness with comprehensive performance optimization, testing, production hardening, and Kubernetes support.
