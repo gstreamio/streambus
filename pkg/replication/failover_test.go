@@ -9,10 +9,10 @@ import (
 
 // Mock metadata client for testing
 type mockMetadataClient struct {
-	mu              sync.RWMutex
-	partitionLeader map[string]ReplicaID
-	partitionEpoch  map[string]int64
-	partitionISR    map[string][]ReplicaID
+	mu                sync.RWMutex
+	partitionLeader   map[string]ReplicaID
+	partitionEpoch    map[string]int64
+	partitionISR      map[string][]ReplicaID
 	partitionReplicas map[string][]ReplicaID
 }
 
@@ -367,7 +367,7 @@ func TestFailoverCoordinator_MonitorLeadersLoop(t *testing.T) {
 	fc.checkLeaderHealth()
 
 	// Stop coordinator
-	fc.Stop()
+	_ = fc.Stop()
 
 	// Verify failover occurred - leader should have changed
 	fc.mu.RLock()
@@ -519,7 +519,7 @@ func TestFailoverCoordinator_HeartbeatLoop(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Stop coordinator
-	fc.Stop()
+	_ = fc.Stop()
 
 	// Verify heartbeat loop was running
 	// Note: The heartbeatLoop implementation may have a longer interval
@@ -597,7 +597,7 @@ func TestFailoverCoordinator_GetMetrics_ThreadSafety(t *testing.T) {
 	metadata.partitionReplicas[key] = []ReplicaID{1, 2, 3}
 
 	fc := NewFailoverCoordinator(DefaultConfig(), 1, metadata, heartbeat)
-	fc.RegisterPartition("test-topic", 0)
+	_ = fc.RegisterPartition("test-topic", 0)
 
 	// Concurrently read metrics while modifying state
 	done := make(chan bool)

@@ -558,9 +558,15 @@ func TestPartitionConsumer_GetOffsets(t *testing.T) {
 	defer pc.Close()
 
 	// Set different offsets
-	pc.SeekPartition(0, 10)
-	pc.SeekPartition(1, 20)
-	pc.SeekPartition(2, 30)
+	if err := pc.SeekPartition(0, 10); err != nil {
+		t.Fatalf("Failed to seek partition 0: %v", err)
+	}
+	if err := pc.SeekPartition(1, 20); err != nil {
+		t.Fatalf("Failed to seek partition 1: %v", err)
+	}
+	if err := pc.SeekPartition(2, 30); err != nil {
+		t.Fatalf("Failed to seek partition 2: %v", err)
+	}
 
 	// Get offsets
 	offsets := pc.GetOffsets()

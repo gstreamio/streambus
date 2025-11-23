@@ -200,7 +200,7 @@ func TestHeartbeatService_HeartbeatLoop(t *testing.T) {
 	time.Sleep(120 * time.Millisecond)
 
 	// Stop service
-	hs.Stop()
+	_ = hs.Stop()
 
 	// Verify multiple heartbeats occurred
 	metrics := hs.GetMetrics()
@@ -214,7 +214,7 @@ func TestHeartbeatService_ConcurrentAccess(t *testing.T) {
 	brokerID := int32(1)
 
 	// Register broker
-	registry.RegisterBroker(context.Background(), &BrokerMetadata{
+	_ = registry.RegisterBroker(context.Background(), &BrokerMetadata{
 		ID:   brokerID,
 		Host: "localhost",
 		Port: 9092,
@@ -224,7 +224,7 @@ func TestHeartbeatService_ConcurrentAccess(t *testing.T) {
 	hs.SetInterval(10 * time.Millisecond)
 
 	// Start service
-	hs.Start()
+	_ = hs.Start()
 
 	// Concurrently access metrics while heartbeats are running
 	var wg sync.WaitGroup
@@ -240,7 +240,7 @@ func TestHeartbeatService_ConcurrentAccess(t *testing.T) {
 	}
 
 	wg.Wait()
-	hs.Stop()
+	_ = hs.Stop()
 
 	// Should not panic or race
 }
@@ -330,7 +330,7 @@ func TestBrokerHealthChecker_CheckAllBrokers(t *testing.T) {
 		// Update broker status to Alive (RegisterBroker sets new brokers to Starting)
 		broker, _ := registry.GetBroker(i)
 		broker.Status = BrokerStatusAlive
-		registry.RegisterBroker(context.Background(), broker)
+		_ = registry.RegisterBroker(context.Background(), broker)
 	}
 
 	bhc := NewBrokerHealthChecker(registry)
@@ -368,7 +368,7 @@ func TestBrokerHealthChecker_NoHealthCheckFunction(t *testing.T) {
 	registry := NewBrokerRegistry(newMockMetadataStore())
 
 	// Register broker
-	registry.RegisterBroker(context.Background(), &BrokerMetadata{
+	_ = registry.RegisterBroker(context.Background(), &BrokerMetadata{
 		ID:     1,
 		Host:   "localhost",
 		Port:   9092,
@@ -388,7 +388,7 @@ func TestBrokerHealthChecker_PerformHealthCheck(t *testing.T) {
 
 	// Register broker
 	brokerID := int32(1)
-	registry.RegisterBroker(context.Background(), &BrokerMetadata{
+	_ = registry.RegisterBroker(context.Background(), &BrokerMetadata{
 		ID:     brokerID,
 		Host:   "localhost",
 		Port:   9092,
@@ -426,7 +426,7 @@ func TestBrokerHealthChecker_HealthCheckLoop(t *testing.T) {
 
 	// Register brokers
 	for i := int32(1); i <= 2; i++ {
-		registry.RegisterBroker(context.Background(), &BrokerMetadata{
+		_ = registry.RegisterBroker(context.Background(), &BrokerMetadata{
 			ID:     i,
 			Host:   "localhost",
 			Port:   9090 + int(i),
@@ -449,13 +449,13 @@ func TestBrokerHealthChecker_HealthCheckLoop(t *testing.T) {
 	})
 
 	// Start health checker
-	bhc.Start()
+	_ = bhc.Start()
 
 	// Wait for multiple check cycles
 	time.Sleep(150 * time.Millisecond)
 
 	// Stop checker
-	bhc.Stop()
+	_ = bhc.Stop()
 
 	// Verify checks occurred
 	mu.Lock()
@@ -471,7 +471,7 @@ func TestBrokerHealthChecker_Timeout(t *testing.T) {
 
 	// Register broker
 	brokerID := int32(1)
-	registry.RegisterBroker(context.Background(), &BrokerMetadata{
+	_ = registry.RegisterBroker(context.Background(), &BrokerMetadata{
 		ID:     brokerID,
 		Host:   "localhost",
 		Port:   9092,
@@ -502,7 +502,7 @@ func TestHeartbeatService_Timeout(t *testing.T) {
 	brokerID := int32(1)
 
 	// Register broker
-	registry.RegisterBroker(context.Background(), &BrokerMetadata{
+	_ = registry.RegisterBroker(context.Background(), &BrokerMetadata{
 		ID:   brokerID,
 		Host: "localhost",
 		Port: 9092,

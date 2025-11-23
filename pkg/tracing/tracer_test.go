@@ -186,13 +186,13 @@ func TestConvertAttributes(t *testing.T) {
 		{
 			name: "mixed attributes",
 			attrs: map[string]interface{}{
-				"str":    "value",
-				"int":    123,
-				"int64":  int64(456),
-				"float":  3.14,
-				"bool":   true,
-				"slice":  []string{"x", "y"},
-				"other":  struct{ Name string }{Name: "test"},
+				"str":   "value",
+				"int":   123,
+				"int64": int64(456),
+				"float": 3.14,
+				"bool":  true,
+				"slice": []string{"x", "y"},
+				"other": struct{ Name string }{Name: "test"},
 			},
 		},
 	}
@@ -332,7 +332,7 @@ func TestNew_JaegerExporter_MissingEndpoint(t *testing.T) {
 			SamplingRate: 1.0,
 		},
 		Exporter: ExporterConfig{
-			Type: ExporterTypeJaeger,
+			Type:   ExporterTypeJaeger,
 			Jaeger: JaegerConfig{
 				// No collector or agent endpoint
 			},
@@ -387,7 +387,7 @@ func TestTracer_Start_Disabled(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	ctx, span := tracer.Start(ctx, "test-span")
+	_, span := tracer.Start(ctx, "test-span")
 
 	if span == nil {
 		t.Error("Expected non-nil span (even if no-op)")
@@ -413,12 +413,12 @@ func TestTracer_StartWithAttributes_Enabled(t *testing.T) {
 
 	ctx := context.Background()
 	attrs := map[string]interface{}{
-		"user.id":   "12345",
+		"user.id":       "12345",
 		"request.count": 10,
-		"success":   true,
+		"success":       true,
 	}
 
-	ctx, span := tracer.StartWithAttributes(ctx, "test-span", attrs)
+	_, span := tracer.StartWithAttributes(ctx, "test-span", attrs)
 	defer span.End()
 
 	if span == nil {
@@ -661,7 +661,7 @@ func TestHTTPMiddleware_Enabled(t *testing.T) {
 	// Create a test handler
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	})
 
 	// Wrap with middleware
@@ -700,7 +700,7 @@ func TestHTTPMiddleware_EnabledWithError(t *testing.T) {
 	// Create a test handler that returns an error
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("Error"))
+		_, _ = w.Write([]byte("Error"))
 	})
 
 	// Wrap with middleware

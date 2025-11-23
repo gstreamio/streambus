@@ -13,7 +13,7 @@ func TestNewStreamHandler(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	if handler == nil {
 		t.Fatal("Expected non-nil handler")
@@ -66,7 +66,7 @@ func TestNewStreamHandler_WithFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler with filter failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Verify filter patterns were compiled
 	if len(handler.filterPatterns.include) != 2 {
@@ -119,7 +119,7 @@ func TestStreamHandler_GetTopicsToReplicate_SpecificTopics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	topics, err := handler.getTopicsToReplicate()
 	if err != nil {
@@ -151,7 +151,7 @@ func TestStreamHandler_StartTopicReplication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Start replication for a topic
 	err = handler.startTopicReplication("test-topic")
@@ -186,7 +186,7 @@ func TestStreamHandler_StartTopicReplication_WithCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Save a checkpoint first
 	checkpoint := &Checkpoint{
@@ -230,7 +230,7 @@ func TestPartitionWorker_SaveCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Start replication to create a worker
 	err = handler.startTopicReplication("test-topic")
@@ -271,7 +271,7 @@ func TestPartitionWorker_SaveCheckpoint_NoStorage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Start replication to create a worker
 	err = handler.startTopicReplication("test-topic")
@@ -295,7 +295,7 @@ func TestStreamHandler_PerformHealthCheck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Perform health check
 	handler.performHealthCheck()
@@ -322,7 +322,7 @@ func TestStreamHandler_PerformHealthCheck_HighReplicationLag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Set high replication lag
 	handler.metrics.ReplicationLag = 120000 // 120 seconds
@@ -352,7 +352,7 @@ func TestStreamHandler_PerformHealthCheck_HighErrorRate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Set high error rate
 	handler.metrics.ErrorsPerSecond = 15.0
@@ -378,7 +378,7 @@ func TestStreamHandler_PerformHealthCheck_NoRecentCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Set old checkpoint time
 	handler.metrics.LastCheckpoint = time.Now().Add(-10 * time.Minute)
@@ -410,7 +410,7 @@ func TestStreamHandler_CompileFilterPatterns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Patterns should already be compiled during NewStreamHandler
 	if len(handler.filterPatterns.include) == 0 {
@@ -432,7 +432,7 @@ func TestStreamHandler_CompileFilterPatterns_NoFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Should not error with no filter
 	err = handler.compileFilterPatterns()
@@ -451,7 +451,7 @@ func TestStreamHandler_ShouldFilterMessage_NoFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Should not filter when no filter is configured
 	filtered := handler.shouldFilterMessage(
@@ -483,7 +483,7 @@ func TestStreamHandler_ShouldFilterMessage_TimestampFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Message within range should not be filtered
 	filtered := handler.shouldFilterMessage(
@@ -537,7 +537,7 @@ func TestStreamHandler_ShouldFilterMessage_IncludePattern(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Message matching include pattern should not be filtered
 	filtered := handler.shouldFilterMessage(
@@ -577,7 +577,7 @@ func TestStreamHandler_ShouldFilterMessage_ExcludePattern(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Message matching exclude pattern should be filtered
 	filtered := handler.shouldFilterMessage(
@@ -619,7 +619,7 @@ func TestStreamHandler_ShouldFilterMessage_HeaderFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Message with matching header should not be filtered
 	headers := map[string][]byte{
@@ -672,7 +672,7 @@ func TestPartitionWorker_ReplicateBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Start replication to create a worker
 	err = handler.startTopicReplication("test-topic")
