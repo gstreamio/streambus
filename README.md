@@ -2,8 +2,6 @@
 
 <div align="center">
 
-<img src="pages/images/logo.png" width="200" alt="StreamBus Logo">
-
 **A next-generation distributed streaming platform built for performance, reliability, and operational simplicity**
 
 [![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://golang.org)
