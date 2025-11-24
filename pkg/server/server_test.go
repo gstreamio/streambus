@@ -502,6 +502,47 @@ func TestServer_Stats(t *testing.T) {
 	}
 }
 
+func TestServer_Listener(t *testing.T) {
+	config := DefaultConfig()
+	config.Address = ":0"
+
+	handler := NewHandler()
+	server, err := New(config, handler)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	// Before starting, listener should be nil
+	listener := server.Listener()
+	if listener != nil {
+		t.Error("Expected nil listener before Start()")
+	}
+
+	err = server.Start()
+	if err != nil {
+		t.Fatalf("Failed to start server: %v", err)
+	}
+	defer func() { _ = server.Stop() }()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// After starting, listener should be available
+	listener = server.Listener()
+	if listener == nil {
+		t.Fatal("Expected non-nil listener after Start()")
+	}
+
+	// Verify listener address
+	addr := listener.Addr()
+	if addr == nil {
+		t.Error("Expected non-nil address from listener")
+	}
+
+	if addr.Network() != "tcp" {
+		t.Errorf("Expected tcp network, got %s", addr.Network())
+	}
+}
+
 // Benchmark
 
 func BenchmarkServer_HealthCheck(b *testing.B) {

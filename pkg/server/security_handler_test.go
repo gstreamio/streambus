@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -438,4 +439,232 @@ func TestSecurityHandler_GetStats(t *testing.T) {
 	if stats["requests_handled"] != 1 {
 		t.Errorf("requests_handled = %d, want 1", stats["requests_handled"])
 	}
+}
+
+func TestSecurityHandler_authenticationFailedResponse(t *testing.T) {
+	sh := &SecurityHandler{}
+
+	err := fmt.Errorf("invalid credentials")
+	resp := sh.authenticationFailedResponse(123, err)
+
+	if resp.Header.RequestID != 123 {
+		t.Errorf("RequestID = %d, want 123", resp.Header.RequestID)
+	}
+
+	if resp.Header.Status != protocol.StatusError {
+		t.Errorf("Status = %v, want StatusError", resp.Header.Status)
+	}
+
+	if resp.Header.ErrorCode != protocol.ErrAuthenticationFailed {
+		t.Errorf("ErrorCode = %v, want ErrAuthenticationFailed", resp.Header.ErrorCode)
+	}
+
+	errorResp := resp.Payload.(*protocol.ErrorResponse)
+	if errorResp.ErrorCode != protocol.ErrAuthenticationFailed {
+		t.Errorf("Payload ErrorCode = %v, want ErrAuthenticationFailed", errorResp.ErrorCode)
+	}
+
+	if errorResp.Message == "" {
+		t.Error("Expected error message in response")
+	}
+
+	// Verify the error message contains the original error
+	if !containsString(errorResp.Message, "invalid credentials") {
+		t.Errorf("Expected message to contain 'invalid credentials', got: %s", errorResp.Message)
+	}
+}
+
+func TestSecurityHandler_authorizationDeniedResponse(t *testing.T) {
+	sh := &SecurityHandler{}
+
+	principal := &security.Principal{
+		ID:   "test-user",
+		Type: security.PrincipalTypeUser,
+	}
+
+	action := security.ActionTopicWrite
+	resource := security.Resource{
+		Type:        security.ResourceTypeTopic,
+		Name:        "restricted-topic",
+		PatternType: security.PatternTypeLiteral,
+	}
+
+	resp := sh.authorizationDeniedResponse(456, principal, action, resource)
+
+	if resp.Header.RequestID != 456 {
+		t.Errorf("RequestID = %d, want 456", resp.Header.RequestID)
+	}
+
+	if resp.Header.Status != protocol.StatusError {
+		t.Errorf("Status = %v, want StatusError", resp.Header.Status)
+	}
+
+	if resp.Header.ErrorCode != protocol.ErrAuthorizationFailed {
+		t.Errorf("ErrorCode = %v, want ErrAuthorizationFailed", resp.Header.ErrorCode)
+	}
+
+	errorResp := resp.Payload.(*protocol.ErrorResponse)
+	if errorResp.ErrorCode != protocol.ErrAuthorizationFailed {
+		t.Errorf("Payload ErrorCode = %v, want ErrAuthorizationFailed", errorResp.ErrorCode)
+	}
+
+	if errorResp.Message == "" {
+		t.Error("Expected error message in response")
+	}
+
+	// Verify message contains principal, action, and resource details
+	expectedSubstrings := []string{"test-user", "restricted-topic"}
+	for _, substr := range expectedSubstrings {
+		if !containsString(errorResp.Message, substr) {
+			t.Errorf("Expected message to contain '%s', got: %s", substr, errorResp.Message)
+		}
+	}
+
+	// Check for action (could be formatted as TOPIC_WRITE or TopicWrite)
+	if !containsString(errorResp.Message, "TOPIC_WRITE") && !containsString(errorResp.Message, "TopicWrite") {
+		t.Errorf("Expected message to contain action, got: %s", errorResp.Message)
+	}
+}
+
+func TestSecurityHandler_errorResponse(t *testing.T) {
+	sh := &SecurityHandler{}
+
+	resp := sh.errorResponse(789, protocol.ErrStorageError, "test error message")
+
+	if resp.Header.RequestID != 789 {
+		t.Errorf("RequestID = %d, want 789", resp.Header.RequestID)
+	}
+
+	if resp.Header.Status != protocol.StatusError {
+		t.Errorf("Status = %v, want StatusError", resp.Header.Status)
+	}
+
+	if resp.Header.ErrorCode != protocol.ErrStorageError {
+		t.Errorf("ErrorCode = %v, want ErrStorageError", resp.Header.ErrorCode)
+	}
+
+	errorResp := resp.Payload.(*protocol.ErrorResponse)
+	if errorResp.ErrorCode != protocol.ErrStorageError {
+		t.Errorf("Payload ErrorCode = %v, want ErrStorageError", errorResp.ErrorCode)
+	}
+
+	if errorResp.Message != "test error message" {
+		t.Errorf("Message = %s, want 'test error message'", errorResp.Message)
+	}
+}
+
+func TestSecurityHandler_Handle_WithAuthorizationDenied(t *testing.T) {
+	// Create security manager with authorization enabled but deny all
+	secMgr, err := security.NewManager(&security.SecurityConfig{
+		AuthzEnabled: true,
+		// No ACLs configured, so authorization will be denied by default
+	}, newTestLogger())
+	if err != nil {
+		t.Fatalf("Failed to create security manager: %v", err)
+	}
+
+	baseHandler := &mockHandler{
+		handleFunc: func(req *protocol.Request) *protocol.Response {
+			t.Error("Base handler should not be called when authorization is denied")
+			return &protocol.Response{
+				Header: protocol.ResponseHeader{
+					RequestID: req.Header.RequestID,
+					Status:    protocol.StatusOK,
+				},
+			}
+		},
+	}
+
+	sh := NewSecurityHandler(baseHandler, secMgr, true)
+
+	req := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 999,
+			Type:      protocol.RequestTypeProduce,
+		},
+		Payload: &protocol.ProduceRequest{
+			Topic: "test-topic",
+		},
+	}
+
+	resp := sh.Handle(req)
+
+	if resp.Header.Status != protocol.StatusError {
+		t.Errorf("Expected error status for denied authorization, got %v", resp.Header.Status)
+	}
+
+	if resp.Header.ErrorCode != protocol.ErrAuthorizationFailed {
+		t.Errorf("Expected ErrAuthorizationFailed, got %v", resp.Header.ErrorCode)
+	}
+
+	stats := sh.GetStats()
+	if stats["authz_denials"] != 1 {
+		t.Errorf("authz_denials = %d, want 1", stats["authz_denials"])
+	}
+}
+
+func TestSecurityHandler_Handle_WithAuditEnabled(t *testing.T) {
+	// Create security manager with audit enabled
+	secMgr, err := security.NewManager(&security.SecurityConfig{
+		AuthzEnabled:   false, // Disable authz to allow requests through
+		AuditEnabled:   true,
+		AllowAnonymous: true,
+	}, newTestLogger())
+	if err != nil {
+		t.Fatalf("Failed to create security manager: %v", err)
+	}
+
+	called := false
+	baseHandler := &mockHandler{
+		handleFunc: func(req *protocol.Request) *protocol.Response {
+			called = true
+			return &protocol.Response{
+				Header: protocol.ResponseHeader{
+					RequestID: req.Header.RequestID,
+					Status:    protocol.StatusOK,
+				},
+			}
+		},
+	}
+
+	sh := NewSecurityHandler(baseHandler, secMgr, true)
+
+	req := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 111,
+			Type:      protocol.RequestTypeProduce,
+		},
+		Payload: &protocol.ProduceRequest{
+			Topic: "test-topic",
+		},
+	}
+
+	resp := sh.Handle(req)
+
+	if !called {
+		t.Error("Base handler should have been called")
+	}
+
+	if resp.Header.Status != protocol.StatusOK {
+		t.Errorf("Expected OK status, got %v", resp.Header.Status)
+	}
+
+	// Verify audit was called (no errors should occur)
+	if resp.Header.ErrorCode != protocol.ErrNone {
+		t.Errorf("Expected no error code, got %v", resp.Header.ErrorCode)
+	}
+}
+
+// containsString checks if a string contains a substring
+func containsString(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

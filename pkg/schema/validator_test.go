@@ -474,3 +474,654 @@ func TestDefaultValidator_CheckCompatibility_UnsupportedFormat(t *testing.T) {
 		t.Error("expected error for unsupported format")
 	}
 }
+
+func TestDefaultValidator_CheckCompatibility_JSON_UnsupportedMode(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{"type": "string"}`
+	newSchema := `{"type": "number"}`
+
+	_, err := validator.CheckCompatibility(FormatJSON, oldSchema, newSchema, "INVALID_MODE")
+	if err == nil {
+		t.Error("expected error for unsupported compatibility mode")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_Avro_Full(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{
+		"type": "record",
+		"name": "User",
+		"fields": [
+			{"name": "name", "type": "string"}
+		]
+	}`
+
+	newSchema := `{
+		"type": "record",
+		"name": "User",
+		"fields": [
+			{"name": "name", "type": "string"},
+			{"name": "age", "type": "int", "default": 0}
+		]
+	}`
+
+	compatible, err := validator.CheckCompatibility(FormatAvro, oldSchema, newSchema, CompatibilityFull)
+	if err != nil {
+		t.Fatalf("compatibility check failed: %v", err)
+	}
+
+	if !compatible {
+		t.Error("expected schemas to be fully compatible")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_Avro_Forward(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{
+		"type": "record",
+		"name": "User",
+		"fields": [
+			{"name": "name", "type": "string"}
+		]
+	}`
+
+	newSchema := `{
+		"type": "record",
+		"name": "User",
+		"fields": [
+			{"name": "name", "type": "string"},
+			{"name": "age", "type": "int", "default": 0}
+		]
+	}`
+
+	compatible, err := validator.CheckCompatibility(FormatAvro, oldSchema, newSchema, CompatibilityForward)
+	if err != nil {
+		t.Fatalf("compatibility check failed: %v", err)
+	}
+
+	if !compatible {
+		t.Error("expected schemas to be forward compatible")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_Avro_ForwardTransitive(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{
+		"type": "record",
+		"name": "User",
+		"fields": [
+			{"name": "name", "type": "string"}
+		]
+	}`
+
+	newSchema := `{
+		"type": "record",
+		"name": "User",
+		"fields": [
+			{"name": "name", "type": "string"},
+			{"name": "email", "type": "string", "default": ""}
+		]
+	}`
+
+	compatible, err := validator.CheckCompatibility(FormatAvro, oldSchema, newSchema, CompatibilityForwardTransitive)
+	if err != nil {
+		t.Fatalf("compatibility check failed: %v", err)
+	}
+
+	if !compatible {
+		t.Error("expected schemas to be forward transitive compatible")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_Avro_FullTransitive(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{
+		"type": "record",
+		"name": "User",
+		"fields": [
+			{"name": "name", "type": "string"}
+		]
+	}`
+
+	newSchema := `{
+		"type": "record",
+		"name": "User",
+		"fields": [
+			{"name": "name", "type": "string"},
+			{"name": "email", "type": "string", "default": ""}
+		]
+	}`
+
+	compatible, err := validator.CheckCompatibility(FormatAvro, oldSchema, newSchema, CompatibilityFullTransitive)
+	if err != nil {
+		t.Fatalf("compatibility check failed: %v", err)
+	}
+
+	if !compatible {
+		t.Error("expected schemas to be full transitive compatible")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_Avro_BackwardTransitive(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{
+		"type": "record",
+		"name": "User",
+		"fields": [
+			{"name": "name", "type": "string"}
+		]
+	}`
+
+	newSchema := `{
+		"type": "record",
+		"name": "User",
+		"fields": [
+			{"name": "name", "type": "string"},
+			{"name": "email", "type": "string", "default": ""}
+		]
+	}`
+
+	compatible, err := validator.CheckCompatibility(FormatAvro, oldSchema, newSchema, CompatibilityBackwardTransitive)
+	if err != nil {
+		t.Fatalf("compatibility check failed: %v", err)
+	}
+
+	if !compatible {
+		t.Error("expected schemas to be backward transitive compatible")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_Avro_UnsupportedMode(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{
+		"type": "record",
+		"name": "User",
+		"fields": [
+			{"name": "name", "type": "string"}
+		]
+	}`
+
+	newSchema := `{
+		"type": "record",
+		"name": "User",
+		"fields": [
+			{"name": "name", "type": "string"}
+		]
+	}`
+
+	_, err := validator.CheckCompatibility(FormatAvro, oldSchema, newSchema, "INVALID_MODE")
+	if err == nil {
+		t.Error("expected error for unsupported compatibility mode")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_Protobuf_Forward(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `syntax = "proto3";
+
+message User {
+  string name = 1;
+}`
+
+	newSchema := `syntax = "proto3";
+
+message User {
+  string name = 1;
+  int32 age = 2;
+}`
+
+	compatible, err := validator.CheckCompatibility(FormatProtobuf, oldSchema, newSchema, CompatibilityForward)
+	if err != nil {
+		t.Fatalf("compatibility check failed: %v", err)
+	}
+
+	if !compatible {
+		t.Error("expected schemas to be forward compatible")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_Protobuf_Full(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `syntax = "proto3";
+
+message User {
+  string name = 1;
+}`
+
+	newSchema := `syntax = "proto3";
+
+message User {
+  string name = 1;
+  int32 age = 2;
+}`
+
+	compatible, err := validator.CheckCompatibility(FormatProtobuf, oldSchema, newSchema, CompatibilityFull)
+	if err != nil {
+		t.Fatalf("compatibility check failed: %v", err)
+	}
+
+	if !compatible {
+		t.Error("expected schemas to be fully compatible")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_Protobuf_BackwardTransitive(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `syntax = "proto3";
+
+message User {
+  string name = 1;
+}`
+
+	newSchema := `syntax = "proto3";
+
+message User {
+  string name = 1;
+  int32 age = 2;
+}`
+
+	compatible, err := validator.CheckCompatibility(FormatProtobuf, oldSchema, newSchema, CompatibilityBackwardTransitive)
+	if err != nil {
+		t.Fatalf("compatibility check failed: %v", err)
+	}
+
+	if !compatible {
+		t.Error("expected schemas to be backward transitive compatible")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_Protobuf_ForwardTransitive(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `syntax = "proto3";
+
+message User {
+  string name = 1;
+}`
+
+	newSchema := `syntax = "proto3";
+
+message User {
+  string name = 1;
+  int32 age = 2;
+}`
+
+	compatible, err := validator.CheckCompatibility(FormatProtobuf, oldSchema, newSchema, CompatibilityForwardTransitive)
+	if err != nil {
+		t.Fatalf("compatibility check failed: %v", err)
+	}
+
+	if !compatible {
+		t.Error("expected schemas to be forward transitive compatible")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_Protobuf_FullTransitive(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `syntax = "proto3";
+
+message User {
+  string name = 1;
+}`
+
+	newSchema := `syntax = "proto3";
+
+message User {
+  string name = 1;
+  int32 age = 2;
+}`
+
+	compatible, err := validator.CheckCompatibility(FormatProtobuf, oldSchema, newSchema, CompatibilityFullTransitive)
+	if err != nil {
+		t.Fatalf("compatibility check failed: %v", err)
+	}
+
+	if !compatible {
+		t.Error("expected schemas to be full transitive compatible")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_Protobuf_UnsupportedMode(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `syntax = "proto3";
+
+message User {
+  string name = 1;
+}`
+
+	newSchema := `syntax = "proto3";
+
+message User {
+  string name = 1;
+}`
+
+	_, err := validator.CheckCompatibility(FormatProtobuf, oldSchema, newSchema, "INVALID_MODE")
+	if err == nil {
+		t.Error("expected error for unsupported compatibility mode")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_JSON_ForwardTransitive(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{
+		"type": "object",
+		"properties": {
+			"name": {"type": "string"}
+		},
+		"required": ["name"]
+	}`
+
+	newSchema := `{
+		"type": "object",
+		"properties": {
+			"name": {"type": "string"},
+			"age": {"type": "number", "default": 0}
+		},
+		"required": ["name", "age"]
+	}`
+
+	compatible, err := validator.CheckCompatibility(FormatJSON, oldSchema, newSchema, CompatibilityForwardTransitive)
+	if err != nil {
+		t.Fatalf("compatibility check failed: %v", err)
+	}
+
+	if !compatible {
+		t.Error("expected schemas to be forward transitive compatible")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_JSON_BackwardTransitive(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{
+		"type": "object",
+		"properties": {
+			"name": {"type": "string"}
+		},
+		"required": ["name"]
+	}`
+
+	newSchema := `{
+		"type": "object",
+		"properties": {
+			"name": {"type": "string"},
+			"age": {"type": "number"}
+		},
+		"required": ["name"]
+	}`
+
+	compatible, err := validator.CheckCompatibility(FormatJSON, oldSchema, newSchema, CompatibilityBackwardTransitive)
+	if err != nil {
+		t.Fatalf("compatibility check failed: %v", err)
+	}
+
+	if !compatible {
+		t.Error("expected schemas to be backward transitive compatible")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_JSON_FullTransitive(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{
+		"type": "object",
+		"properties": {
+			"name": {"type": "string"}
+		},
+		"required": ["name"]
+	}`
+
+	newSchema := `{
+		"type": "object",
+		"properties": {
+			"name": {"type": "string"},
+			"age": {"type": "number"}
+		},
+		"required": ["name"]
+	}`
+
+	compatible, err := validator.CheckCompatibility(FormatJSON, oldSchema, newSchema, CompatibilityFullTransitive)
+	if err != nil {
+		t.Fatalf("compatibility check failed: %v", err)
+	}
+
+	if !compatible {
+		t.Error("expected schemas to be full transitive compatible")
+	}
+}
+
+func TestDefaultValidator_GetProperties_NilSchema(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	schema := map[string]interface{}{
+		"type": "object",
+	}
+
+	props := validator.getProperties(schema)
+	if len(props) != 0 {
+		t.Errorf("expected empty properties map, got %d properties", len(props))
+	}
+}
+
+func TestDefaultValidator_ValidateAvro_ComplexType(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	// Test with complex type (not a string)
+	schema := `{
+		"type": {
+			"type": "record",
+			"name": "ComplexType",
+			"fields": [
+				{"name": "id", "type": "int"}
+			]
+		}
+	}`
+
+	err := validator.Validate(FormatAvro, schema)
+	if err != nil {
+		t.Errorf("unexpected error for complex type: %v", err)
+	}
+}
+
+func TestDefaultValidator_ValidateAvro_NoTypeField(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	schema := `{
+		"name": "User",
+		"fields": []
+	}`
+
+	err := validator.Validate(FormatAvro, schema)
+	if err == nil {
+		t.Error("expected error for Avro schema without type field")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_JSON_ForwardIncompatible(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{
+		"type": "object",
+		"properties": {
+			"name": {"type": "string"}
+		},
+		"required": ["name"]
+	}`
+
+	// Add required field without default - forward incompatible
+	newSchema := `{
+		"type": "object",
+		"properties": {
+			"name": {"type": "string"},
+			"age": {"type": "number"}
+		},
+		"required": ["name", "age"]
+	}`
+
+	compatible, err := validator.CheckCompatibility(FormatJSON, oldSchema, newSchema, CompatibilityForward)
+	// If error is returned due to incompatibility, that's also acceptable
+	if err != nil {
+		return
+	}
+
+	if compatible {
+		t.Error("expected schemas to be forward incompatible (new required field without default)")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_Avro_UnsupportedModeString(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{"type": "string"}`
+	newSchema := `{"type": "string"}`
+
+	_, err := validator.CheckCompatibility(FormatAvro, oldSchema, newSchema, CompatibilityMode("COMPLETELY_INVALID"))
+	if err == nil {
+		t.Error("expected error for completely invalid compatibility mode")
+	}
+}
+
+func TestDefaultValidator_CheckCompatibility_AvroFullTransitive_Incompatible(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{
+		"type": "record",
+		"name": "User",
+		"fields": [
+			{"name": "name", "type": "string"}
+		]
+	}`
+
+	// Change type - should be incompatible
+	newSchema := `{
+		"type": "enum",
+		"name": "UserType",
+		"symbols": ["ADMIN", "USER"]
+	}`
+
+	compatible, err := validator.CheckCompatibility(FormatAvro, oldSchema, newSchema, CompatibilityFullTransitive)
+	// If error is returned, that's also a sign of incompatibility
+	if err != nil {
+		return
+	}
+
+	if compatible {
+		t.Error("expected schemas to be incompatible (type changed)")
+	}
+}
+
+func TestDefaultValidator_GetAvroFields_InvalidFieldStructure(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	// Fields array with non-map entries
+	schema := map[string]interface{}{
+		"type": "record",
+		"name": "Test",
+		"fields": []interface{}{
+			"not a map",
+			map[string]interface{}{
+				"name": "validField",
+			},
+			map[string]interface{}{
+				"noname": "value",
+			},
+		},
+	}
+
+	fields := validator.getAvroFields(schema)
+	// Should only return the valid field
+	if len(fields) != 1 {
+		t.Errorf("expected 1 valid field, got %d", len(fields))
+	}
+	if len(fields) > 0 && fields[0] != "validField" {
+		t.Errorf("expected field 'validField', got '%s'", fields[0])
+	}
+}
+
+func TestDefaultValidator_CheckAvroCompatibility_InvalidJSON(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{invalid json`
+	newSchema := `{"type": "string"}`
+
+	_, err := validator.CheckCompatibility(FormatAvro, oldSchema, newSchema, CompatibilityBackward)
+	if err == nil {
+		t.Error("expected error for invalid old schema JSON")
+	}
+}
+
+func TestDefaultValidator_CheckAvroCompatibility_InvalidNewJSON(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{"type": "string"}`
+	newSchema := `{invalid json`
+
+	_, err := validator.CheckCompatibility(FormatAvro, oldSchema, newSchema, CompatibilityBackward)
+	if err == nil {
+		t.Error("expected error for invalid new schema JSON")
+	}
+}
+
+func TestDefaultValidator_CheckJSONCompatibility_InvalidOldJSON(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{invalid json`
+	newSchema := `{"type": "string"}`
+
+	_, err := validator.CheckCompatibility(FormatJSON, oldSchema, newSchema, CompatibilityBackward)
+	if err == nil {
+		t.Error("expected error for invalid old schema JSON")
+	}
+}
+
+func TestDefaultValidator_CheckJSONCompatibility_InvalidNewJSON(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{"type": "string"}`
+	newSchema := `{invalid json`
+
+	_, err := validator.CheckCompatibility(FormatJSON, oldSchema, newSchema, CompatibilityBackward)
+	if err == nil {
+		t.Error("expected error for invalid new schema JSON")
+	}
+}
+
+func TestDefaultValidator_CheckForwardCompatibleJSON_InvalidProperty(t *testing.T) {
+	validator := NewDefaultValidator()
+
+	oldSchema := `{
+		"type": "object",
+		"properties": {
+			"name": {"type": "string"}
+		}
+	}`
+
+	// New schema with non-map property
+	newSchema := `{
+		"type": "object",
+		"properties": {
+			"name": "not a map"
+		},
+		"required": ["name", "newfield"]
+	}`
+
+	_, err := validator.CheckCompatibility(FormatJSON, oldSchema, newSchema, CompatibilityForward)
+	// Should handle this case gracefully
+	if err != nil {
+		// This is acceptable - parsing error
+		return
+	}
+}

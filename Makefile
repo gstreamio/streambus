@@ -68,7 +68,29 @@ test: ## Run all tests (unit + integration)
 
 test-unit: ## Run unit tests only (with -short flag)
 	@echo "Running unit tests..."
-	$(GOTEST) -v -short -race -coverprofile=coverage.txt -covermode=atomic ./...
+	@$(GOTEST) -v -short -race -coverprofile=coverage.txt -covermode=atomic ./... 2>&1 | tee test-output.log; \
+	EXIT_CODE=$${PIPESTATUS[0]}; \
+	echo ""; \
+	echo "═══════════════════════════════════════════════════════════════"; \
+	echo "                    TEST SUMMARY REPORT"; \
+	echo "═══════════════════════════════════════════════════════════════"; \
+	if [ $$EXIT_CODE -eq 0 ]; then \
+		echo "✅ ALL TESTS PASSED"; \
+		echo ""; \
+		grep "^ok  " test-output.log | wc -l | xargs echo "Total packages passed:"; \
+		grep "^PASS$$" test-output.log | wc -l | xargs echo "Total test suites passed:"; \
+	else \
+		echo "❌ SOME TESTS FAILED"; \
+		echo ""; \
+		echo "Failed packages:"; \
+		grep "^FAIL" test-output.log | grep -v "^--- FAIL" || echo "  None (possible timeout or build error)"; \
+		echo ""; \
+		echo "Failed tests:"; \
+		grep "^--- FAIL:" test-output.log | sed 's/^--- FAIL: /  ❌ /' || echo "  See test-output.log for details"; \
+	fi; \
+	echo "═══════════════════════════════════════════════════════════════"; \
+	rm -f test-output.log; \
+	exit $$EXIT_CODE
 
 test-integration: ## Run integration tests
 	@echo "Running integration tests..."

@@ -1,6 +1,7 @@
 package transaction
 
 import (
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -439,4 +440,456 @@ func TestMemoryTransactionLog(t *testing.T) {
 	// Test read non-existent
 	_, err = log.Read("txn-1")
 	assert.Error(t, err)
+}
+
+func TestMemoryTransactionLog_Clear(t *testing.T) {
+	log := NewMemoryTransactionLog()
+
+	// Add multiple entries
+	for i := 0; i < 5; i++ {
+		entry := &TransactionLogEntry{
+			TransactionID: TransactionID("txn-" + string(rune(i+'0'))),
+			ProducerID:    ProducerID(1001 + i),
+			ProducerEpoch: 0,
+			State:         StateOngoing,
+			Partitions: []PartitionMetadata{
+				{Topic: "topic-1", Partition: int32(i)},
+			},
+			Timestamp: time.Now(),
+		}
+		err := log.Append(entry)
+		require.NoError(t, err)
+	}
+
+	// Verify entries exist
+	assert.Equal(t, 5, log.Count())
+
+	// Clear the log
+	log.Clear()
+
+	// Verify log is empty
+	assert.Equal(t, 0, log.Count())
+
+	// Verify ReadAll returns empty
+	entries, err := log.ReadAll()
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+func TestMemoryTransactionLog_AppendNil(t *testing.T) {
+	log := NewMemoryTransactionLog()
+
+	// Test append nil entry
+	err := log.Append(nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot be nil")
+	assert.Equal(t, 0, log.Count())
+}
+
+func TestTransactionState_String(t *testing.T) {
+	tests := []struct {
+		state    TransactionState
+		expected string
+	}{
+		{StateEmpty, "Empty"},
+		{StateOngoing, "Ongoing"},
+		{StatePrepareCommit, "PrepareCommit"},
+		{StatePrepareAbort, "PrepareAbort"},
+		{StateCompleteCommit, "CompleteCommit"},
+		{StateCompleteAbort, "CompleteAbort"},
+		{TransactionState(999), "Unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			result := tt.state.String()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestErrorCode_String(t *testing.T) {
+	tests := []struct {
+		code     ErrorCode
+		expected string
+	}{
+		{ErrorNone, "None"},
+		{ErrorInvalidProducerEpoch, "InvalidProducerEpoch"},
+		{ErrorInvalidTransactionState, "InvalidTransactionState"},
+		{ErrorInvalidProducerIDMapping, "InvalidProducerIDMapping"},
+		{ErrorTransactionCoordinatorNotAvailable, "TransactionCoordinatorNotAvailable"},
+		{ErrorTransactionCoordinatorFenced, "TransactionCoordinatorFenced"},
+		{ErrorProducerFenced, "ProducerFenced"},
+		{ErrorInvalidTransactionTimeout, "InvalidTransactionTimeout"},
+		{ErrorConcurrentTransactions, "ConcurrentTransactions"},
+		{ErrorTransactionAborted, "TransactionAborted"},
+		{ErrorInvalidPartitionList, "InvalidPartitionList"},
+		{ErrorCode(999), "Unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			result := tt.code.String()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestErrorCode_Error(t *testing.T) {
+	tests := []struct {
+		code     ErrorCode
+		expected string
+	}{
+		{ErrorNone, "None"},
+		{ErrorInvalidProducerEpoch, "InvalidProducerEpoch"},
+		{ErrorInvalidTransactionState, "InvalidTransactionState"},
+		{ErrorProducerFenced, "ProducerFenced"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			result := tt.code.Error()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestTransactionCoordinator_BuildPartitionErrors(t *testing.T) {
+	txnLog := NewMemoryTransactionLog()
+	config := DefaultCoordinatorConfig()
+	logger := testLogger()
+	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	defer coordinator.Stop()
+
+	partitions := []PartitionMetadata{
+		{Topic: "topic-1", Partition: 0},
+		{Topic: "topic-1", Partition: 1},
+		{Topic: "topic-2", Partition: 0},
+	}
+
+	errCode := ErrorInvalidProducerIDMapping
+	errors := coordinator.buildPartitionErrors(partitions, errCode)
+
+	// Verify structure
+	assert.Len(t, errors, 2)
+	assert.Contains(t, errors, "topic-1")
+	assert.Contains(t, errors, "topic-2")
+
+	// Verify topic-1 errors
+	assert.Len(t, errors["topic-1"], 2)
+	assert.Equal(t, errCode, errors["topic-1"][0])
+	assert.Equal(t, errCode, errors["topic-1"][1])
+
+	// Verify topic-2 errors
+	assert.Len(t, errors["topic-2"], 1)
+	assert.Equal(t, errCode, errors["topic-2"][0])
+}
+
+func TestTransactionCoordinator_LogTransactionNilLog(t *testing.T) {
+	config := DefaultCoordinatorConfig()
+	logger := testLogger()
+	coordinator := NewTransactionCoordinator(nil, config, logger)
+	defer coordinator.Stop()
+
+	// Initialize producer
+	initReq := &InitProducerIDRequest{
+		TransactionID:      "txn-1",
+		TransactionTimeout: 30 * time.Second,
+	}
+	initResp, err := coordinator.InitProducerID(initReq)
+	require.NoError(t, err)
+
+	// Add partitions (will call logTransaction with nil log)
+	addReq := &AddPartitionsToTxnRequest{
+		TransactionID: "txn-1",
+		ProducerID:    initResp.ProducerID,
+		ProducerEpoch: initResp.ProducerEpoch,
+		Partitions: []PartitionMetadata{
+			{Topic: "topic-1", Partition: 0},
+		},
+	}
+
+	// Should not error even with nil log
+	addResp, err := coordinator.AddPartitionsToTxn(addReq)
+	require.NoError(t, err)
+	assert.Empty(t, addResp.Errors)
+}
+
+func TestTransactionCoordinator_LogTransactionError(t *testing.T) {
+	// Create a mock log that returns errors
+	mockLog := &errorTransactionLog{}
+	config := DefaultCoordinatorConfig()
+	logger := testLogger()
+	coordinator := NewTransactionCoordinator(mockLog, config, logger)
+	defer coordinator.Stop()
+
+	// Initialize producer
+	initReq := &InitProducerIDRequest{
+		TransactionID:      "txn-1",
+		TransactionTimeout: 30 * time.Second,
+	}
+	initResp, err := coordinator.InitProducerID(initReq)
+	require.NoError(t, err)
+
+	// Add partitions (will call logTransaction which will error)
+	addReq := &AddPartitionsToTxnRequest{
+		TransactionID: "txn-1",
+		ProducerID:    initResp.ProducerID,
+		ProducerEpoch: initResp.ProducerEpoch,
+		Partitions: []PartitionMetadata{
+			{Topic: "topic-1", Partition: 0},
+		},
+	}
+
+	// Should not return error but will log it internally
+	addResp, err := coordinator.AddPartitionsToTxn(addReq)
+	require.NoError(t, err)
+	assert.Empty(t, addResp.Errors)
+}
+
+func TestTransactionCoordinator_ScheduleTransactionCleanup(t *testing.T) {
+	txnLog := NewMemoryTransactionLog()
+	config := DefaultCoordinatorConfig()
+	config.TransactionRetentionTime = 100 * time.Millisecond
+	logger := testLogger()
+	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	defer coordinator.Stop()
+
+	// Initialize producer
+	initReq := &InitProducerIDRequest{
+		TransactionID:      "txn-1",
+		TransactionTimeout: 30 * time.Second,
+	}
+	initResp, err := coordinator.InitProducerID(initReq)
+	require.NoError(t, err)
+
+	// Add partitions
+	addReq := &AddPartitionsToTxnRequest{
+		TransactionID: "txn-1",
+		ProducerID:    initResp.ProducerID,
+		ProducerEpoch: initResp.ProducerEpoch,
+		Partitions: []PartitionMetadata{
+			{Topic: "topic-1", Partition: 0},
+		},
+	}
+	_, err = coordinator.AddPartitionsToTxn(addReq)
+	require.NoError(t, err)
+
+	// Commit transaction (triggers cleanup scheduling)
+	endReq := &EndTxnRequest{
+		TransactionID: "txn-1",
+		ProducerID:    initResp.ProducerID,
+		ProducerEpoch: initResp.ProducerEpoch,
+		Commit:        true,
+	}
+	_, err = coordinator.EndTxn(endReq)
+	require.NoError(t, err)
+
+	// Verify transaction exists
+	_, err = coordinator.GetTransactionState("txn-1")
+	require.NoError(t, err)
+
+	// Verify log entry exists
+	assert.Equal(t, 1, txnLog.Count())
+
+	// Wait for cleanup
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify transaction was cleaned up
+	_, err = coordinator.GetTransactionState("txn-1")
+	assert.Error(t, err)
+
+	// Verify log entry was deleted
+	assert.Equal(t, 0, txnLog.Count())
+}
+
+func TestTransactionCoordinator_ScheduleTransactionCleanupWithLogError(t *testing.T) {
+	mockLog := &errorTransactionLog{}
+	config := DefaultCoordinatorConfig()
+	config.TransactionRetentionTime = 100 * time.Millisecond
+	logger := testLogger()
+	coordinator := NewTransactionCoordinator(mockLog, config, logger)
+	defer coordinator.Stop()
+
+	// Initialize producer
+	initReq := &InitProducerIDRequest{
+		TransactionID:      "txn-1",
+		TransactionTimeout: 30 * time.Second,
+	}
+	initResp, err := coordinator.InitProducerID(initReq)
+	require.NoError(t, err)
+
+	// Add partitions
+	addReq := &AddPartitionsToTxnRequest{
+		TransactionID: "txn-1",
+		ProducerID:    initResp.ProducerID,
+		ProducerEpoch: initResp.ProducerEpoch,
+		Partitions: []PartitionMetadata{
+			{Topic: "topic-1", Partition: 0},
+		},
+	}
+	_, err = coordinator.AddPartitionsToTxn(addReq)
+	require.NoError(t, err)
+
+	// Commit transaction
+	endReq := &EndTxnRequest{
+		TransactionID: "txn-1",
+		ProducerID:    initResp.ProducerID,
+		ProducerEpoch: initResp.ProducerEpoch,
+		Commit:        true,
+	}
+	_, err = coordinator.EndTxn(endReq)
+	require.NoError(t, err)
+
+	// Wait for cleanup (should handle log delete error gracefully)
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify transaction was cleaned up from memory despite log error
+	_, err = coordinator.GetTransactionState("txn-1")
+	assert.Error(t, err)
+}
+
+func TestTransactionCoordinator_AddOffsetsToTxn_ProducerFenced(t *testing.T) {
+	txnLog := NewMemoryTransactionLog()
+	config := DefaultCoordinatorConfig()
+	logger := testLogger()
+	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	defer coordinator.Stop()
+
+	// Initialize producer (epoch 0)
+	initReq1 := &InitProducerIDRequest{
+		TransactionID:      "txn-1",
+		TransactionTimeout: 30 * time.Second,
+	}
+	initResp1, err := coordinator.InitProducerID(initReq1)
+	require.NoError(t, err)
+
+	// Initialize again (epoch 1, fences previous)
+	initReq2 := &InitProducerIDRequest{
+		TransactionID:      "txn-1",
+		TransactionTimeout: 30 * time.Second,
+	}
+	initResp2, err := coordinator.InitProducerID(initReq2)
+	require.NoError(t, err)
+
+	// Start transaction with new producer
+	addReq := &AddPartitionsToTxnRequest{
+		TransactionID: "txn-1",
+		ProducerID:    initResp2.ProducerID,
+		ProducerEpoch: initResp2.ProducerEpoch,
+		Partitions: []PartitionMetadata{
+			{Topic: "topic-1", Partition: 0},
+		},
+	}
+	_, err = coordinator.AddPartitionsToTxn(addReq)
+	require.NoError(t, err)
+
+	// Try to add offsets with old epoch (should be fenced)
+	offsetReq := &AddOffsetsToTxnRequest{
+		TransactionID: "txn-1",
+		ProducerID:    initResp1.ProducerID,
+		ProducerEpoch: initResp1.ProducerEpoch,
+		GroupID:       "consumer-group-1",
+	}
+
+	offsetResp, err := coordinator.AddOffsetsToTxn(offsetReq)
+	require.NoError(t, err)
+	assert.Equal(t, ErrorProducerFenced, offsetResp.ErrorCode)
+}
+
+func TestTransactionCoordinator_AddOffsetsToTxn_NoTransaction(t *testing.T) {
+	txnLog := NewMemoryTransactionLog()
+	config := DefaultCoordinatorConfig()
+	logger := testLogger()
+	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	defer coordinator.Stop()
+
+	// Initialize producer
+	initReq := &InitProducerIDRequest{
+		TransactionID:      "txn-1",
+		TransactionTimeout: 30 * time.Second,
+	}
+	initResp, err := coordinator.InitProducerID(initReq)
+	require.NoError(t, err)
+
+	// Try to add offsets without starting transaction
+	offsetReq := &AddOffsetsToTxnRequest{
+		TransactionID: "txn-1",
+		ProducerID:    initResp.ProducerID,
+		ProducerEpoch: initResp.ProducerEpoch,
+		GroupID:       "consumer-group-1",
+	}
+
+	offsetResp, err := coordinator.AddOffsetsToTxn(offsetReq)
+	require.NoError(t, err)
+	assert.Equal(t, ErrorInvalidTransactionState, offsetResp.ErrorCode)
+}
+
+func TestTransactionCoordinator_AddOffsetsToTxn_InvalidState(t *testing.T) {
+	txnLog := NewMemoryTransactionLog()
+	config := DefaultCoordinatorConfig()
+	logger := testLogger()
+	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	defer coordinator.Stop()
+
+	// Initialize producer
+	initReq := &InitProducerIDRequest{
+		TransactionID:      "txn-1",
+		TransactionTimeout: 30 * time.Second,
+	}
+	initResp, err := coordinator.InitProducerID(initReq)
+	require.NoError(t, err)
+
+	// Start transaction
+	addReq := &AddPartitionsToTxnRequest{
+		TransactionID: "txn-1",
+		ProducerID:    initResp.ProducerID,
+		ProducerEpoch: initResp.ProducerEpoch,
+		Partitions: []PartitionMetadata{
+			{Topic: "topic-1", Partition: 0},
+		},
+	}
+	_, err = coordinator.AddPartitionsToTxn(addReq)
+	require.NoError(t, err)
+
+	// Commit transaction
+	endReq := &EndTxnRequest{
+		TransactionID: "txn-1",
+		ProducerID:    initResp.ProducerID,
+		ProducerEpoch: initResp.ProducerEpoch,
+		Commit:        true,
+	}
+	_, err = coordinator.EndTxn(endReq)
+	require.NoError(t, err)
+
+	// Try to add offsets after transaction is committed
+	offsetReq := &AddOffsetsToTxnRequest{
+		TransactionID: "txn-1",
+		ProducerID:    initResp.ProducerID,
+		ProducerEpoch: initResp.ProducerEpoch,
+		GroupID:       "consumer-group-1",
+	}
+
+	offsetResp, err := coordinator.AddOffsetsToTxn(offsetReq)
+	require.NoError(t, err)
+	assert.Equal(t, ErrorInvalidTransactionState, offsetResp.ErrorCode)
+}
+
+// errorTransactionLog is a mock that always returns errors
+type errorTransactionLog struct{}
+
+func (l *errorTransactionLog) Append(entry *TransactionLogEntry) error {
+	return fmt.Errorf("mock append error")
+}
+
+func (l *errorTransactionLog) Read(txnID TransactionID) (*TransactionLogEntry, error) {
+	return nil, fmt.Errorf("mock read error")
+}
+
+func (l *errorTransactionLog) ReadAll() ([]*TransactionLogEntry, error) {
+	return nil, fmt.Errorf("mock read all error")
+}
+
+func (l *errorTransactionLog) Delete(txnID TransactionID) error {
+	return fmt.Errorf("mock delete error")
 }

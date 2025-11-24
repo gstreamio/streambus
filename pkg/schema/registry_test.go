@@ -674,3 +674,447 @@ func TestStats(t *testing.T) {
 		t.Errorf("expected 3 subjects, got %d", stats.TotalSubjects)
 	}
 }
+
+func TestNewSchemaRegistry_WithNilLogger(t *testing.T) {
+	validator := NewDefaultValidator()
+	registry := NewSchemaRegistry(validator, nil)
+
+	if registry == nil {
+		t.Fatal("expected registry, got nil")
+	}
+
+	if registry.logger == nil {
+		t.Error("expected default logger to be created")
+	}
+}
+
+func TestNewSchemaRegistry_WithNilValidator(t *testing.T) {
+	logger := testLogger()
+	registry := NewSchemaRegistry(nil, logger)
+
+	if registry == nil {
+		t.Fatal("expected registry, got nil")
+	}
+
+	// Registry should work without validator (just skips validation)
+	req := &RegisterSchemaRequest{
+		Subject:    "test-subject",
+		Format:     FormatJSON,
+		Definition: `{"type": "string"}`,
+	}
+
+	resp, err := registry.RegisterSchema(req)
+	if err != nil {
+		t.Fatalf("failed to register schema: %v", err)
+	}
+
+	if resp.ErrorCode != ErrorNone {
+		t.Errorf("expected ErrorNone, got %v", resp.ErrorCode)
+	}
+}
+
+func TestIsValidCompatibilityMode(t *testing.T) {
+	validator := NewDefaultValidator()
+	logger := testLogger()
+	registry := NewSchemaRegistry(validator, logger)
+
+	tests := []struct {
+		mode  CompatibilityMode
+		valid bool
+	}{
+		{CompatibilityNone, true},
+		{CompatibilityBackward, true},
+		{CompatibilityForward, true},
+		{CompatibilityFull, true},
+		{CompatibilityBackwardTransitive, true},
+		{CompatibilityForwardTransitive, true},
+		{CompatibilityFullTransitive, true},
+		{"INVALID_MODE", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.mode), func(t *testing.T) {
+			valid := registry.isValidCompatibilityMode(tt.mode)
+			if valid != tt.valid {
+				t.Errorf("expected isValidCompatibilityMode(%s) = %v, got %v", tt.mode, tt.valid, valid)
+			}
+		})
+	}
+}
+
+func TestUpdateCompatibility_InvalidMode(t *testing.T) {
+	validator := NewDefaultValidator()
+	logger := testLogger()
+	registry := NewSchemaRegistry(validator, logger)
+
+	req := &UpdateCompatibilityRequest{
+		Subject:       "test-subject",
+		Compatibility: "INVALID_MODE",
+	}
+
+	resp, err := registry.UpdateCompatibility(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ErrorCode != ErrorInvalidCompatibilityMode {
+		t.Errorf("expected ErrorInvalidCompatibilityMode, got %v", resp.ErrorCode)
+	}
+}
+
+func TestSetGlobalCompatibility_InvalidMode(t *testing.T) {
+	validator := NewDefaultValidator()
+	logger := testLogger()
+	registry := NewSchemaRegistry(validator, logger)
+
+	err := registry.SetGlobalCompatibility("INVALID_MODE")
+	if err == nil {
+		t.Error("expected error for invalid compatibility mode")
+	}
+}
+
+func TestTestCompatibility_SubjectNotFound(t *testing.T) {
+	validator := NewDefaultValidator()
+	logger := testLogger()
+	registry := NewSchemaRegistry(validator, logger)
+
+	req := &TestCompatibilityRequest{
+		Subject:    "nonexistent-subject",
+		Version:    1,
+		Format:     FormatJSON,
+		Definition: `{"type": "string"}`,
+	}
+
+	resp, err := registry.TestCompatibility(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ErrorCode != ErrorSubjectNotFound {
+		t.Errorf("expected ErrorSubjectNotFound, got %v", resp.ErrorCode)
+	}
+
+	if resp.Compatible {
+		t.Error("expected compatible to be false")
+	}
+}
+
+func TestTestCompatibility_VersionNotFound(t *testing.T) {
+	validator := NewDefaultValidator()
+	logger := testLogger()
+	registry := NewSchemaRegistry(validator, logger)
+
+	// Register a schema
+	req := &RegisterSchemaRequest{
+		Subject:    "test-subject",
+		Format:     FormatJSON,
+		Definition: `{"type": "string"}`,
+	}
+	_, _ = registry.RegisterSchema(req)
+
+	// Test against nonexistent version
+	testReq := &TestCompatibilityRequest{
+		Subject:    "test-subject",
+		Version:    999,
+		Format:     FormatJSON,
+		Definition: `{"type": "number"}`,
+	}
+
+	resp, err := registry.TestCompatibility(testReq)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ErrorCode != ErrorVersionNotFound {
+		t.Errorf("expected ErrorVersionNotFound, got %v", resp.ErrorCode)
+	}
+
+	if resp.Compatible {
+		t.Error("expected compatible to be false")
+	}
+}
+
+func TestCheckCompatibility_WithNoneMode(t *testing.T) {
+	validator := NewDefaultValidator()
+	logger := testLogger()
+	registry := NewSchemaRegistry(validator, logger)
+
+	// Set compatibility to NONE
+	err := registry.SetGlobalCompatibility(CompatibilityNone)
+	if err != nil {
+		t.Fatalf("failed to set global compatibility: %v", err)
+	}
+
+	// Register base schema
+	req1 := &RegisterSchemaRequest{
+		Subject:    "test-subject",
+		Format:     FormatJSON,
+		Definition: `{"type": "string"}`,
+	}
+	_, _ = registry.RegisterSchema(req1)
+
+	// Register completely different schema - should be allowed with NONE mode
+	req2 := &RegisterSchemaRequest{
+		Subject:    "test-subject",
+		Format:     FormatJSON,
+		Definition: `{"type": "number"}`,
+	}
+
+	resp, err := registry.RegisterSchema(req2)
+	if err != nil {
+		t.Fatalf("failed to register schema: %v", err)
+	}
+
+	if resp.ErrorCode != ErrorNone {
+		t.Errorf("expected ErrorNone with NONE compatibility mode, got %v", resp.ErrorCode)
+	}
+}
+
+func TestGetSchemaBySubjectVersion_SubjectNotFound(t *testing.T) {
+	validator := NewDefaultValidator()
+	logger := testLogger()
+	registry := NewSchemaRegistry(validator, logger)
+
+	req := &GetSchemaBySubjectVersionRequest{
+		Subject: "nonexistent-subject",
+		Version: 1,
+	}
+
+	resp, err := registry.GetSchemaBySubjectVersion(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ErrorCode != ErrorSubjectNotFound {
+		t.Errorf("expected ErrorSubjectNotFound, got %v", resp.ErrorCode)
+	}
+}
+
+func TestGetSchemaBySubjectVersion_VersionNotFound(t *testing.T) {
+	validator := NewDefaultValidator()
+	logger := testLogger()
+	registry := NewSchemaRegistry(validator, logger)
+
+	// Register a schema
+	req := &RegisterSchemaRequest{
+		Subject:    "test-subject",
+		Format:     FormatJSON,
+		Definition: `{"type": "string"}`,
+	}
+	_, _ = registry.RegisterSchema(req)
+
+	// Try to get nonexistent version
+	getReq := &GetSchemaBySubjectVersionRequest{
+		Subject: "test-subject",
+		Version: 999,
+	}
+
+	resp, err := registry.GetSchemaBySubjectVersion(getReq)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ErrorCode != ErrorVersionNotFound {
+		t.Errorf("expected ErrorVersionNotFound, got %v", resp.ErrorCode)
+	}
+}
+
+func TestGetLatestSchema_SubjectNotFound(t *testing.T) {
+	validator := NewDefaultValidator()
+	logger := testLogger()
+	registry := NewSchemaRegistry(validator, logger)
+
+	req := &GetLatestSchemaRequest{
+		Subject: "nonexistent-subject",
+	}
+
+	resp, err := registry.GetLatestSchema(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ErrorCode != ErrorSubjectNotFound {
+		t.Errorf("expected ErrorSubjectNotFound, got %v", resp.ErrorCode)
+	}
+}
+
+func TestListVersions_SubjectNotFound(t *testing.T) {
+	validator := NewDefaultValidator()
+	logger := testLogger()
+	registry := NewSchemaRegistry(validator, logger)
+
+	req := &ListVersionsRequest{
+		Subject: "nonexistent-subject",
+	}
+
+	resp, err := registry.ListVersions(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ErrorCode != ErrorSubjectNotFound {
+		t.Errorf("expected ErrorSubjectNotFound, got %v", resp.ErrorCode)
+	}
+}
+
+func TestDeleteSchema_SubjectNotFound(t *testing.T) {
+	validator := NewDefaultValidator()
+	logger := testLogger()
+	registry := NewSchemaRegistry(validator, logger)
+
+	req := &DeleteSchemaRequest{
+		Subject: "nonexistent-subject",
+		Version: 1,
+	}
+
+	resp, err := registry.DeleteSchema(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ErrorCode != ErrorSubjectNotFound {
+		t.Errorf("expected ErrorSubjectNotFound, got %v", resp.ErrorCode)
+	}
+}
+
+func TestDeleteSchema_VersionNotFound(t *testing.T) {
+	validator := NewDefaultValidator()
+	logger := testLogger()
+	registry := NewSchemaRegistry(validator, logger)
+
+	// Register a schema
+	req := &RegisterSchemaRequest{
+		Subject:    "test-subject",
+		Format:     FormatJSON,
+		Definition: `{"type": "string"}`,
+	}
+	_, _ = registry.RegisterSchema(req)
+
+	// Try to delete nonexistent version
+	deleteReq := &DeleteSchemaRequest{
+		Subject: "test-subject",
+		Version: 999,
+	}
+
+	resp, err := registry.DeleteSchema(deleteReq)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ErrorCode != ErrorVersionNotFound {
+		t.Errorf("expected ErrorVersionNotFound, got %v", resp.ErrorCode)
+	}
+}
+
+func TestDeleteSchema_UpdatesLatestVersion(t *testing.T) {
+	validator := NewDefaultValidator()
+	logger := testLogger()
+	registry := NewSchemaRegistry(validator, logger)
+
+	// Register multiple versions
+	for i := 1; i <= 3; i++ {
+		req := &RegisterSchemaRequest{
+			Subject:    "test-subject",
+			Format:     FormatJSON,
+			Definition: `{"type": "string", "v": ` + string(rune('0'+i)) + `}`,
+		}
+		_, _ = registry.RegisterSchema(req)
+	}
+
+	// Delete latest version (v3)
+	deleteReq := &DeleteSchemaRequest{
+		Subject: "test-subject",
+		Version: 3,
+	}
+
+	_, err := registry.DeleteSchema(deleteReq)
+	if err != nil {
+		t.Fatalf("failed to delete schema: %v", err)
+	}
+
+	// Verify latest version is now v2
+	latestReq := &GetLatestSchemaRequest{
+		Subject: "test-subject",
+	}
+
+	resp, err := registry.GetLatestSchema(latestReq)
+	if err != nil {
+		t.Fatalf("failed to get latest schema: %v", err)
+	}
+
+	if resp.Schema.Version != 2 {
+		t.Errorf("expected latest version to be 2 after deletion, got %d", resp.Schema.Version)
+	}
+}
+
+func TestDeleteSubject_SubjectNotFound(t *testing.T) {
+	validator := NewDefaultValidator()
+	logger := testLogger()
+	registry := NewSchemaRegistry(validator, logger)
+
+	req := &DeleteSubjectRequest{
+		Subject: "nonexistent-subject",
+	}
+
+	resp, err := registry.DeleteSubject(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.ErrorCode != ErrorSubjectNotFound {
+		t.Errorf("expected ErrorSubjectNotFound, got %v", resp.ErrorCode)
+	}
+}
+
+func TestRegisterSchema_IncompatibleSchema(t *testing.T) {
+	validator := NewDefaultValidator()
+	logger := testLogger()
+	registry := NewSchemaRegistry(validator, logger)
+
+	// Register base schema with required field
+	schemaV1 := `{
+		"type": "object",
+		"properties": {
+			"name": {"type": "string"}
+		},
+		"required": ["name"]
+	}`
+
+	req1 := &RegisterSchemaRequest{
+		Subject:    "test-subject",
+		Format:     FormatJSON,
+		Definition: schemaV1,
+	}
+	_, _ = registry.RegisterSchema(req1)
+
+	// Try to register incompatible schema (removes required field)
+	schemaV2 := `{
+		"type": "object",
+		"properties": {
+			"age": {"type": "number"}
+		},
+		"required": ["age"]
+	}`
+
+	req2 := &RegisterSchemaRequest{
+		Subject:    "test-subject",
+		Format:     FormatJSON,
+		Definition: schemaV2,
+	}
+
+	resp, err := registry.RegisterSchema(req2)
+	// The compatibility check returns an error when schemas are incompatible
+	// This is expected - the error contains the incompatibility reason
+	if err != nil {
+		// Verify it's a compatibility error
+		if resp == nil || (resp.ErrorCode != ErrorSchemaRegistryError && resp.ErrorCode != ErrorIncompatibleSchema) {
+			t.Errorf("expected compatibility error, got: %v", err)
+		}
+		return
+	}
+
+	if resp.ErrorCode != ErrorIncompatibleSchema {
+		t.Errorf("expected ErrorIncompatibleSchema, got %v", resp.ErrorCode)
+	}
+}

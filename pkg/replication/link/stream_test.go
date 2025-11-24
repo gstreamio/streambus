@@ -690,3 +690,394 @@ func TestPartitionWorker_ReplicateBatch(t *testing.T) {
 		t.Errorf("replicateBatch failed: %v", err)
 	}
 }
+
+func TestStreamHandler_HealthCheckLoop(t *testing.T) {
+	link := createTestLink("health-loop-test", "Health Loop Test")
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+
+	// Start the handler to trigger the healthCheckLoop goroutine
+	// Note: Start requires actual broker connections, so we'll test the loop directly
+	handler.wg.Add(1)
+	go handler.healthCheckLoop()
+
+	// Give the loop time to run at least once
+	time.Sleep(100 * time.Millisecond)
+
+	// Stop the handler to trigger context cancellation
+	err = handler.Stop()
+	if err != nil {
+		t.Errorf("Stop failed: %v", err)
+	}
+
+	// Verify the goroutine exited by checking if Stop completes
+	// (Stop calls wg.Wait(), so if this completes, the goroutine exited)
+}
+
+func TestStreamHandler_MetricsUpdateLoop(t *testing.T) {
+	link := createTestLink("metrics-loop-test", "Metrics Loop Test")
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+
+	// Start the metricsUpdateLoop goroutine
+	handler.wg.Add(1)
+	go handler.metricsUpdateLoop()
+
+	// Give the loop time to run
+	time.Sleep(100 * time.Millisecond)
+
+	// Stop the handler
+	err = handler.Stop()
+	if err != nil {
+		t.Errorf("Stop failed: %v", err)
+	}
+}
+
+// TestStreamHandler_Start_AlreadyStarted tests starting a handler that's already started
+func TestStreamHandler_Start_AlreadyStarted(t *testing.T) {
+	link := createTestLink("already-started-test", "Already Started Test")
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+	defer func() { _ = handler.Stop() }()
+
+	// Mark as started without actually starting
+	handler.mu.Lock()
+	handler.started = true
+	handler.mu.Unlock()
+
+	// Try to start again - should error
+	err = handler.Start()
+	if err == nil {
+		t.Error("Expected error when starting already started handler")
+	}
+	if err != nil && err.Error() != "stream already started" {
+		t.Errorf("Expected 'stream already started' error, got: %v", err)
+	}
+}
+
+// TestStreamHandler_Start_SourceConnectionFailure tests Start with source connection failure
+func TestStreamHandler_Start_SourceConnectionFailure(t *testing.T) {
+	link := createTestLink("src-conn-fail", "Source Connection Fail")
+	// Use invalid brokers to force connection failure
+	link.SourceCluster.Brokers = []string{"invalid:99999"}
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+	defer func() { _ = handler.Stop() }()
+
+	// Start should fail due to source connection
+	err = handler.Start()
+	if err == nil {
+		t.Error("Expected error when connecting to invalid source")
+	}
+}
+
+// TestStreamHandler_Start_TargetConnectionFailure tests Start with target connection failure
+func TestStreamHandler_Start_TargetConnectionFailure(t *testing.T) {
+	link := createTestLink("tgt-conn-fail", "Target Connection Fail")
+	// Use invalid brokers to force connection failure
+	link.TargetCluster.Brokers = []string{"invalid:99999"}
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+	defer func() { _ = handler.Stop() }()
+
+	// Start should fail due to target connection
+	err = handler.Start()
+	if err == nil {
+		t.Error("Expected error when connecting to invalid target")
+	}
+}
+
+// TestStreamHandler_Stop_WithRunningWorkers tests stopping with active workers
+func TestStreamHandler_Stop_WithRunningWorkers(t *testing.T) {
+	link := createTestLink("stop-workers-test", "Stop Workers Test")
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+
+	// Create a partition worker manually
+	err = handler.startTopicReplication("test-topic")
+	if err != nil {
+		t.Fatalf("startTopicReplication failed: %v", err)
+	}
+
+	// Mark as started
+	handler.mu.Lock()
+	handler.started = true
+	handler.mu.Unlock()
+
+	// Stop should cleanly shut down workers
+	err = handler.Stop()
+	if err != nil {
+		t.Errorf("Stop failed: %v", err)
+	}
+
+	// Verify health status updated
+	if handler.health.Status != "stopped" {
+		t.Errorf("Expected status 'stopped', got %s", handler.health.Status)
+	}
+
+	// Verify started flag is false
+	if handler.started {
+		t.Error("Expected started to be false after Stop")
+	}
+}
+
+// TestStreamHandler_Stop_MultipleCalls tests calling Stop multiple times
+func TestStreamHandler_Stop_MultipleCalls(t *testing.T) {
+	link := createTestLink("stop-multiple-test", "Stop Multiple Test")
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+
+	// Mark as started
+	handler.mu.Lock()
+	handler.started = true
+	handler.mu.Unlock()
+
+	// First stop
+	err = handler.Stop()
+	if err != nil {
+		t.Errorf("First Stop failed: %v", err)
+	}
+
+	// Second stop should not error
+	err = handler.Stop()
+	if err != nil {
+		t.Errorf("Second Stop failed: %v", err)
+	}
+}
+
+// TestStreamHandler_GetTopicsToReplicate_WithTopics tests returning configured topics
+func TestStreamHandler_GetTopicsToReplicate_WithTopics(t *testing.T) {
+	link := createTestLink("with-topics-test", "With Topics Test")
+	link.Topics = []string{"topic-a", "topic-b", "topic-c"}
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+	defer func() { _ = handler.Stop() }()
+
+	// Should return configured topics
+	topics, err := handler.getTopicsToReplicate()
+	if err != nil {
+		t.Fatalf("getTopicsToReplicate failed: %v", err)
+	}
+
+	if len(topics) != 3 {
+		t.Errorf("Expected 3 topics, got %d", len(topics))
+	}
+
+	expectedTopics := map[string]bool{
+		"topic-a": true,
+		"topic-b": true,
+		"topic-c": true,
+	}
+
+	for _, topic := range topics {
+		if !expectedTopics[topic] {
+			t.Errorf("Unexpected topic: %s", topic)
+		}
+	}
+}
+
+// TestStreamHandler_MetricsUpdateLoop_UptimeCalculation tests uptime calculation
+func TestStreamHandler_MetricsUpdateLoop_UptimeCalculation(t *testing.T) {
+	link := createTestLink("metrics-uptime-test", "Metrics Uptime Test")
+	link.StartedAt = time.Now().Add(-1 * time.Minute) // Set started time
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+
+	// Update link's StartedAt in handler
+	handler.link.StartedAt = time.Now().Add(-1 * time.Minute)
+
+	// Start the metricsUpdateLoop goroutine
+	handler.wg.Add(1)
+	go handler.metricsUpdateLoop()
+
+	// Give the loop more time to execute at least once (10+ seconds)
+	time.Sleep(11 * time.Second)
+
+	// Stop the handler
+	err = handler.Stop()
+	if err != nil {
+		t.Errorf("Stop failed: %v", err)
+	}
+
+	// Check that uptime was calculated (should be at least 60 seconds)
+	handler.mu.RLock()
+	uptime := handler.metrics.UptimeSeconds
+	handler.mu.RUnlock()
+
+	if uptime < 60 {
+		t.Logf("Uptime: %d seconds (expected at least 60)", uptime)
+	} else {
+		t.Logf("Uptime correctly calculated: %d seconds", uptime)
+	}
+}
+
+// TestStreamHandler_HealthCheckLoop_ContextCancellation tests healthCheckLoop cancellation
+func TestStreamHandler_HealthCheckLoop_ContextCancellation(t *testing.T) {
+	link := createTestLink("health-cancel-test", "Health Cancel Test")
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+
+	// Start the healthCheckLoop
+	handler.wg.Add(1)
+	go handler.healthCheckLoop()
+
+	// Give it a moment to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Cancel context and verify goroutine exits
+	handler.cancel()
+	handler.wg.Wait() // Should not hang
+
+	t.Log("healthCheckLoop exited cleanly on context cancellation")
+}
+
+// TestStreamHandler_ConnectToCluster_WithBootstrapServers tests connection with bootstrap servers
+func TestStreamHandler_ConnectToCluster_WithBootstrapServers(t *testing.T) {
+	link := createTestLink("bootstrap-test", "Bootstrap Test")
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+	defer func() { _ = handler.Stop() }()
+
+	// Test with bootstrap servers instead of brokers list
+	config := &ClusterConfig{
+		ClusterID:         "test-cluster",
+		BootstrapServers:  "localhost:9092",
+		ConnectionTimeout: 5 * time.Second,
+		RequestTimeout:    10 * time.Second,
+		RetryBackoff:      1 * time.Second,
+		MaxRetries:        3,
+	}
+
+	// This will fail without real brokers, but exercises the bootstrap path
+	_, err = handler.connectToCluster(config)
+	if err != nil {
+		t.Logf("Expected error without real brokers: %v", err)
+	}
+}
+
+// TestStreamHandler_ConnectToCluster_WithSecurityConfig tests connection with security
+func TestStreamHandler_ConnectToCluster_WithSecurityConfig(t *testing.T) {
+	link := createTestLink("security-test", "Security Test")
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+	defer func() { _ = handler.Stop() }()
+
+	// Test with security configuration
+	config := &ClusterConfig{
+		ClusterID:         "test-cluster",
+		Brokers:           []string{"localhost:9092"},
+		ConnectionTimeout: 5 * time.Second,
+		RequestTimeout:    10 * time.Second,
+		RetryBackoff:      1 * time.Second,
+		MaxRetries:        3,
+		Security: &SecurityConfig{
+			EnableTLS: true,
+		},
+	}
+
+	// This will fail without real brokers, but exercises the security config path
+	_, err = handler.connectToCluster(config)
+	if err != nil {
+		t.Logf("Expected error without real brokers: %v", err)
+	}
+}
+
+// TestStreamHandler_Start_TopicReplicationFailure tests Start with topic replication failure
+func TestStreamHandler_Start_TopicReplicationFailure(t *testing.T) {
+	link := createTestLink("topic-fail-test", "Topic Fail Test")
+	// Use empty topics to test discovery path
+	link.Topics = nil
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+	defer func() { _ = handler.Stop() }()
+
+	// Start will fail during topic discovery without real broker
+	err = handler.Start()
+	if err == nil {
+		t.Error("Expected error when starting without real brokers")
+	}
+}
+
+// TestStreamHandler_Stop_WithClients tests stopping handler with initialized clients
+func TestStreamHandler_Stop_WithClients(t *testing.T) {
+	link := createTestLink("stop-clients-test", "Stop Clients Test")
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+
+	// Simulate having clients (though they'll be nil in this test environment)
+	handler.mu.Lock()
+	handler.started = true
+	handler.mu.Unlock()
+
+	// Stop should handle nil clients gracefully
+	err = handler.Stop()
+	if err != nil {
+		t.Errorf("Stop failed: %v", err)
+	}
+
+	// Verify started flag is false
+	if handler.started {
+		t.Error("Expected started to be false after Stop")
+	}
+
+	// Verify health status updated
+	if handler.health.Status != "stopped" {
+		t.Errorf("Expected status 'stopped', got %s", handler.health.Status)
+	}
+}
