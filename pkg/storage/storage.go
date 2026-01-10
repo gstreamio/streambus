@@ -58,6 +58,12 @@ type Log interface {
 	// EndOffset returns the last offset + 1
 	EndOffset() Offset
 
+	// FindOffsetByTimestamp finds the first offset whose message timestamp is >= the given timestamp.
+	// Returns the offset and the actual timestamp of that message.
+	// If no message is found at or after the timestamp, returns EndOffset() and zero timestamp.
+	// timestamp is in Unix nanoseconds.
+	FindOffsetByTimestamp(timestamp int64) (Offset, int64, error)
+
 	// Flush flushes pending writes
 	Flush() error
 

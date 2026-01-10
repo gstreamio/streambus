@@ -12,7 +12,15 @@ const (
 // Message size limits
 const (
 	MaxMessageSize = 1024 * 1024 * 10 // 10MB
-	HeaderSize     = 20                // Length(4) + RequestID(8) + Type(1) + Version(1) + Flags(2) + CRC32(4)
+	HeaderSize     = 20               // Length(4) + RequestID(8) + Type(1) + Version(1) + Flags(2) + CRC32(4)
+)
+
+// Offset timestamp constants (Kafka-compatible)
+// These are used in GetOffsetRequest.Timestamp to request specific offsets
+const (
+	OffsetLatest      int64 = -1 // Return the latest offset (log end offset)
+	OffsetEarliest    int64 = -2 // Return the earliest offset (log start offset)
+	OffsetMaxTimestamp int64 = -3 // Return offset with max timestamp (not yet implemented)
 )
 
 // RequestType represents the type of request
@@ -146,10 +154,13 @@ const (
 	ErrTransactionAborted                   ErrorCode = 38
 	ErrInvalidPartitionList                 ErrorCode = 39
 	// Security error codes
-	ErrAuthenticationFailed                 ErrorCode = 40
-	ErrAuthorizationFailed                  ErrorCode = 41
-	ErrInvalidCredentials                   ErrorCode = 42
-	ErrAccountDisabled                      ErrorCode = 43
+	ErrAuthenticationFailed ErrorCode = 40
+	ErrAuthorizationFailed  ErrorCode = 41
+	ErrInvalidCredentials   ErrorCode = 42
+	ErrAccountDisabled      ErrorCode = 43
+	// Leader epoch error codes
+	ErrFencedLeaderEpoch ErrorCode = 50 // Leader epoch is fenced (stale producer/consumer)
+	ErrUnknownLeaderEpoch ErrorCode = 51 // Unknown leader epoch
 )
 
 // String returns the string representation of ErrorCode
@@ -229,6 +240,10 @@ func (e ErrorCode) String() string {
 		return "InvalidCredentials"
 	case ErrAccountDisabled:
 		return "AccountDisabled"
+	case ErrFencedLeaderEpoch:
+		return "FencedLeaderEpoch"
+	case ErrUnknownLeaderEpoch:
+		return "UnknownLeaderEpoch"
 	default:
 		return fmt.Sprintf("Unknown(%d)", e)
 	}

@@ -781,3 +781,355 @@ func TestHandler_handleProduce_InvalidPartition(t *testing.T) {
 		t.Errorf("Expected ErrTopicNotFound, got %v", resp.Header.ErrorCode)
 	}
 }
+
+// TestHandler_handleGetOffset_OffsetLatest tests LATEST timestamp query
+func TestHandler_handleGetOffset_OffsetLatest(t *testing.T) {
+	tempDir := t.TempDir()
+	handler := NewHandlerWithDataDir(tempDir)
+	defer handler.Close()
+
+	// Create topic and produce messages
+	createReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 1,
+			Type:      protocol.RequestTypeCreateTopic,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.CreateTopicRequest{
+			Topic:         "timestamp-test",
+			NumPartitions: 1,
+		},
+	}
+	handler.Handle(createReq)
+
+	// Produce some messages
+	produceReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 2,
+			Type:      protocol.RequestTypeProduce,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.ProduceRequest{
+			Topic:       "timestamp-test",
+			PartitionID: 0,
+			Messages: []protocol.Message{
+				{Key: []byte("k1"), Value: []byte("v1"), Timestamp: time.Now().UnixNano()},
+				{Key: []byte("k2"), Value: []byte("v2"), Timestamp: time.Now().UnixNano()},
+				{Key: []byte("k3"), Value: []byte("v3"), Timestamp: time.Now().UnixNano()},
+			},
+		},
+	}
+	handler.Handle(produceReq)
+
+	// Query with OffsetLatest
+	getOffsetReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 3,
+			Type:      protocol.RequestTypeGetOffset,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.GetOffsetRequest{
+			Topic:       "timestamp-test",
+			PartitionID: 0,
+			Timestamp:   protocol.OffsetLatest,
+		},
+	}
+
+	resp := handler.Handle(getOffsetReq)
+	if resp.Header.Status != protocol.StatusOK {
+		t.Fatalf("handleGetOffset with OffsetLatest failed: %v", resp.Payload)
+	}
+
+	offsetResp := resp.Payload.(*protocol.GetOffsetResponse)
+	if offsetResp.Offset != offsetResp.EndOffset {
+		t.Errorf("OffsetLatest should return EndOffset, got Offset=%d, EndOffset=%d",
+			offsetResp.Offset, offsetResp.EndOffset)
+	}
+}
+
+// TestHandler_handleGetOffset_OffsetEarliest tests EARLIEST timestamp query
+func TestHandler_handleGetOffset_OffsetEarliest(t *testing.T) {
+	tempDir := t.TempDir()
+	handler := NewHandlerWithDataDir(tempDir)
+	defer handler.Close()
+
+	// Create topic and produce messages
+	createReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 1,
+			Type:      protocol.RequestTypeCreateTopic,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.CreateTopicRequest{
+			Topic:         "earliest-test",
+			NumPartitions: 1,
+		},
+	}
+	handler.Handle(createReq)
+
+	// Produce some messages
+	produceReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 2,
+			Type:      protocol.RequestTypeProduce,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.ProduceRequest{
+			Topic:       "earliest-test",
+			PartitionID: 0,
+			Messages: []protocol.Message{
+				{Key: []byte("k1"), Value: []byte("v1"), Timestamp: time.Now().UnixNano()},
+			},
+		},
+	}
+	handler.Handle(produceReq)
+
+	// Query with OffsetEarliest
+	getOffsetReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 3,
+			Type:      protocol.RequestTypeGetOffset,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.GetOffsetRequest{
+			Topic:       "earliest-test",
+			PartitionID: 0,
+			Timestamp:   protocol.OffsetEarliest,
+		},
+	}
+
+	resp := handler.Handle(getOffsetReq)
+	if resp.Header.Status != protocol.StatusOK {
+		t.Fatalf("handleGetOffset with OffsetEarliest failed: %v", resp.Payload)
+	}
+
+	offsetResp := resp.Payload.(*protocol.GetOffsetResponse)
+	if offsetResp.Offset != offsetResp.StartOffset {
+		t.Errorf("OffsetEarliest should return StartOffset, got Offset=%d, StartOffset=%d",
+			offsetResp.Offset, offsetResp.StartOffset)
+	}
+}
+
+// TestHandler_handleGetOffset_TimestampQuery tests timestamp-based queries
+func TestHandler_handleGetOffset_TimestampQuery(t *testing.T) {
+	tempDir := t.TempDir()
+	handler := NewHandlerWithDataDir(tempDir)
+	defer handler.Close()
+
+	// Create topic
+	createReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 1,
+			Type:      protocol.RequestTypeCreateTopic,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.CreateTopicRequest{
+			Topic:         "ts-query-test",
+			NumPartitions: 1,
+		},
+	}
+	handler.Handle(createReq)
+
+	// Produce messages with specific timestamps
+	baseTime := time.Now()
+	produceReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 2,
+			Type:      protocol.RequestTypeProduce,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.ProduceRequest{
+			Topic:       "ts-query-test",
+			PartitionID: 0,
+			Messages: []protocol.Message{
+				{Key: []byte("k1"), Value: []byte("v1"), Timestamp: baseTime.UnixNano()},
+				{Key: []byte("k2"), Value: []byte("v2"), Timestamp: baseTime.Add(time.Second).UnixNano()},
+				{Key: []byte("k3"), Value: []byte("v3"), Timestamp: baseTime.Add(2 * time.Second).UnixNano()},
+			},
+		},
+	}
+	handler.Handle(produceReq)
+
+	// Query with timestamp in the middle
+	getOffsetReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 3,
+			Type:      protocol.RequestTypeGetOffset,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.GetOffsetRequest{
+			Topic:       "ts-query-test",
+			PartitionID: 0,
+			Timestamp:   baseTime.Add(time.Second).UnixNano(),
+		},
+	}
+
+	resp := handler.Handle(getOffsetReq)
+	if resp.Header.Status != protocol.StatusOK {
+		t.Fatalf("handleGetOffset with timestamp failed: %v", resp.Payload)
+	}
+
+	offsetResp := resp.Payload.(*protocol.GetOffsetResponse)
+	// Should find offset 1 (second message)
+	if offsetResp.Offset != 1 {
+		t.Errorf("Expected offset 1 for timestamp query, got %d", offsetResp.Offset)
+	}
+}
+
+// TestHandler_handleGetOffset_LeaderEpochInResponse tests LeaderEpoch is returned
+func TestHandler_handleGetOffset_LeaderEpochInResponse(t *testing.T) {
+	tempDir := t.TempDir()
+	handler := NewHandlerWithDataDir(tempDir)
+	defer handler.Close()
+
+	// Create topic
+	createReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 1,
+			Type:      protocol.RequestTypeCreateTopic,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.CreateTopicRequest{
+			Topic:         "epoch-test",
+			NumPartitions: 1,
+		},
+	}
+	handler.Handle(createReq)
+
+	// Query offset
+	getOffsetReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 2,
+			Type:      protocol.RequestTypeGetOffset,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.GetOffsetRequest{
+			Topic:       "epoch-test",
+			PartitionID: 0,
+			Timestamp:   protocol.OffsetLatest,
+		},
+	}
+
+	resp := handler.Handle(getOffsetReq)
+	if resp.Header.Status != protocol.StatusOK {
+		t.Fatalf("handleGetOffset failed: %v", resp.Payload)
+	}
+
+	offsetResp := resp.Payload.(*protocol.GetOffsetResponse)
+	// LeaderEpoch should be present (0 in single-broker mode)
+	if offsetResp.LeaderEpoch < 0 {
+		t.Errorf("LeaderEpoch should be >= 0, got %d", offsetResp.LeaderEpoch)
+	}
+}
+
+// TestHandler_handleProduce_LeaderEpochInResponse tests LeaderEpoch is returned in produce response
+func TestHandler_handleProduce_LeaderEpochInResponse(t *testing.T) {
+	tempDir := t.TempDir()
+	handler := NewHandlerWithDataDir(tempDir)
+	defer handler.Close()
+
+	// Create topic
+	createReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 1,
+			Type:      protocol.RequestTypeCreateTopic,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.CreateTopicRequest{
+			Topic:         "produce-epoch-test",
+			NumPartitions: 1,
+		},
+	}
+	handler.Handle(createReq)
+
+	// Produce with LeaderEpoch in request
+	produceReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 2,
+			Type:      protocol.RequestTypeProduce,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.ProduceRequest{
+			Topic:       "produce-epoch-test",
+			PartitionID: 0,
+			Messages: []protocol.Message{
+				{Key: []byte("k1"), Value: []byte("v1"), Timestamp: time.Now().UnixNano()},
+			},
+			LeaderEpoch: 0, // Client sends expected epoch
+		},
+	}
+
+	resp := handler.Handle(produceReq)
+	if resp.Header.Status != protocol.StatusOK {
+		t.Fatalf("handleProduce failed: %v", resp.Payload)
+	}
+
+	produceResp := resp.Payload.(*protocol.ProduceResponse)
+	// LeaderEpoch should be present in response
+	if produceResp.LeaderEpoch < 0 {
+		t.Errorf("LeaderEpoch should be >= 0, got %d", produceResp.LeaderEpoch)
+	}
+}
+
+// TestHandler_handleGetOffset_ZeroTimestamp tests backward compatibility (timestamp=0)
+func TestHandler_handleGetOffset_ZeroTimestamp(t *testing.T) {
+	tempDir := t.TempDir()
+	handler := NewHandlerWithDataDir(tempDir)
+	defer handler.Close()
+
+	// Create topic and produce messages
+	createReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 1,
+			Type:      protocol.RequestTypeCreateTopic,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.CreateTopicRequest{
+			Topic:         "zero-ts-test",
+			NumPartitions: 1,
+		},
+	}
+	handler.Handle(createReq)
+
+	produceReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 2,
+			Type:      protocol.RequestTypeProduce,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.ProduceRequest{
+			Topic:       "zero-ts-test",
+			PartitionID: 0,
+			Messages: []protocol.Message{
+				{Key: []byte("k1"), Value: []byte("v1")},
+			},
+		},
+	}
+	handler.Handle(produceReq)
+
+	// Query with timestamp=0 (backward compatible - should return earliest)
+	getOffsetReq := &protocol.Request{
+		Header: protocol.RequestHeader{
+			RequestID: 3,
+			Type:      protocol.RequestTypeGetOffset,
+			Version:   protocol.ProtocolVersion,
+		},
+		Payload: &protocol.GetOffsetRequest{
+			Topic:       "zero-ts-test",
+			PartitionID: 0,
+			Timestamp:   0,
+		},
+	}
+
+	resp := handler.Handle(getOffsetReq)
+	if resp.Header.Status != protocol.StatusOK {
+		t.Fatalf("handleGetOffset with timestamp=0 failed: %v", resp.Payload)
+	}
+
+	offsetResp := resp.Payload.(*protocol.GetOffsetResponse)
+	// Timestamp 0 should return StartOffset for backward compatibility
+	if offsetResp.Offset != offsetResp.StartOffset {
+		t.Errorf("Timestamp=0 should return StartOffset, got Offset=%d, StartOffset=%d",
+			offsetResp.Offset, offsetResp.StartOffset)
+	}
+}

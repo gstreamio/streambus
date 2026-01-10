@@ -112,6 +112,11 @@ func (h *Handler) handleProduce(req *protocol.Request) *protocol.Response {
 	baseOffset := int64(offsets[0])
 	highWaterMark := int64(partition.log.HighWaterMark())
 
+	// TODO: When replication is implemented, validate LeaderEpoch from request
+	// against current partition leader epoch. If mismatch, return ErrFencedLeaderEpoch.
+	// For now, we return epoch 0 (single broker mode).
+	var currentLeaderEpoch int64 = 0
+
 	resp := &protocol.Response{
 		Header: protocol.ResponseHeader{
 			RequestID: req.Header.RequestID,
@@ -124,6 +129,7 @@ func (h *Handler) handleProduce(req *protocol.Request) *protocol.Response {
 			BaseOffset:    baseOffset,
 			NumMessages:   uint32(len(payload.Messages)),
 			HighWaterMark: highWaterMark,
+			LeaderEpoch:   currentLeaderEpoch,
 		},
 	}
 
@@ -198,6 +204,7 @@ func (h *Handler) handleFetch(req *protocol.Request) *protocol.Response {
 }
 
 // handleGetOffset handles a get offset request
+// Supports timestamp-based offset lookup (Kafka ListOffsets compatible)
 func (h *Handler) handleGetOffset(req *protocol.Request) *protocol.Response {
 	payload := req.Payload.(*protocol.GetOffsetRequest)
 
@@ -207,10 +214,46 @@ func (h *Handler) handleGetOffset(req *protocol.Request) *protocol.Response {
 		return h.errorResponse(req.Header.RequestID, protocol.ErrTopicNotFound, err.Error())
 	}
 
-	// Get start and end offsets from log
+	// Get base offsets from log
 	startOffset := int64(partition.log.StartOffset())
 	endOffset := int64(partition.log.EndOffset())
 	highWaterMark := int64(partition.log.HighWaterMark())
+
+	var resultOffset int64
+	var resultTimestamp int64
+
+	// Handle timestamp-based queries
+	switch payload.Timestamp {
+	case protocol.OffsetLatest, 0:
+		// Return latest offset (log end offset)
+		// Note: 0 is treated as OffsetLatest for backward compatibility
+		if payload.Timestamp == 0 && startOffset < endOffset {
+			// For backward compatibility, timestamp 0 returns earliest
+			resultOffset = startOffset
+		} else {
+			resultOffset = endOffset
+		}
+	case protocol.OffsetEarliest:
+		// Return earliest offset (log start offset)
+		resultOffset = startOffset
+	case protocol.OffsetMaxTimestamp:
+		// Not yet implemented - return end offset
+		resultOffset = endOffset
+	default:
+		// Timestamp-based query: find first offset >= timestamp
+		if payload.Timestamp > 0 {
+			offset, timestamp, err := partition.log.FindOffsetByTimestamp(payload.Timestamp)
+			if err != nil {
+				return h.errorResponse(req.Header.RequestID, protocol.ErrStorageError,
+					fmt.Sprintf("failed to find offset by timestamp: %v", err))
+			}
+			resultOffset = int64(offset)
+			resultTimestamp = timestamp
+		} else {
+			// Invalid timestamp, return earliest
+			resultOffset = startOffset
+		}
+	}
 
 	resp := &protocol.Response{
 		Header: protocol.ResponseHeader{
@@ -224,6 +267,9 @@ func (h *Handler) handleGetOffset(req *protocol.Request) *protocol.Response {
 			StartOffset:   startOffset,
 			EndOffset:     endOffset,
 			HighWaterMark: highWaterMark,
+			Offset:        resultOffset,
+			Timestamp:     resultTimestamp,
+			LeaderEpoch:   0, // TODO: Get from partition metadata when replication is implemented
 		},
 	}
 

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gstreamio/streambus/pkg/logger"
 	"go.uber.org/zap"
@@ -305,6 +306,109 @@ func (l *logImpl) Delete(beforeOffset Offset) error {
 	return nil
 }
 
+// FindOffsetByTimestamp finds the first offset whose message timestamp is >= the given timestamp.
+// Uses binary search for efficiency when possible, falls back to linear scan.
+// Returns (offset, actualTimestamp, error).
+func (l *logImpl) FindOffsetByTimestamp(targetTimestamp int64) (Offset, int64, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	if l.closed {
+		return 0, 0, ErrLogClosed
+	}
+
+	startOff := Offset(atomic.LoadInt64(&l.logStartOffset))
+	endOff := Offset(atomic.LoadInt64(&l.highWaterMark))
+
+	// Empty log
+	if startOff >= endOff {
+		return endOff, 0, nil
+	}
+
+	// Binary search for the target timestamp
+	// We're looking for the first message with timestamp >= targetTimestamp
+	low := startOff
+	high := endOff - 1
+	result := endOff // Default to end if not found
+	var resultTimestamp int64
+
+	for low <= high {
+		mid := low + (high-low)/2
+
+		// Read the message at mid offset
+		msg, err := l.readMessageAt(mid)
+		if err != nil {
+			// If we can't read this offset, try linear scan from low
+			break
+		}
+
+		msgTimestamp := msg.Timestamp.UnixNano()
+
+		if msgTimestamp >= targetTimestamp {
+			// This message is at or after target, but there might be an earlier one
+			result = mid
+			resultTimestamp = msgTimestamp
+			high = mid - 1
+		} else {
+			// This message is before target, search later
+			low = mid + 1
+		}
+	}
+
+	// If binary search didn't find anything, fall back to linear scan
+	if result == endOff && resultTimestamp == 0 {
+		for offset := startOff; offset < endOff; offset++ {
+			msg, err := l.readMessageAt(offset)
+			if err != nil {
+				continue
+			}
+			msgTimestamp := msg.Timestamp.UnixNano()
+			if msgTimestamp >= targetTimestamp {
+				return offset, msgTimestamp, nil
+			}
+		}
+	}
+
+	return result, resultTimestamp, nil
+}
+
+// readMessageAt reads a single message at the given offset (internal helper)
+// Caller must hold at least read lock
+func (l *logImpl) readMessageAt(offset Offset) (*Message, error) {
+	key := offsetToKey(offset)
+
+	// Check active memtable
+	value, found, err := l.activeMemTable.Get(key)
+	if err != nil {
+		return nil, err
+	}
+
+	if !found {
+		// Check immutable memtables
+		for _, mt := range l.immutableMemTables {
+			value, found, err = mt.Get(key)
+			if err != nil {
+				return nil, err
+			}
+			if found {
+				break
+			}
+		}
+	}
+
+	if !found {
+		// Try WAL
+		value, err = l.wal.Read(offset)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	msg := l.deserializeMessage(value)
+	msg.Offset = offset
+	return msg, nil
+}
+
 func (l *logImpl) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -446,11 +550,15 @@ func (l *logImpl) deserializeBatch(data []byte) (*MessageBatch, error) {
 }
 
 // serializeMessage serializes a single message
+// Format: [Timestamp:8][KeyLen:4][Key:n][ValueLen:4][Value:n]
 func (l *logImpl) serializeMessage(msg *Message) []byte {
-	// [KeyLen:4][Key:n][ValueLen:4][Value:n]
-	size := 4 + len(msg.Key) + 4 + len(msg.Value)
+	size := 8 + 4 + len(msg.Key) + 4 + len(msg.Value) // Added 8 bytes for timestamp
 	buf := make([]byte, size)
 	offset := 0
+
+	// Timestamp (Unix nanoseconds)
+	binary.BigEndian.PutUint64(buf[offset:], uint64(msg.Timestamp.UnixNano()))
+	offset += 8
 
 	binary.BigEndian.PutUint32(buf[offset:], uint32(len(msg.Key)))
 	offset += 4
@@ -465,8 +573,27 @@ func (l *logImpl) serializeMessage(msg *Message) []byte {
 }
 
 // deserializeMessage deserializes a single message
+// Format: [Timestamp:8][KeyLen:4][Key:n][ValueLen:4][Value:n]
+// Note: Handles backward compatibility with old format without timestamp
 func (l *logImpl) deserializeMessage(data []byte) *Message {
 	offset := 0
+	var timestamp time.Time
+
+	// Check if data has timestamp (new format: timestamp first, then keyLen)
+	// Old format: keyLen would be first 4 bytes
+	// New format: timestamp is first 8 bytes
+	// We can distinguish by checking if the first 4 bytes represent a reasonable key length
+	if len(data) >= 8 {
+		// Try to detect format by checking if first 8 bytes look like a timestamp
+		// A reasonable key length should be < 1MB (1048576)
+		possibleKeyLen := binary.BigEndian.Uint32(data[0:4])
+		if possibleKeyLen > 1048576 || len(data) < 8+4 {
+			// Looks like new format with timestamp
+			timestamp = time.Unix(0, int64(binary.BigEndian.Uint64(data[offset:])))
+			offset += 8
+		}
+		// else: old format, no timestamp
+	}
 
 	// Key
 	keyLen := binary.BigEndian.Uint32(data[offset:])
@@ -482,8 +609,9 @@ func (l *logImpl) deserializeMessage(data []byte) *Message {
 	copy(value, data[offset:offset+int(valueLen)])
 
 	return &Message{
-		Key:   key,
-		Value: value,
+		Key:       key,
+		Value:     value,
+		Timestamp: timestamp,
 	}
 }
 

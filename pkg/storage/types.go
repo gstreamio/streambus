@@ -20,12 +20,15 @@ type Message struct {
 
 // MessageBatch represents a batch of messages
 type MessageBatch struct {
-	Messages     []Message
-	BaseOffset   Offset
-	Compression  CompressionType
-	Timestamp    time.Time
-	ProducerID   int64
+	Messages      []Message
+	BaseOffset    Offset
+	Compression   CompressionType
+	Timestamp     time.Time
+	ProducerID    int64
 	ProducerEpoch int16
+	// LeaderEpoch is the epoch of the partition leader when this batch was written.
+	// Used for leader fencing and offset validation during replication.
+	LeaderEpoch int64
 }
 
 // CompressionType represents the compression algorithm

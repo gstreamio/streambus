@@ -56,7 +56,7 @@ func DefaultCoordinatorConfig() CoordinatorConfig {
 		MinSessionTimeoutMs:       6000,  // 6 seconds
 		MaxSessionTimeoutMs:       300000, // 5 minutes
 		HeartbeatCheckIntervalMs:  3000,  // 3 seconds
-		OffsetRetentionMs:         86400000, // 24 hours
+		OffsetRetentionMs:         604800000, // 7 days (Kafka default)
 	}
 }
 

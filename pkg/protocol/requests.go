@@ -22,6 +22,10 @@ type ProduceRequest struct {
 	Messages    []Message
 	Acks        AcksLevel // Acknowledgment level (0, 1, or -1)
 	TimeoutMs   int32     // Timeout for acks=all (default: 30000)
+	// LeaderEpoch is the expected leader epoch for this partition.
+	// If set (> 0) and doesn't match current leader epoch, request is rejected
+	// with ErrFencedLeaderEpoch. This prevents split-brain scenarios.
+	LeaderEpoch int64
 }
 
 // FetchRequest represents a fetch request
@@ -33,9 +37,17 @@ type FetchRequest struct {
 }
 
 // GetOffsetRequest represents a get offset request
+// Supports timestamp-based offset lookup (Kafka ListOffsets compatible)
 type GetOffsetRequest struct {
 	Topic       string
 	PartitionID uint32
+	// Timestamp for offset lookup:
+	// - OffsetLatest (-1): returns log end offset
+	// - OffsetEarliest (-2): returns log start offset
+	// - OffsetMaxTimestamp (-3): returns offset with max timestamp
+	// - Positive value: returns first offset >= timestamp (Unix nanoseconds)
+	// - 0: returns earliest offset (same as OffsetEarliest)
+	Timestamp int64
 }
 
 // CreateTopicRequest represents a create topic request

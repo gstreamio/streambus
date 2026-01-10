@@ -1018,6 +1018,59 @@ func TestCheckExpiredMembers_Direct(t *testing.T) {
 	assert.Equal(t, GroupStateEmpty, group.State)
 }
 
+// TestDefaultCoordinatorConfig_OffsetRetention tests the 7-day default retention
+func TestDefaultCoordinatorConfig_OffsetRetention(t *testing.T) {
+	config := DefaultCoordinatorConfig()
+
+	// Verify offset retention is 7 days (604800000 milliseconds)
+	expectedMs := int64(604800000) // 7 days in milliseconds
+	assert.Equal(t, expectedMs, config.OffsetRetentionMs, "Default offset retention should be 7 days (Kafka default)")
+
+	// Verify in human-readable terms
+	sevenDaysMs := int64(7 * 24 * 60 * 60 * 1000)
+	assert.Equal(t, sevenDaysMs, config.OffsetRetentionMs, "7 days = 604800000 ms")
+}
+
+// TestOffsetAndMetadata_LeaderEpochField tests the LeaderEpoch field in OffsetAndMetadata
+func TestOffsetAndMetadata_LeaderEpochField(t *testing.T) {
+	now := time.Now()
+	offset := OffsetAndMetadata{
+		Offset:      100,
+		Metadata:    "test-metadata",
+		CommitTime:  now,
+		ExpireTime:  now.Add(7 * 24 * time.Hour),
+		LeaderEpoch: 5,
+	}
+
+	assert.Equal(t, int64(100), offset.Offset)
+	assert.Equal(t, "test-metadata", offset.Metadata)
+	assert.Equal(t, int64(5), offset.LeaderEpoch)
+}
+
+// TestOffsetCommit_WithLeaderEpoch tests offset commit preserving LeaderEpoch
+func TestOffsetCommit_WithLeaderEpoch(t *testing.T) {
+	storage := NewMemoryOffsetStorage()
+
+	// Store offset with LeaderEpoch
+	offset := &OffsetAndMetadata{
+		Offset:      500,
+		Metadata:    "test-with-epoch",
+		CommitTime:  time.Now(),
+		ExpireTime:  time.Now().Add(7 * 24 * time.Hour),
+		LeaderEpoch: 10,
+	}
+
+	err := storage.StoreOffset("test-group", "test-topic", 0, offset)
+	require.NoError(t, err)
+
+	// Fetch and verify LeaderEpoch is preserved
+	fetched, err := storage.FetchOffset("test-group", "test-topic", 0)
+	require.NoError(t, err)
+	require.NotNil(t, fetched)
+	assert.Equal(t, int64(500), fetched.Offset)
+	assert.Equal(t, int64(10), fetched.LeaderEpoch)
+}
+
 // TestCheckExpiredMembers_MultiMember tests expiration with multiple members
 func TestCheckExpiredMembers_MultiMember(t *testing.T) {
 	storage := NewMemoryOffsetStorage()

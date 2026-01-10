@@ -785,7 +785,7 @@ func TestLogImpl_DeserializeBatch(t *testing.T) {
 
 func TestLogImpl_DeserializeBatch_InvalidData(t *testing.T) {
 	dir := t.TempDir()
-	
+
 	config := Config{
 		DataDir: dir,
 		WAL: WALConfig{
@@ -798,18 +798,396 @@ func TestLogImpl_DeserializeBatch_InvalidData(t *testing.T) {
 			NumImmutable: 2,
 		},
 	}
-	
+
 	logInst, err := NewLog(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create log: %v", err)
 	}
 	defer logInst.Close()
-	
+
 	impl := logInst.(*logImpl)
-	
+
 	// Test with too-short data
 	_, err = impl.deserializeBatch([]byte{0, 1})
 	if err == nil {
 		t.Error("Expected error for invalid data, got nil")
+	}
+}
+
+func TestLog_FindOffsetByTimestamp(t *testing.T) {
+	dir := t.TempDir()
+
+	config := Config{
+		DataDir: dir,
+		WAL: WALConfig{
+			SegmentSize:   1024 * 1024,
+			FsyncPolicy:   FsyncNever,
+			FsyncInterval: time.Second,
+		},
+		MemTable: MemTableConfig{
+			MaxSize:      1024 * 1024,
+			NumImmutable: 2,
+		},
+	}
+
+	log, err := NewLog(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create log: %v", err)
+	}
+	defer log.Close()
+
+	// Create messages with known timestamps
+	baseTime := time.Now()
+	batch := &MessageBatch{
+		Messages: []Message{
+			{Key: []byte("key1"), Value: []byte("value1"), Timestamp: baseTime},
+			{Key: []byte("key2"), Value: []byte("value2"), Timestamp: baseTime.Add(time.Second)},
+			{Key: []byte("key3"), Value: []byte("value3"), Timestamp: baseTime.Add(2 * time.Second)},
+			{Key: []byte("key4"), Value: []byte("value4"), Timestamp: baseTime.Add(3 * time.Second)},
+			{Key: []byte("key5"), Value: []byte("value5"), Timestamp: baseTime.Add(4 * time.Second)},
+		},
+	}
+
+	// Append the batch
+	_, err = log.Append(batch)
+	if err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+
+	// Test finding offset by exact timestamp
+	offset, ts, err := log.FindOffsetByTimestamp(baseTime.Add(2 * time.Second).UnixNano())
+	if err != nil {
+		t.Fatalf("FindOffsetByTimestamp failed: %v", err)
+	}
+	if offset != 2 {
+		t.Errorf("Expected offset 2 for exact timestamp, got %d", offset)
+	}
+	if ts != baseTime.Add(2*time.Second).UnixNano() {
+		t.Errorf("Expected timestamp %d, got %d", baseTime.Add(2*time.Second).UnixNano(), ts)
+	}
+
+	// Test finding offset for timestamp between messages (should return next message)
+	offset, _, err = log.FindOffsetByTimestamp(baseTime.Add(1500 * time.Millisecond).UnixNano())
+	if err != nil {
+		t.Fatalf("FindOffsetByTimestamp failed: %v", err)
+	}
+	if offset != 2 {
+		t.Errorf("Expected offset 2 for in-between timestamp, got %d", offset)
+	}
+
+	// Test finding offset for timestamp before all messages
+	offset, _, err = log.FindOffsetByTimestamp(baseTime.Add(-time.Hour).UnixNano())
+	if err != nil {
+		t.Fatalf("FindOffsetByTimestamp failed: %v", err)
+	}
+	if offset != 0 {
+		t.Errorf("Expected offset 0 for early timestamp, got %d", offset)
+	}
+
+	// Test finding offset for timestamp after all messages (should return end offset)
+	offset, _, err = log.FindOffsetByTimestamp(baseTime.Add(time.Hour).UnixNano())
+	if err != nil {
+		t.Fatalf("FindOffsetByTimestamp failed: %v", err)
+	}
+	if offset != 5 {
+		t.Errorf("Expected offset 5 (end offset) for late timestamp, got %d", offset)
+	}
+}
+
+func TestLog_FindOffsetByTimestamp_EmptyLog(t *testing.T) {
+	dir := t.TempDir()
+
+	config := Config{
+		DataDir: dir,
+		WAL: WALConfig{
+			SegmentSize:   1024 * 1024,
+			FsyncPolicy:   FsyncNever,
+			FsyncInterval: time.Second,
+		},
+		MemTable: MemTableConfig{
+			MaxSize:      1024 * 1024,
+			NumImmutable: 2,
+		},
+	}
+
+	log, err := NewLog(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create log: %v", err)
+	}
+	defer log.Close()
+
+	// Test on empty log
+	offset, ts, err := log.FindOffsetByTimestamp(time.Now().UnixNano())
+	if err != nil {
+		t.Fatalf("FindOffsetByTimestamp on empty log failed: %v", err)
+	}
+	if offset != 0 {
+		t.Errorf("Expected offset 0 for empty log, got %d", offset)
+	}
+	if ts != 0 {
+		t.Errorf("Expected timestamp 0 for empty log, got %d", ts)
+	}
+}
+
+func TestLog_MessageTimestampSerialization(t *testing.T) {
+	dir := t.TempDir()
+
+	config := Config{
+		DataDir: dir,
+		WAL: WALConfig{
+			SegmentSize:   1024 * 1024,
+			FsyncPolicy:   FsyncNever,
+			FsyncInterval: time.Second,
+		},
+		MemTable: MemTableConfig{
+			MaxSize:      1024 * 1024,
+			NumImmutable: 2,
+		},
+	}
+
+	log, err := NewLog(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create log: %v", err)
+	}
+	defer log.Close()
+
+	// Create message with specific timestamp
+	expectedTimestamp := time.Date(2025, 6, 15, 10, 30, 0, 0, time.UTC)
+	batch := &MessageBatch{
+		Messages: []Message{
+			{Key: []byte("key1"), Value: []byte("value1"), Timestamp: expectedTimestamp},
+		},
+	}
+
+	// Append the batch
+	_, err = log.Append(batch)
+	if err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+
+	// Read the message back
+	messages, err := log.Read(0, 1024)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	if len(messages) != 1 {
+		t.Fatalf("Expected 1 message, got %d", len(messages))
+	}
+
+	// Verify timestamp was preserved
+	if !messages[0].Timestamp.Equal(expectedTimestamp) {
+		t.Errorf("Timestamp not preserved: expected %v, got %v", expectedTimestamp, messages[0].Timestamp)
+	}
+}
+
+func TestLog_FindOffsetByTimestamp_BoundaryConditions(t *testing.T) {
+	dir := t.TempDir()
+
+	config := Config{
+		DataDir: dir,
+		WAL: WALConfig{
+			SegmentSize:   1024 * 1024,
+			FsyncPolicy:   FsyncNever,
+			FsyncInterval: time.Second,
+		},
+		MemTable: MemTableConfig{
+			MaxSize:      1024 * 1024,
+			NumImmutable: 2,
+		},
+	}
+
+	log, err := NewLog(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create log: %v", err)
+	}
+	defer log.Close()
+
+	// Create messages with specific timestamps
+	baseTime := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
+	batch := &MessageBatch{
+		Messages: []Message{
+			{Key: []byte("key0"), Value: []byte("value0"), Timestamp: baseTime},
+			{Key: []byte("key1"), Value: []byte("value1"), Timestamp: baseTime.Add(10 * time.Second)},
+			{Key: []byte("key2"), Value: []byte("value2"), Timestamp: baseTime.Add(20 * time.Second)},
+		},
+	}
+
+	_, err = log.Append(batch)
+	if err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+
+	// Test: Exact first message timestamp
+	offset, ts, err := log.FindOffsetByTimestamp(baseTime.UnixNano())
+	if err != nil {
+		t.Fatalf("FindOffsetByTimestamp failed: %v", err)
+	}
+	if offset != 0 {
+		t.Errorf("Expected offset 0 for first timestamp, got %d", offset)
+	}
+	if ts != baseTime.UnixNano() {
+		t.Errorf("Expected timestamp %d, got %d", baseTime.UnixNano(), ts)
+	}
+
+	// Test: Exact last message timestamp
+	lastTime := baseTime.Add(20 * time.Second)
+	offset, ts, err = log.FindOffsetByTimestamp(lastTime.UnixNano())
+	if err != nil {
+		t.Fatalf("FindOffsetByTimestamp failed: %v", err)
+	}
+	if offset != 2 {
+		t.Errorf("Expected offset 2 for last timestamp, got %d", offset)
+	}
+
+	// Test: Timestamp between messages (should return next message)
+	midTime := baseTime.Add(15 * time.Second) // Between msg 1 and 2
+	offset, _, err = log.FindOffsetByTimestamp(midTime.UnixNano())
+	if err != nil {
+		t.Fatalf("FindOffsetByTimestamp failed: %v", err)
+	}
+	// Should find the message at or after the target time
+	if offset < 1 || offset > 2 {
+		t.Errorf("Expected offset 1 or 2 for mid timestamp, got %d", offset)
+	}
+}
+
+func TestLog_FindOffsetByTimestamp_SingleMessage(t *testing.T) {
+	dir := t.TempDir()
+
+	config := Config{
+		DataDir: dir,
+		WAL: WALConfig{
+			SegmentSize:   1024 * 1024,
+			FsyncPolicy:   FsyncNever,
+			FsyncInterval: time.Second,
+		},
+		MemTable: MemTableConfig{
+			MaxSize:      1024 * 1024,
+			NumImmutable: 2,
+		},
+	}
+
+	log, err := NewLog(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create log: %v", err)
+	}
+	defer log.Close()
+
+	// Create single message
+	msgTime := time.Date(2025, 6, 15, 10, 0, 0, 0, time.UTC)
+	batch := &MessageBatch{
+		Messages: []Message{
+			{Key: []byte("only-key"), Value: []byte("only-value"), Timestamp: msgTime},
+		},
+	}
+
+	_, err = log.Append(batch)
+	if err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+
+	// Test exact match
+	offset, ts, err := log.FindOffsetByTimestamp(msgTime.UnixNano())
+	if err != nil {
+		t.Fatalf("FindOffsetByTimestamp failed: %v", err)
+	}
+	if offset != 0 {
+		t.Errorf("Expected offset 0, got %d", offset)
+	}
+	if ts != msgTime.UnixNano() {
+		t.Errorf("Timestamp mismatch: expected %d, got %d", msgTime.UnixNano(), ts)
+	}
+
+	// Test before message time (should return first message)
+	offset, _, err = log.FindOffsetByTimestamp(msgTime.Add(-time.Hour).UnixNano())
+	if err != nil {
+		t.Fatalf("FindOffsetByTimestamp failed: %v", err)
+	}
+	if offset != 0 {
+		t.Errorf("Expected offset 0 for early timestamp, got %d", offset)
+	}
+
+	// Test after message time (should return end offset)
+	offset, _, err = log.FindOffsetByTimestamp(msgTime.Add(time.Hour).UnixNano())
+	if err != nil {
+		t.Fatalf("FindOffsetByTimestamp failed: %v", err)
+	}
+	if offset != 1 {
+		t.Errorf("Expected offset 1 (end offset) for late timestamp, got %d", offset)
+	}
+}
+
+func TestMessageBatch_LeaderEpochField(t *testing.T) {
+	batch := MessageBatch{
+		Messages: []Message{
+			{Key: []byte("k"), Value: []byte("v")},
+		},
+		BaseOffset:    100,
+		Compression:   CompressionNone,
+		Timestamp:     time.Now(),
+		ProducerID:    12345,
+		ProducerEpoch: 1,
+		LeaderEpoch:   5,
+	}
+
+	if batch.LeaderEpoch != 5 {
+		t.Errorf("LeaderEpoch = %d, want 5", batch.LeaderEpoch)
+	}
+	if batch.ProducerID != 12345 {
+		t.Errorf("ProducerID = %d, want 12345", batch.ProducerID)
+	}
+	if batch.BaseOffset != 100 {
+		t.Errorf("BaseOffset = %d, want 100", batch.BaseOffset)
+	}
+}
+
+func TestLog_TimestampZeroValue(t *testing.T) {
+	dir := t.TempDir()
+
+	config := Config{
+		DataDir: dir,
+		WAL: WALConfig{
+			SegmentSize:   1024 * 1024,
+			FsyncPolicy:   FsyncNever,
+			FsyncInterval: time.Second,
+		},
+		MemTable: MemTableConfig{
+			MaxSize:      1024 * 1024,
+			NumImmutable: 2,
+		},
+	}
+
+	log, err := NewLog(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create log: %v", err)
+	}
+	defer log.Close()
+
+	// Create message with zero timestamp (should default to current time during append)
+	batch := &MessageBatch{
+		Messages: []Message{
+			{Key: []byte("key"), Value: []byte("value")}, // No timestamp set
+		},
+	}
+
+	_, err = log.Append(batch)
+	if err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+
+	// Read the message back
+	messages, err := log.Read(0, 1024)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	if len(messages) != 1 {
+		t.Fatalf("Expected 1 message, got %d", len(messages))
+	}
+
+	// Timestamp should be set (not zero)
+	if messages[0].Timestamp.IsZero() {
+		t.Error("Expected non-zero timestamp for message appended without explicit timestamp")
 	}
 }
