@@ -13,9 +13,9 @@ type ClusterCoordinator struct {
 	mu sync.RWMutex
 
 	// Components
-	registry          *BrokerRegistry
+	registry           *BrokerRegistry
 	assignmentStrategy AssignmentStrategy
-	metadataClient    MetadataStore
+	metadataClient     MetadataStore
 
 	// Current cluster state
 	currentAssignment *Assignment
@@ -25,10 +25,10 @@ type ClusterCoordinator struct {
 	rebalanceThreshold int // Imbalance threshold to trigger rebalance
 
 	// Rebalancing state
-	rebalancing        bool
-	lastRebalanceTime  time.Time
-	rebalanceCount     int64
-	failedRebalances   int64
+	rebalancing       bool
+	lastRebalanceTime time.Time
+	rebalanceCount    int64
+	failedRebalances  int64
 
 	// Lifecycle
 	ctx    context.Context

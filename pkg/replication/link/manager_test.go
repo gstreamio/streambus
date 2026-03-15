@@ -388,7 +388,7 @@ func TestManager_checkAllLinksHealth(t *testing.T) {
 		SourceClusterReachable: true,
 		TargetClusterReachable: true,
 	}
-	
+
 	link2 := createTestLink("link2", "Link 2")
 	link2.Status = ReplicationStatusActive
 	link2.Health = &ReplicationHealth{
@@ -494,17 +494,17 @@ func TestManager_checkAutomaticFailover_NoTrigger(t *testing.T) {
 
 	link := createTestLink("test-link", "Test Link")
 	link.Metrics = &ReplicationMetrics{
-		ReplicationLag:       100,
-		ConsecutiveFailures:  1,
+		ReplicationLag:      100,
+		ConsecutiveFailures: 1,
 	}
 	link.Health = &ReplicationHealth{
 		SourceClusterReachable: true,
 		TargetClusterReachable: true,
 	}
 	link.FailoverConfig = &FailoverConfig{
-		Enabled:                 true,
-		FailoverThreshold:       1000, // Higher than current lag
-		MaxConsecutiveFailures:  5,    // Higher than current failures
+		Enabled:                true,
+		FailoverThreshold:      1000, // Higher than current lag
+		MaxConsecutiveFailures: 5,    // Higher than current failures
 	}
 
 	// Should not trigger failover when conditions aren't met
@@ -1225,7 +1225,7 @@ func TestManager_GetHealth_NilHealth(t *testing.T) {
 	}
 
 	if health == nil {
-		t.Error("Expected non-nil health")
+		t.Fatal("Expected non-nil health")
 	}
 
 	if health.Status != "unknown" {
@@ -1582,8 +1582,8 @@ func TestManager_GetHealth_WithIssuesAndWarnings(t *testing.T) {
 	// Add health issues and warnings
 	mgr.mu.Lock()
 	mgr.links["health-issues"].Health = &ReplicationHealth{
-		Status:  "degraded",
-		Issues:  []string{"High replication lag", "Connection timeout"},
+		Status:   "degraded",
+		Issues:   []string{"High replication lag", "Connection timeout"},
 		Warnings: []string{"Checkpoint delay"},
 	}
 	mgr.mu.Unlock()

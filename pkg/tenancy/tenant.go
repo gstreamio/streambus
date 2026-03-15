@@ -48,10 +48,10 @@ type Quotas struct {
 	MaxPartitions   int   // Maximum total partitions across all topics
 
 	// Connection quotas
-	MaxConnections      int // Maximum concurrent connections
-	MaxProducers        int // Maximum concurrent producers
-	MaxConsumers        int // Maximum concurrent consumers
-	MaxConsumerGroups   int // Maximum consumer groups
+	MaxConnections    int // Maximum concurrent connections
+	MaxProducers      int // Maximum concurrent producers
+	MaxConsumers      int // Maximum concurrent consumers
+	MaxConsumerGroups int // Maximum consumer groups
 
 	// Request quotas
 	MaxRequestsPerSecond int64 // Maximum requests/sec
@@ -63,8 +63,8 @@ type Quotas struct {
 // DefaultQuotas returns sensible default quotas for a new tenant
 func DefaultQuotas() *Quotas {
 	return &Quotas{
-		MaxBytesPerSecond:    10 * 1024 * 1024,    // 10 MB/s
-		MaxMessagesPerSecond: 10000,                // 10k msgs/s
+		MaxBytesPerSecond:    10 * 1024 * 1024,         // 10 MB/s
+		MaxMessagesPerSecond: 10000,                    // 10k msgs/s
 		MaxStorageBytes:      100 * 1024 * 1024 * 1024, // 100 GB
 		MaxTopics:            100,
 		MaxPartitions:        1000,

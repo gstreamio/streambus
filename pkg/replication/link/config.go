@@ -346,14 +346,14 @@ func (cc *ClusterConfig) Clone() ClusterConfig {
 
 	if cc.Security != nil {
 		clone.Security = &SecurityConfig{
-			EnableTLS:      cc.Security.EnableTLS,
-			TLSCertFile:    cc.Security.TLSCertFile,
-			TLSKeyFile:     cc.Security.TLSKeyFile,
-			TLSCAFile:      cc.Security.TLSCAFile,
-			TLSSkipVerify:  cc.Security.TLSSkipVerify,
-			SASLMechanism:  cc.Security.SASLMechanism,
-			SASLUsername:   cc.Security.SASLUsername,
-			SASLPassword:   cc.Security.SASLPassword,
+			EnableTLS:     cc.Security.EnableTLS,
+			TLSCertFile:   cc.Security.TLSCertFile,
+			TLSKeyFile:    cc.Security.TLSKeyFile,
+			TLSCAFile:     cc.Security.TLSCAFile,
+			TLSSkipVerify: cc.Security.TLSSkipVerify,
+			SASLMechanism: cc.Security.SASLMechanism,
+			SASLUsername:  cc.Security.SASLUsername,
+			SASLPassword:  cc.Security.SASLPassword,
 		}
 	}
 

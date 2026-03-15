@@ -16,12 +16,12 @@ type Producer struct {
 	config ProducerConfig
 
 	// Batching
-	mu           sync.Mutex
-	batches      map[string]*messageBatch // topic+partition -> batch
-	batchTicker  *time.Ticker
-	batchCtx     context.Context
-	batchCancel  context.CancelFunc
-	batchWg      sync.WaitGroup
+	mu          sync.Mutex
+	batches     map[string]*messageBatch // topic+partition -> batch
+	batchTicker *time.Ticker
+	batchCtx    context.Context
+	batchCancel context.CancelFunc
+	batchWg     sync.WaitGroup
 
 	// State
 	closed int32

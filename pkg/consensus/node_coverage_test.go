@@ -44,7 +44,7 @@ func TestNode_AddNode(t *testing.T) {
 	config := DefaultConfig()
 	config.NodeID = 1
 	config.DataDir = dir
-	config.ElectionTick = 5  // Faster election
+	config.ElectionTick = 5 // Faster election
 	config.HeartbeatTick = 1
 	config.Peers = []Peer{
 		{ID: 1, Addr: "localhost:19001"},

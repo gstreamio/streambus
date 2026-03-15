@@ -11,12 +11,12 @@ import (
 
 // ConsumerGroupInfo represents consumer group information
 type ConsumerGroupInfo struct {
-	GroupID     string         `json:"group_id"`
-	State       string         `json:"state"`
-	Protocol    string         `json:"protocol"`
-	Members     []MemberInfo   `json:"members"`
-	Coordinator int32          `json:"coordinator"`
-	TotalLag    int64          `json:"total_lag"`
+	GroupID     string       `json:"group_id"`
+	State       string       `json:"state"`
+	Protocol    string       `json:"protocol"`
+	Members     []MemberInfo `json:"members"`
+	Coordinator int32        `json:"coordinator"`
+	TotalLag    int64        `json:"total_lag"`
 }
 
 // MemberInfo represents consumer group member information

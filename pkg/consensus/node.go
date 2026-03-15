@@ -24,11 +24,11 @@ type RaftNode struct {
 	stateMachine StateMachine
 
 	// Channels
-	readyCh   chan Ready
-	commitCh  chan []raftpb.Entry
-	errorCh   chan error
-	stopCh    chan struct{}
-	doneCh    chan struct{}
+	readyCh  chan Ready
+	commitCh chan []raftpb.Entry
+	errorCh  chan error
+	stopCh   chan struct{}
+	doneCh   chan struct{}
 
 	// State
 	appliedIndex  uint64

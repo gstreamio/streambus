@@ -196,7 +196,7 @@ func (tc TopicConfig) Clone() TopicConfig {
 func DefaultTopicConfig() TopicConfig {
 	return TopicConfig{
 		RetentionMs:       7 * 24 * 60 * 60 * 1000, // 7 days
-		RetentionBytes:    -1,                       // Unlimited
+		RetentionBytes:    -1,                      // Unlimited
 		SegmentMs:         7 * 24 * 60 * 60 * 1000, // 7 days
 		SegmentBytes:      1024 * 1024 * 1024,      // 1GB
 		MinInsyncReplicas: 1,

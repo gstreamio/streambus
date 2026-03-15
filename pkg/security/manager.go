@@ -18,8 +18,8 @@ type Manager struct {
 	authEnabled    bool
 
 	// Authorization
-	authorizer     Authorizer
-	authzEnabled   bool
+	authorizer   Authorizer
+	authzEnabled bool
 
 	// Audit logging
 	auditLogger  AuditLogger
@@ -483,14 +483,14 @@ func formatError(err error) string {
 // DefaultSecurityConfig returns a default security configuration
 func DefaultSecurityConfig() *SecurityConfig {
 	return &SecurityConfig{
-		TLS:              DefaultTLSConfig(),
-		SASL:             nil,
-		AuthzEnabled:     false,
-		SuperUsers:       []string{},
-		AllowAnonymous:   true,
-		AuditEnabled:     false,
-		APIKeyEnabled:    false,
-		UseDefaultACLs:   false,
-		Encryption:       DefaultEncryptionConfig(),
+		TLS:            DefaultTLSConfig(),
+		SASL:           nil,
+		AuthzEnabled:   false,
+		SuperUsers:     []string{},
+		AllowAnonymous: true,
+		AuditEnabled:   false,
+		APIKeyEnabled:  false,
+		UseDefaultACLs: false,
+		Encryption:     DefaultEncryptionConfig(),
 	}
 }

@@ -17,18 +17,18 @@ import (
 )
 
 type LoadTestConfig struct {
-	Brokers          []string
-	Topic            string
-	NumProducers     int
-	NumConsumers     int
-	MessageSize      int
-	MessagesPerSec   int
-	Duration         time.Duration
-	BatchSize        int
-	Compression      string
-	ReportInterval   time.Duration
-	ConsumerGroupID  string
-	UseTransactions  bool
+	Brokers         []string
+	Topic           string
+	NumProducers    int
+	NumConsumers    int
+	MessageSize     int
+	MessagesPerSec  int
+	Duration        time.Duration
+	BatchSize       int
+	Compression     string
+	ReportInterval  time.Duration
+	ConsumerGroupID string
+	UseTransactions bool
 }
 
 type LoadTestStats struct {
@@ -186,8 +186,8 @@ func runProducer(ctx context.Context, wg *sync.WaitGroup, id int, config *LoadTe
 		select {
 		case <-ctx.Done():
 			logger.Info("Producer stopping", logging.Fields{
-				"producer_id":     id,
-				"messages_sent":   messageCount,
+				"producer_id":   id,
+				"messages_sent": messageCount,
 			})
 			return
 		case <-ticker.C:
@@ -325,15 +325,15 @@ func reportStats(ctx context.Context, stats *LoadTestStats, config *LoadTestConf
 			}
 
 			logger.Info("Load test stats", logging.Fields{
-				"sent":                sent,
-				"received":            received,
-				"send_rate":           fmt.Sprintf("%.0f msgs/s", sendRate),
-				"receive_rate":        fmt.Sprintf("%.0f msgs/s", receiveRate),
-				"send_throughput":     fmt.Sprintf("%.2f MB/s", sendThroughput),
-				"receive_throughput":  fmt.Sprintf("%.2f MB/s", receiveThroughput),
-				"avg_latency":         fmt.Sprintf("%.2f ms", avgLatency),
-				"errors":              errors,
-				"lag":                 sent - received,
+				"sent":               sent,
+				"received":           received,
+				"send_rate":          fmt.Sprintf("%.0f msgs/s", sendRate),
+				"receive_rate":       fmt.Sprintf("%.0f msgs/s", receiveRate),
+				"send_throughput":    fmt.Sprintf("%.2f MB/s", sendThroughput),
+				"receive_throughput": fmt.Sprintf("%.2f MB/s", receiveThroughput),
+				"avg_latency":        fmt.Sprintf("%.2f ms", avgLatency),
+				"errors":             errors,
+				"lag":                sent - received,
 			})
 
 			lastSent = sent
@@ -382,11 +382,11 @@ func printFinalStats(stats *LoadTestStats, config *LoadTestConfig, logger *loggi
 	fmt.Println("========================================")
 
 	logger.Info("Load test completed", logging.Fields{
-		"total_sent":       sent,
-		"total_received":   received,
-		"send_rate":        fmt.Sprintf("%.0f msgs/s", sendRate),
-		"send_throughput":  fmt.Sprintf("%.2f MB/s", sendThroughput),
-		"avg_latency_ms":   fmt.Sprintf("%.2f", avgLatency),
-		"errors":           errors,
+		"total_sent":      sent,
+		"total_received":  received,
+		"send_rate":       fmt.Sprintf("%.0f msgs/s", sendRate),
+		"send_throughput": fmt.Sprintf("%.2f MB/s", sendThroughput),
+		"avg_latency_ms":  fmt.Sprintf("%.2f", avgLatency),
+		"errors":          errors,
 	})
 }

@@ -51,11 +51,11 @@ type CoordinatorConfig struct {
 // DefaultCoordinatorConfig returns default configuration
 func DefaultCoordinatorConfig() CoordinatorConfig {
 	return CoordinatorConfig{
-		DefaultSessionTimeoutMs:   30000, // 30 seconds
-		DefaultRebalanceTimeoutMs: 60000, // 60 seconds
-		MinSessionTimeoutMs:       6000,  // 6 seconds
-		MaxSessionTimeoutMs:       300000, // 5 minutes
-		HeartbeatCheckIntervalMs:  3000,  // 3 seconds
+		DefaultSessionTimeoutMs:   30000,     // 30 seconds
+		DefaultRebalanceTimeoutMs: 60000,     // 60 seconds
+		MinSessionTimeoutMs:       6000,      // 6 seconds
+		MaxSessionTimeoutMs:       300000,    // 5 minutes
+		HeartbeatCheckIntervalMs:  3000,      // 3 seconds
 		OffsetRetentionMs:         604800000, // 7 days (Kafka default)
 	}
 }

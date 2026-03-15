@@ -82,13 +82,13 @@ type Entry struct {
 
 // Logger is the main logging interface
 type Logger struct {
-	mu           sync.RWMutex
-	level        Level
-	output       io.Writer
-	component    string
+	mu            sync.RWMutex
+	level         Level
+	output        io.Writer
+	component     string
 	defaultFields Fields
-	includeTrace bool
-	includeFile  bool
+	includeTrace  bool
+	includeFile   bool
 }
 
 // Config holds logger configuration

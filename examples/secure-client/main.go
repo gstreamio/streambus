@@ -35,8 +35,8 @@ func createTLSClient() *client.Client {
 	// Configure TLS
 	config.Security = &client.SecurityConfig{
 		TLS: &client.TLSConfig{
-			Enabled:  true,
-			CAFile:   "/path/to/ca.crt",
+			Enabled:    true,
+			CAFile:     "/path/to/ca.crt",
 			ServerName: "localhost",
 			// No client cert - server auth only
 		},

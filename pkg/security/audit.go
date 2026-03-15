@@ -161,12 +161,12 @@ func NewStructuredAuditLogger(logger *logging.Logger) *StructuredAuditLogger {
 // LogEvent logs an audit event using structured logging
 func (l *StructuredAuditLogger) LogEvent(event *AuditEvent) error {
 	fields := logging.Fields{
-		"audit_event":  true,
-		"timestamp":    event.Timestamp,
-		"action":       event.Action,
-		"resource":     event.Resource,
-		"result":       event.Result,
-		"client_ip":    event.ClientIP,
+		"audit_event": true,
+		"timestamp":   event.Timestamp,
+		"action":      event.Action,
+		"resource":    event.Resource,
+		"result":      event.Result,
+		"client_ip":   event.ClientIP,
 	}
 
 	if event.Principal != nil {

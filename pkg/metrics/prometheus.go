@@ -178,52 +178,52 @@ func promType(mt MetricType) string {
 // StreamBusMetrics holds all StreamBus-specific metrics
 type StreamBusMetrics struct {
 	// Broker metrics
-	BrokerUptime           *Gauge
-	BrokerStatus           *Gauge
-	BrokerConnections      *Gauge
-	BrokerActiveRequests   *Gauge
+	BrokerUptime         *Gauge
+	BrokerStatus         *Gauge
+	BrokerConnections    *Gauge
+	BrokerActiveRequests *Gauge
 
 	// Message metrics
-	MessagesProduced       *Counter
-	MessagesConsumed       *Counter
-	MessagesStored         *Counter
-	BytesProduced          *Counter
-	BytesConsumed          *Counter
-	BytesStored            *Counter
+	MessagesProduced *Counter
+	MessagesConsumed *Counter
+	MessagesStored   *Counter
+	BytesProduced    *Counter
+	BytesConsumed    *Counter
+	BytesStored      *Counter
 
 	// Topic metrics
-	TopicsTotal            *Gauge
-	PartitionsTotal        *Gauge
-	ReplicasTotal          *Gauge
+	TopicsTotal     *Gauge
+	PartitionsTotal *Gauge
+	ReplicasTotal   *Gauge
 
 	// Performance metrics
-	ProduceLatency         *Histogram
-	ConsumeLatency         *Histogram
-	ReplicationLatency     *Histogram
-	CommitLatency          *Histogram
+	ProduceLatency     *Histogram
+	ConsumeLatency     *Histogram
+	ReplicationLatency *Histogram
+	CommitLatency      *Histogram
 
 	// Consumer group metrics
-	ConsumerGroups         *Gauge
-	ConsumerGroupMembers   *Gauge
-	ConsumerGroupLag       *Gauge
+	ConsumerGroups       *Gauge
+	ConsumerGroupMembers *Gauge
+	ConsumerGroupLag     *Gauge
 
 	// Transaction metrics
-	TransactionsActive     *Gauge
-	TransactionsCommitted  *Counter
-	TransactionsAborted    *Counter
-	TransactionDuration    *Histogram
+	TransactionsActive    *Gauge
+	TransactionsCommitted *Counter
+	TransactionsAborted   *Counter
+	TransactionDuration   *Histogram
 
 	// Storage metrics
-	StorageUsedBytes       *Gauge
-	StorageAvailableBytes  *Gauge
-	SegmentsTotal          *Gauge
-	CompactionsTotal       *Counter
+	StorageUsedBytes      *Gauge
+	StorageAvailableBytes *Gauge
+	SegmentsTotal         *Gauge
+	CompactionsTotal      *Counter
 
 	// Network metrics
-	NetworkBytesIn         *Counter
-	NetworkBytesOut        *Counter
-	NetworkRequestsTotal   *Counter
-	NetworkErrorsTotal     *Counter
+	NetworkBytesIn       *Counter
+	NetworkBytesOut      *Counter
+	NetworkRequestsTotal *Counter
+	NetworkErrorsTotal   *Counter
 
 	// Security metrics
 	AuthenticationAttempts *Counter
@@ -233,10 +233,10 @@ type StreamBusMetrics struct {
 	AuditEventsLogged      *Counter
 
 	// Cluster metrics
-	ClusterSize            *Gauge
-	ClusterLeader          *Gauge
-	RaftTerm               *Gauge
-	RaftCommitIndex        *Gauge
+	ClusterSize     *Gauge
+	ClusterLeader   *Gauge
+	RaftTerm        *Gauge
+	RaftCommitIndex *Gauge
 
 	// Schema registry metrics
 	SchemasRegistered      *Counter

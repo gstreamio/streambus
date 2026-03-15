@@ -222,8 +222,8 @@ func advancedAdminOperations() {
 	// Alter topic configuration
 	fmt.Println("Updating topic configuration...")
 	configUpdates := map[string]string{
-		"retention.ms":    "604800000", // 7 days
-		"segment.ms":      "86400000",  // 1 day
+		"retention.ms":     "604800000", // 7 days
+		"segment.ms":       "86400000",  // 1 day
 		"compression.type": "gzip",
 	}
 

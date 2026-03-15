@@ -41,7 +41,7 @@ func TestMemTable_PutAndGet(t *testing.T) {
 	}
 }
 
-func TestMemTable_Update(t *testing.T){
+func TestMemTable_Update(t *testing.T) {
 	mt := NewMemTable()
 
 	key := []byte("key1")

@@ -40,8 +40,8 @@ type GroupConsumer struct {
 	rebalanceListener RebalanceListener
 
 	// Metrics
-	rebalanceCount int64
-	messagesRead   int64
+	rebalanceCount   int64
+	messagesRead     int64
 	offsetsCommitted int64
 }
 

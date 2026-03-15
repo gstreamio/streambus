@@ -12,10 +12,10 @@ import (
 
 // TopicInfo represents topic information
 type TopicInfo struct {
-	Name              string            `json:"name"`
-	NumPartitions     int               `json:"num_partitions"`
-	ReplicationFactor int               `json:"replication_factor"`
-	Partitions        []PartitionInfo   `json:"partitions,omitempty"`
+	Name              string          `json:"name"`
+	NumPartitions     int             `json:"num_partitions"`
+	ReplicationFactor int             `json:"replication_factor"`
+	Partitions        []PartitionInfo `json:"partitions,omitempty"`
 }
 
 // PartitionInfo represents partition information

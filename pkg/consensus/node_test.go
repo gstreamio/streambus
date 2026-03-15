@@ -40,14 +40,14 @@ func TestConfigValidation(t *testing.T) {
 		{
 			name: "valid config",
 			config: &Config{
-				NodeID:        1,
-				DataDir:       "/tmp/test",
-				TickInterval:  100 * time.Millisecond,
-				ElectionTick:  10,
-				HeartbeatTick: 1,
-				MaxSizePerMsg: 1024,
-				MaxInflightMsgs: 256,
-				SnapshotInterval: 10000,
+				NodeID:                 1,
+				DataDir:                "/tmp/test",
+				TickInterval:           100 * time.Millisecond,
+				ElectionTick:           10,
+				HeartbeatTick:          1,
+				MaxSizePerMsg:          1024,
+				MaxInflightMsgs:        256,
+				SnapshotInterval:       10000,
 				SnapshotCatchUpEntries: 5000,
 			},
 			wantErr: false,
@@ -71,14 +71,14 @@ func TestConfigValidation(t *testing.T) {
 		{
 			name: "election tick <= heartbeat tick",
 			config: &Config{
-				NodeID:        1,
-				DataDir:       "/tmp/test",
-				TickInterval:  100 * time.Millisecond,
-				ElectionTick:  1,
-				HeartbeatTick: 1,
-				MaxSizePerMsg: 1024,
-				MaxInflightMsgs: 256,
-				SnapshotInterval: 10000,
+				NodeID:                 1,
+				DataDir:                "/tmp/test",
+				TickInterval:           100 * time.Millisecond,
+				ElectionTick:           1,
+				HeartbeatTick:          1,
+				MaxSizePerMsg:          1024,
+				MaxInflightMsgs:        256,
+				SnapshotInterval:       10000,
 				SnapshotCatchUpEntries: 5000,
 			},
 			wantErr: true,
@@ -213,7 +213,8 @@ func TestStateTypeString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
 			assert.Equal(t, tt.want, tt.state.String())
-		})}
+		})
+	}
 }
 
 func TestNodeCreation(t *testing.T) {

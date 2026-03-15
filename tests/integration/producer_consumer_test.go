@@ -180,10 +180,10 @@ func TestE2E_LargeMessages(t *testing.T) {
 
 	// Test various large message sizes
 	sizes := []int{
-		1 * 1024,      // 1KB
-		10 * 1024,     // 10KB
-		100 * 1024,    // 100KB
-		1024 * 1024,   // 1MB
+		1 * 1024,    // 1KB
+		10 * 1024,   // 10KB
+		100 * 1024,  // 100KB
+		1024 * 1024, // 1MB
 	}
 
 	producer := client.NewProducer(c)

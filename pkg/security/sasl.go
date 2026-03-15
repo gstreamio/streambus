@@ -273,15 +273,15 @@ type APIKeyAuthenticator struct {
 
 // APIKey represents an API key
 type APIKey struct {
-	Key        string
-	Secret     string
+	Key         string
+	Secret      string
 	PrincipalID string
-	Type       PrincipalType
-	Groups     []string
-	Attributes map[string]string
-	ExpiresAt  *time.Time
-	CreatedAt  time.Time
-	Enabled    bool
+	Type        PrincipalType
+	Groups      []string
+	Attributes  map[string]string
+	ExpiresAt   *time.Time
+	CreatedAt   time.Time
+	Enabled     bool
 }
 
 // NewAPIKeyAuthenticator creates a new API key authenticator

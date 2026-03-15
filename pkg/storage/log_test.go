@@ -609,7 +609,7 @@ func BenchmarkLog_AppendBatch(b *testing.B) {
 
 func TestLog_Compact(t *testing.T) {
 	dir := t.TempDir()
-	
+
 	config := Config{
 		DataDir: dir,
 		WAL: WALConfig{
@@ -622,13 +622,13 @@ func TestLog_Compact(t *testing.T) {
 			NumImmutable: 2,
 		},
 	}
-	
+
 	log, err := NewLog(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create log: %v", err)
 	}
 	defer log.Close()
-	
+
 	// Compact should not error (even though it's a no-op)
 	err = log.Compact()
 	if err != nil {
@@ -638,7 +638,7 @@ func TestLog_Compact(t *testing.T) {
 
 func TestLog_Compact_Closed(t *testing.T) {
 	dir := t.TempDir()
-	
+
 	config := Config{
 		DataDir: dir,
 		WAL: WALConfig{
@@ -651,14 +651,14 @@ func TestLog_Compact_Closed(t *testing.T) {
 			NumImmutable: 2,
 		},
 	}
-	
+
 	log, err := NewLog(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create log: %v", err)
 	}
-	
+
 	log.Close()
-	
+
 	// Compact on closed log should return error
 	err = log.Compact()
 	if err != ErrLogClosed {
@@ -668,7 +668,7 @@ func TestLog_Compact_Closed(t *testing.T) {
 
 func TestLogImpl_SerializeBatch(t *testing.T) {
 	dir := t.TempDir()
-	
+
 	config := Config{
 		DataDir: dir,
 		WAL: WALConfig{
@@ -681,16 +681,16 @@ func TestLogImpl_SerializeBatch(t *testing.T) {
 			NumImmutable: 2,
 		},
 	}
-	
+
 	logInst, err := NewLog(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create log: %v", err)
 	}
 	defer logInst.Close()
-	
+
 	// Cast to implementation to access private method
 	impl := logInst.(*logImpl)
-	
+
 	// Create a batch with messages
 	batch := &MessageBatch{
 		Messages: []Message{
@@ -706,13 +706,13 @@ func TestLogImpl_SerializeBatch(t *testing.T) {
 			},
 		},
 	}
-	
+
 	// Serialize
 	data, err := impl.serializeBatch(batch)
 	if err != nil {
 		t.Fatalf("serializeBatch failed: %v", err)
 	}
-	
+
 	if len(data) == 0 {
 		t.Error("Expected non-empty serialized data")
 	}
@@ -720,7 +720,7 @@ func TestLogImpl_SerializeBatch(t *testing.T) {
 
 func TestLogImpl_DeserializeBatch(t *testing.T) {
 	dir := t.TempDir()
-	
+
 	config := Config{
 		DataDir: dir,
 		WAL: WALConfig{
@@ -733,15 +733,15 @@ func TestLogImpl_DeserializeBatch(t *testing.T) {
 			NumImmutable: 2,
 		},
 	}
-	
+
 	logInst, err := NewLog(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create log: %v", err)
 	}
 	defer logInst.Close()
-	
+
 	impl := logInst.(*logImpl)
-	
+
 	// Create a batch
 	originalBatch := &MessageBatch{
 		Messages: []Message{
@@ -752,32 +752,32 @@ func TestLogImpl_DeserializeBatch(t *testing.T) {
 			},
 		},
 	}
-	
+
 	// Serialize
 	data, err := impl.serializeBatch(originalBatch)
 	if err != nil {
 		t.Fatalf("serializeBatch failed: %v", err)
 	}
-	
+
 	// Deserialize
 	deserializedBatch, err := impl.deserializeBatch(data)
 	if err != nil {
 		t.Fatalf("deserializeBatch failed: %v", err)
 	}
-	
+
 	if len(deserializedBatch.Messages) != 1 {
 		t.Errorf("Expected 1 message, got %d", len(deserializedBatch.Messages))
 	}
-	
+
 	msg := deserializedBatch.Messages[0]
 	if msg.Offset != 200 {
 		t.Errorf("Offset = %d, want 200", msg.Offset)
 	}
-	
+
 	if string(msg.Key) != "testkey" {
 		t.Errorf("Key = %s, want testkey", msg.Key)
 	}
-	
+
 	if string(msg.Value) != "testvalue" {
 		t.Errorf("Value = %s, want testvalue", msg.Value)
 	}
@@ -1032,7 +1032,7 @@ func TestLog_FindOffsetByTimestamp_BoundaryConditions(t *testing.T) {
 
 	// Test: Exact last message timestamp
 	lastTime := baseTime.Add(20 * time.Second)
-	offset, ts, err = log.FindOffsetByTimestamp(lastTime.UnixNano())
+	offset, _, err = log.FindOffsetByTimestamp(lastTime.UnixNano())
 	if err != nil {
 		t.Fatalf("FindOffsetByTimestamp failed: %v", err)
 	}

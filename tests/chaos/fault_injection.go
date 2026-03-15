@@ -12,11 +12,11 @@ import (
 type FaultType string
 
 const (
-	FaultTypeLatency     FaultType = "latency"
-	FaultTypeError       FaultType = "error"
-	FaultTypeDisconnect  FaultType = "disconnect"
-	FaultTypeDataLoss    FaultType = "data_loss"
-	FaultTypePartition   FaultType = "partition"
+	FaultTypeLatency      FaultType = "latency"
+	FaultTypeError        FaultType = "error"
+	FaultTypeDisconnect   FaultType = "disconnect"
+	FaultTypeDataLoss     FaultType = "data_loss"
+	FaultTypePartition    FaultType = "partition"
 	FaultTypeSlowResponse FaultType = "slow_response"
 )
 
@@ -32,7 +32,7 @@ type FaultInjector struct {
 // FaultConfig configures a specific fault type
 type FaultConfig struct {
 	Type        FaultType
-	Probability float64       // 0.0 to 1.0
+	Probability float64 // 0.0 to 1.0
 	Duration    time.Duration
 	Delay       time.Duration // For latency injection
 	ErrorMsg    string        // For error injection
@@ -317,9 +317,9 @@ func (cs *ChaosScenario) Run(ctx context.Context, testFunc func(context.Context)
 	// Collect stats
 	stats := cs.Injector.GetStats()
 	cs.logger.Info("Chaos scenario completed", map[string]interface{}{
-		"name":        cs.Name,
-		"stats":       stats,
-		"test_error":  err != nil,
+		"name":       cs.Name,
+		"stats":      stats,
+		"test_error": err != nil,
 	})
 
 	return err

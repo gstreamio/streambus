@@ -356,13 +356,20 @@ docs-serve: ## Serve documentation locally
 		echo "mkdocs not installed. Install with: pip install mkdocs"; \
 	fi
 
+setup-hooks: ## Configure git to use project hooks
+	@echo "Setting up git hooks..."
+	git config core.hooksPath .githooks
+	@echo "✅ Git hooks configured (using .githooks/)"
+
 tools: ## Install development tools
 	@echo "Installing development tools..."
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install golang.org/x/vuln/cmd/govulncheck@latest
 	go install github.com/vektra/mockery/v2@latest
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 	go install golang.org/x/perf/cmd/benchstat@latest
+	@$(MAKE) setup-hooks
 
 k8s-install-operator: ## Install operator to Kubernetes cluster
 	@echo "Installing operator..."

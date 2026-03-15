@@ -9,11 +9,11 @@ import (
 
 // TenancyHandler wraps a handler with multi-tenancy and quota enforcement
 type TenancyHandler struct {
-	baseHandler      *Handler
-	tenancyManager   *tenancy.Manager
-	enabled          bool
-	quotaViolations  int64
-	requestsHandled  int64
+	baseHandler     *Handler
+	tenancyManager  *tenancy.Manager
+	enabled         bool
+	quotaViolations int64
+	requestsHandled int64
 }
 
 // NewTenancyHandler creates a new tenancy-aware handler
@@ -153,7 +153,7 @@ func (h *TenancyHandler) quotaExceededResponse(requestID uint64, tenantID tenanc
 // GetStats returns tenancy handler statistics
 func (h *TenancyHandler) GetStats() map[string]int64 {
 	return map[string]int64{
-		"requests_handled":  atomic.LoadInt64(&h.requestsHandled),
-		"quota_violations":  atomic.LoadInt64(&h.quotaViolations),
+		"requests_handled": atomic.LoadInt64(&h.requestsHandled),
+		"quota_violations": atomic.LoadInt64(&h.quotaViolations),
 	}
 }

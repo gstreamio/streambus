@@ -267,11 +267,11 @@ func TestConcurrentOffsetAccess(t *testing.T) {
 	}
 
 	tests := []consumerTest{
-		{startOffset: 0, count: 20},   // Consumer 1: offsets 0-19
-		{startOffset: 20, count: 20},  // Consumer 2: offsets 20-39
-		{startOffset: 40, count: 20},  // Consumer 3: offsets 40-59
-		{startOffset: 60, count: 20},  // Consumer 4: offsets 60-79
-		{startOffset: 80, count: 20},  // Consumer 5: offsets 80-99
+		{startOffset: 0, count: 20},  // Consumer 1: offsets 0-19
+		{startOffset: 20, count: 20}, // Consumer 2: offsets 20-39
+		{startOffset: 40, count: 20}, // Consumer 3: offsets 40-59
+		{startOffset: 60, count: 20}, // Consumer 4: offsets 60-79
+		{startOffset: 80, count: 20}, // Consumer 5: offsets 80-99
 	}
 
 	// Run consumers concurrently

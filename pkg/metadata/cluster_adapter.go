@@ -126,9 +126,9 @@ func (cms *ClusterMetadataStore) metadataBrokerToCluster(brokerInfo *BrokerInfo)
 		Rack:             brokerInfo.Rack,
 		Status:           status,
 		RegisteredAt:     brokerInfo.RegisteredAt,
-		LastHeartbeat:    time.Now(), // Use current time as approximation
-		DiskCapacityGB:   int64(brokerInfo.Resources.DiskTotal / (1024 * 1024 * 1024)),    // Convert bytes to GB
-		DiskUsedGB:       int64(brokerInfo.Resources.DiskUsed / (1024 * 1024 * 1024)),     // Convert bytes to GB
+		LastHeartbeat:    time.Now(),                                                   // Use current time as approximation
+		DiskCapacityGB:   int64(brokerInfo.Resources.DiskTotal / (1024 * 1024 * 1024)), // Convert bytes to GB
+		DiskUsedGB:       int64(brokerInfo.Resources.DiskUsed / (1024 * 1024 * 1024)),  // Convert bytes to GB
 		NetworkBandwidth: int64(brokerInfo.Resources.NetworkBandwidth),
 		Tags:             make(map[string]string), // metadata.BrokerInfo doesn't have Tags, use empty map
 	}

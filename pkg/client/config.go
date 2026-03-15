@@ -106,9 +106,9 @@ func DefaultConfig() *Config {
 		},
 		ConsumerConfig: ConsumerConfig{
 			GroupID:            "",
-			StartOffset:        -1, // Latest
-			MaxFetchBytes:      1024 * 1024,     // 1MB
-			MinFetchBytes:      1,               // Return immediately
+			StartOffset:        -1,          // Latest
+			MaxFetchBytes:      1024 * 1024, // 1MB
+			MinFetchBytes:      1,           // Return immediately
 			MaxWaitTime:        500 * time.Millisecond,
 			AutoCommitInterval: 5 * time.Second,
 		},

@@ -26,14 +26,14 @@ var (
 )
 
 type Config struct {
-	Port              int
-	Brokers           []string
-	PrometheusURL     string
-	JWTSecret         string
-	EnableAuth        bool
-	StaticDir         string
-	CORSOrigins       []string
-	WebSocketEnabled  bool
+	Port             int
+	Brokers          []string
+	PrometheusURL    string
+	JWTSecret        string
+	EnableAuth       bool
+	StaticDir        string
+	CORSOrigins      []string
+	WebSocketEnabled bool
 }
 
 func main() {

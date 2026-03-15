@@ -150,9 +150,9 @@ func TestServer_ProduceRequest(t *testing.T) {
 			Version:   protocol.ProtocolVersion,
 		},
 		Payload: &protocol.CreateTopicRequest{
-			Topic:              "test-topic",
-			NumPartitions:      1,
-			ReplicationFactor:  1,
+			Topic:             "test-topic",
+			NumPartitions:     1,
+			ReplicationFactor: 1,
 		},
 	}
 
@@ -256,9 +256,9 @@ func TestServer_FetchRequest(t *testing.T) {
 			Version:   protocol.ProtocolVersion,
 		},
 		Payload: &protocol.CreateTopicRequest{
-			Topic:              "test-topic",
-			NumPartitions:      1,
-			ReplicationFactor:  1,
+			Topic:             "test-topic",
+			NumPartitions:     1,
+			ReplicationFactor: 1,
 		},
 	}
 

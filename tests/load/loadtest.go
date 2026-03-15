@@ -17,13 +17,13 @@ type Config struct {
 	WarmupPeriod time.Duration
 	RampUpPeriod time.Duration
 
-	Producers     int
-	Consumers     int
-	MessageSize   int
-	Rate          int // messages per second (0 = unlimited)
-	BatchSize     int
-	Compression   string
-	Acks          string
+	Producers   int
+	Consumers   int
+	MessageSize int
+	Rate        int // messages per second (0 = unlimited)
+	BatchSize   int
+	Compression string
+	Acks        string
 
 	Topic             string
 	Partitions        int
@@ -43,13 +43,13 @@ type Results struct {
 	BytesProduced uint64
 	BytesConsumed uint64
 
-	LatencyMin   time.Duration
-	LatencyMax   time.Duration
-	LatencyP50   time.Duration
-	LatencyP90   time.Duration
-	LatencyP95   time.Duration
-	LatencyP99   time.Duration
-	LatencyP999  time.Duration
+	LatencyMin  time.Duration
+	LatencyMax  time.Duration
+	LatencyP50  time.Duration
+	LatencyP90  time.Duration
+	LatencyP95  time.Duration
+	LatencyP99  time.Duration
+	LatencyP999 time.Duration
 
 	ProducerErrors uint64
 	ConsumerErrors uint64

@@ -81,10 +81,10 @@ func (b *Broker) getTenants(w http.ResponseWriter, r *http.Request) {
 // createTenant handles POST /api/v1/tenants
 func (b *Broker) createTenant(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID          string           `json:"id"`
-		Name        string           `json:"name"`
-		Description string           `json:"description"`
-		Quotas      *tenancy.Quotas  `json:"quotas"`
+		ID          string          `json:"id"`
+		Name        string          `json:"name"`
+		Description string          `json:"description"`
+		Quotas      *tenancy.Quotas `json:"quotas"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

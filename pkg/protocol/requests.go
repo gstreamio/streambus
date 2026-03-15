@@ -52,8 +52,8 @@ type GetOffsetRequest struct {
 
 // CreateTopicRequest represents a create topic request
 type CreateTopicRequest struct {
-	Topic          string
-	NumPartitions  uint32
+	Topic             string
+	NumPartitions     uint32
 	ReplicationFactor uint16
 }
 

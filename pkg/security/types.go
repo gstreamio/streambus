@@ -64,12 +64,12 @@ type Action string
 
 const (
 	// Topic actions
-	ActionTopicCreate    Action = "TOPIC_CREATE"
-	ActionTopicDelete    Action = "TOPIC_DELETE"
-	ActionTopicDescribe  Action = "TOPIC_DESCRIBE"
-	ActionTopicAlter     Action = "TOPIC_ALTER"
-	ActionTopicWrite     Action = "TOPIC_WRITE"
-	ActionTopicRead      Action = "TOPIC_READ"
+	ActionTopicCreate     Action = "TOPIC_CREATE"
+	ActionTopicDelete     Action = "TOPIC_DELETE"
+	ActionTopicDescribe   Action = "TOPIC_DESCRIBE"
+	ActionTopicAlter      Action = "TOPIC_ALTER"
+	ActionTopicWrite      Action = "TOPIC_WRITE"
+	ActionTopicRead       Action = "TOPIC_READ"
 	ActionTopicReadCommit Action = "TOPIC_READ_COMMIT"
 
 	// Consumer group actions
@@ -87,10 +87,10 @@ const (
 	ActionTransactionWrite    Action = "TXN_WRITE"
 
 	// Schema actions
-	ActionSchemaRead    Action = "SCHEMA_READ"
-	ActionSchemaWrite   Action = "SCHEMA_WRITE"
-	ActionSchemaDelete  Action = "SCHEMA_DELETE"
-	ActionSchemaCompat  Action = "SCHEMA_COMPAT"
+	ActionSchemaRead   Action = "SCHEMA_READ"
+	ActionSchemaWrite  Action = "SCHEMA_WRITE"
+	ActionSchemaDelete Action = "SCHEMA_DELETE"
+	ActionSchemaCompat Action = "SCHEMA_COMPAT"
 )
 
 // ResourceType represents the type of resource
@@ -106,9 +106,9 @@ const (
 
 // Resource represents a resource that can be accessed
 type Resource struct {
-	Type       ResourceType // Type of resource
-	Name       string       // Resource name (topic name, group ID, etc.)
-	PatternType PatternType // How to match the name
+	Type        ResourceType // Type of resource
+	Name        string       // Resource name (topic name, group ID, etc.)
+	PatternType PatternType  // How to match the name
 }
 
 // PatternType defines how resource names are matched

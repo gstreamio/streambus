@@ -406,9 +406,9 @@ func TestManager_ListTenants(t *testing.T) {
 	manager := NewManager()
 
 	// Create multiple tenants
-	_ , _ = manager.CreateTenant("tenant1", "Tenant 1", nil)
-	_ , _ = manager.CreateTenant("tenant2", "Tenant 2", nil)
-	_ , _ = manager.CreateTenant("tenant3", "Tenant 3", nil)
+	_, _ = manager.CreateTenant("tenant1", "Tenant 1", nil)
+	_, _ = manager.CreateTenant("tenant2", "Tenant 2", nil)
+	_, _ = manager.CreateTenant("tenant3", "Tenant 3", nil)
 
 	tenants := manager.ListTenants()
 

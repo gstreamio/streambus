@@ -239,12 +239,12 @@ func (c *Consumer) Close() error {
 // Stats returns consumer statistics
 func (c *Consumer) Stats() ConsumerStats {
 	return ConsumerStats{
-		Topic:        c.topic,
-		PartitionID:  c.partitionID,
+		Topic:         c.topic,
+		PartitionID:   c.partitionID,
 		CurrentOffset: c.offset,
-		MessagesRead: atomic.LoadInt64(&c.messagesRead),
-		BytesRead:    atomic.LoadInt64(&c.bytesRead),
-		FetchCount:   atomic.LoadInt64(&c.fetchCount),
+		MessagesRead:  atomic.LoadInt64(&c.messagesRead),
+		BytesRead:     atomic.LoadInt64(&c.bytesRead),
+		FetchCount:    atomic.LoadInt64(&c.fetchCount),
 	}
 }
 

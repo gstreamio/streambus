@@ -39,22 +39,22 @@ type PartitionMetrics struct {
 	LastFetchTime      atomic.Int64 // Unix timestamp in ms
 
 	// ISR metrics (for leaders)
-	ISRSize         atomic.Int32
-	ISRShrinkCount  atomic.Int64
-	ISRExpandCount  atomic.Int64
-	LastISRChange   atomic.Int64 // Unix timestamp in ms
+	ISRSize        atomic.Int32
+	ISRShrinkCount atomic.Int64
+	ISRExpandCount atomic.Int64
+	LastISRChange  atomic.Int64 // Unix timestamp in ms
 
 	// Failover metrics
-	FailoverCount      atomic.Int64
-	LastFailoverTime   atomic.Int64 // Unix timestamp in ms
-	LeaderEpoch        atomic.Int64
+	FailoverCount    atomic.Int64
+	LastFailoverTime atomic.Int64 // Unix timestamp in ms
+	LeaderEpoch      atomic.Int64
 }
 
 // GlobalReplicationMetrics tracks cluster-wide replication metrics
 type GlobalReplicationMetrics struct {
 	// Total partition count
-	TotalPartitions atomic.Int32
-	LeaderPartitions atomic.Int32
+	TotalPartitions    atomic.Int32
+	LeaderPartitions   atomic.Int32
 	FollowerPartitions atomic.Int32
 
 	// Aggregate replication lag
@@ -67,13 +67,13 @@ type GlobalReplicationMetrics struct {
 	TotalFetchErrors   atomic.Int64
 
 	// ISR health
-	TotalISRShrinks atomic.Int64
-	TotalISRExpands atomic.Int64
+	TotalISRShrinks           atomic.Int64
+	TotalISRExpands           atomic.Int64
 	PartitionsUnderReplicated atomic.Int32 // Partitions with ISR < replication factor
 
 	// Failover metrics
-	TotalFailovers atomic.Int64
-	FailedFailovers atomic.Int64
+	TotalFailovers    atomic.Int64
+	FailedFailovers   atomic.Int64
 	AvgFailoverTimeMs atomic.Int64
 }
 
@@ -229,10 +229,10 @@ type PartitionMetricsSnapshot struct {
 	LastFetchLatencyMs int64
 	LastFetchTime      time.Time
 
-	ISRSize       int32
+	ISRSize        int32
 	ISRShrinkCount int64
 	ISRExpandCount int64
-	LastISRChange time.Time
+	LastISRChange  time.Time
 
 	FailoverCount    int64
 	LastFailoverTime time.Time
@@ -245,17 +245,17 @@ func (mc *MetricsCollector) ComputeGlobalMetrics() {
 	defer mc.mu.RUnlock()
 
 	var (
-		totalLag          int64
-		maxLag            int64
-		totalFetchReqs    int64
-		totalFetchBytes   int64
-		totalFetchErrors  int64
-		totalISRShrinks   int64
-		totalISRExpands   int64
-		underReplicated   int32
-		leaderCount       int32
-		followerCount     int32
-		partitionCount    int32
+		totalLag         int64
+		maxLag           int64
+		totalFetchReqs   int64
+		totalFetchBytes  int64
+		totalFetchErrors int64
+		totalISRShrinks  int64
+		totalISRExpands  int64
+		underReplicated  int32
+		leaderCount      int32
+		followerCount    int32
+		partitionCount   int32
 	)
 
 	for _, pm := range mc.partitionMetrics {

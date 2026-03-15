@@ -16,7 +16,7 @@ type FailoverCoordinator struct {
 	brokerID ReplicaID
 
 	// Partition managers being monitored
-	mu        sync.RWMutex
+	mu         sync.RWMutex
 	partitions map[string]*PartitionFailoverState
 
 	// Failure detection
@@ -33,13 +33,13 @@ type FailoverCoordinator struct {
 
 // PartitionFailoverState tracks failover state for a partition
 type PartitionFailoverState struct {
-	topic          string
-	partitionID    int
-	currentLeader  ReplicaID
-	leaderEpoch    int64
-	replicas       []ReplicaID
-	isr            []ReplicaID
-	lastLeaderSeen time.Time
+	topic              string
+	partitionID        int
+	currentLeader      ReplicaID
+	leaderEpoch        int64
+	replicas           []ReplicaID
+	isr                []ReplicaID
+	lastLeaderSeen     time.Time
 	failoverInProgress bool
 }
 
@@ -324,11 +324,11 @@ func (fd *FailureDetector) heartbeatLoop(ctx context.Context, wg *sync.WaitGroup
 
 // FailoverMetrics tracks failover statistics
 type FailoverMetrics struct {
-	TotalFailovers       int64
-	SuccessfulFailovers  int64
-	FailedFailovers      int64
-	AverageFailoverTime  time.Duration
-	LastFailoverTime     time.Time
+	TotalFailovers      int64
+	SuccessfulFailovers int64
+	FailedFailovers     int64
+	AverageFailoverTime time.Duration
+	LastFailoverTime    time.Time
 }
 
 // GetMetrics returns failover metrics

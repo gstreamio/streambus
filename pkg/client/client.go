@@ -22,11 +22,11 @@ type Client struct {
 	closed bool
 
 	// Metrics
-	requestsSent int64
+	requestsSent   int64
 	requestsFailed int64
-	bytesWritten int64
-	bytesRead int64
-	startTime time.Time
+	bytesWritten   int64
+	bytesRead      int64
+	startTime      time.Time
 }
 
 // New creates a new StreamBus client

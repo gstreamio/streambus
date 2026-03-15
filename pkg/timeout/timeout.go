@@ -10,14 +10,14 @@ import (
 // Config holds timeout configuration for various operations
 type Config struct {
 	// Consensus timeouts
-	RaftProposal     time.Duration `json:"raft_proposal"`
-	RaftElection     time.Duration `json:"raft_election"`
-	RaftHeartbeat    time.Duration `json:"raft_heartbeat"`
-	RaftSnapshot     time.Duration `json:"raft_snapshot"`
+	RaftProposal  time.Duration `json:"raft_proposal"`
+	RaftElection  time.Duration `json:"raft_election"`
+	RaftHeartbeat time.Duration `json:"raft_heartbeat"`
+	RaftSnapshot  time.Duration `json:"raft_snapshot"`
 
 	// Metadata timeouts
-	MetadataUpdate   time.Duration `json:"metadata_update"`
-	MetadataSync     time.Duration `json:"metadata_sync"`
+	MetadataUpdate time.Duration `json:"metadata_update"`
+	MetadataSync   time.Duration `json:"metadata_sync"`
 
 	// Cluster coordination timeouts
 	RebalanceTimeout time.Duration `json:"rebalance_timeout"`
@@ -25,8 +25,8 @@ type Config struct {
 	LeaderElection   time.Duration `json:"leader_election"`
 
 	// Health check timeouts
-	HealthCheck      time.Duration `json:"health_check"`
-	ReadinessCheck   time.Duration `json:"readiness_check"`
+	HealthCheck    time.Duration `json:"health_check"`
+	ReadinessCheck time.Duration `json:"readiness_check"`
 
 	// Network timeouts
 	ConnectionTimeout time.Duration `json:"connection_timeout"`

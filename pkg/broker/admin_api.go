@@ -49,14 +49,14 @@ func (b *Broker) registerAdminAPI(mux *http.ServeMux) {
 
 // ClusterInfo represents cluster metadata
 type ClusterInfo struct {
-	ClusterID      string    `json:"cluster_id"`
-	ControllerID   int32     `json:"controller_id"`
-	Version        string    `json:"version"`
-	TotalBrokers   int       `json:"total_brokers"`
-	ActiveBrokers  int       `json:"active_brokers"`
-	TotalTopics    int       `json:"total_topics"`
-	TotalPartitions int      `json:"total_partitions"`
-	Uptime         string    `json:"uptime"`
+	ClusterID       string `json:"cluster_id"`
+	ControllerID    int32  `json:"controller_id"`
+	Version         string `json:"version"`
+	TotalBrokers    int    `json:"total_brokers"`
+	ActiveBrokers   int    `json:"active_brokers"`
+	TotalTopics     int    `json:"total_topics"`
+	TotalPartitions int    `json:"total_partitions"`
+	Uptime          string `json:"uptime"`
 }
 
 // handleClusterInfo handles GET /api/v1/cluster
@@ -116,13 +116,13 @@ func (b *Broker) handleClusterInfo(w http.ResponseWriter, r *http.Request) {
 
 // BrokerInfo represents broker metadata for API responses
 type BrokerInfo struct {
-	ID        int32     `json:"id"`
-	Host      string    `json:"host"`
-	Port      int       `json:"port"`
-	Status    string    `json:"status"`
-	Leader    bool      `json:"leader"`
-	Version   string    `json:"version"`
-	Uptime    string    `json:"uptime"`
+	ID        int32            `json:"id"`
+	Host      string           `json:"host"`
+	Port      int              `json:"port"`
+	Status    string           `json:"status"`
+	Leader    bool             `json:"leader"`
+	Version   string           `json:"version"`
+	Uptime    string           `json:"uptime"`
 	Resources *BrokerResources `json:"resources,omitempty"`
 }
 
@@ -220,13 +220,13 @@ type TopicResponse struct {
 
 // PartitionInfo represents partition metadata
 type PartitionInfo struct {
-	ID            int32   `json:"id"`
-	Leader        int32   `json:"leader"`
-	Replicas      []int32 `json:"replicas"`
-	ISR           []int32 `json:"isr"`
-	BeginningOffset int64 `json:"beginning_offset"`
-	EndOffset     int64   `json:"end_offset"`
-	MessageCount  int64   `json:"message_count"`
+	ID              int32   `json:"id"`
+	Leader          int32   `json:"leader"`
+	Replicas        []int32 `json:"replicas"`
+	ISR             []int32 `json:"isr"`
+	BeginningOffset int64   `json:"beginning_offset"`
+	EndOffset       int64   `json:"end_offset"`
+	MessageCount    int64   `json:"message_count"`
 }
 
 // handleTopics handles GET/POST /api/v1/topics
@@ -495,12 +495,12 @@ func (b *Broker) handleTopicMessages(w http.ResponseWriter, r *http.Request, top
 
 // ConsumerGroupInfo represents consumer group metadata
 type ConsumerGroupInfo struct {
-	GroupID     string        `json:"group_id"`
-	State       string        `json:"state"`
-	Protocol    string        `json:"protocol"`
-	Members     []MemberInfo  `json:"members"`
-	Coordinator int32         `json:"coordinator"`
-	TotalLag    int64         `json:"total_lag"`
+	GroupID     string       `json:"group_id"`
+	State       string       `json:"state"`
+	Protocol    string       `json:"protocol"`
+	Members     []MemberInfo `json:"members"`
+	Coordinator int32        `json:"coordinator"`
+	TotalLag    int64        `json:"total_lag"`
 }
 
 // MemberInfo represents consumer group member metadata
@@ -640,12 +640,12 @@ func (b *Broker) getConsumerGroup(w http.ResponseWriter, r *http.Request, groupI
 
 // LagInfo represents lag information for a partition
 type LagInfo struct {
-	Topic      string `json:"topic"`
-	Partition  int32  `json:"partition"`
-	MemberID   string `json:"member_id"`
-	Offset     int64  `json:"offset"`
-	EndOffset  int64  `json:"end_offset"`
-	Lag        int64  `json:"lag"`
+	Topic     string `json:"topic"`
+	Partition int32  `json:"partition"`
+	MemberID  string `json:"member_id"`
+	Offset    int64  `json:"offset"`
+	EndOffset int64  `json:"end_offset"`
+	Lag       int64  `json:"lag"`
 }
 
 // handleConsumerGroupLag handles GET /api/v1/consumer-groups/:id/lag

@@ -687,7 +687,6 @@ func BenchmarkCodec_DecodeFetchRequest(b *testing.B) {
 	}
 }
 
-
 // Additional response encoding/decoding tests for coverage
 
 func TestCodec_ProduceResponse(t *testing.T) {

@@ -243,7 +243,7 @@ func TestBidirectionalTransport_ConnectionReconnect(t *testing.T) {
 		To:   2,
 		Term: 3,
 	}
-	err = transport1.Send(msg3)
+	_ = transport1.Send(msg3)
 
 	// Give time for reconnection and delivery
 	time.Sleep(2 * time.Second)

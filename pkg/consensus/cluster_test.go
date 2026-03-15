@@ -286,6 +286,7 @@ func waitForLeader(nodes []*RaftNode, timeout time.Duration) (uint64, error) {
 }
 
 // Helper function to count leaders in a cluster.
+//
 //nolint:unused // Used in integration tests for cluster validation
 func countLeaders(nodes []*RaftNode) int {
 	count := 0

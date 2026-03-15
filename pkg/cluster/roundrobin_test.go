@@ -21,8 +21,8 @@ func TestRoundRobin_BasicAssignment(t *testing.T) {
 	}
 
 	constraints := &AssignmentConstraints{
-		RackAware:          false,
-		ExcludedBrokers:    map[int32]bool{},
+		RackAware:       false,
+		ExcludedBrokers: map[int32]bool{},
 	}
 
 	assignment, err := strategy.Assign(partitions, brokers, constraints)

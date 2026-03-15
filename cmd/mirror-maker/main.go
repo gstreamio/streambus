@@ -283,10 +283,10 @@ func (mm *mirrorMaker) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status := map[string]interface{}{
-		"status":       "ok",
-		"total_links":  len(links),
+		"status":        "ok",
+		"total_links":   len(links),
 		"healthy_links": healthyCount,
-		"version":      version,
+		"version":       version,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

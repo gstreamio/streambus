@@ -30,13 +30,13 @@ type LatencyMetrics struct {
 
 // ResourceMetrics represents resource usage metrics
 type ResourceMetrics struct {
-	CPU          []MetricPoint `json:"cpu"`
-	Memory       []MetricPoint `json:"memory"`
-	DiskUsage    []MetricPoint `json:"diskUsage"`
-	NetworkIn    []MetricPoint `json:"networkIn"`
-	NetworkOut   []MetricPoint `json:"networkOut"`
-	OpenFiles    []MetricPoint `json:"openFiles"`
-	Connections  []MetricPoint `json:"connections"`
+	CPU         []MetricPoint `json:"cpu"`
+	Memory      []MetricPoint `json:"memory"`
+	DiskUsage   []MetricPoint `json:"diskUsage"`
+	NetworkIn   []MetricPoint `json:"networkIn"`
+	NetworkOut  []MetricPoint `json:"networkOut"`
+	OpenFiles   []MetricPoint `json:"openFiles"`
+	Connections []MetricPoint `json:"connections"`
 }
 
 // MetricsService handles metrics operations
@@ -84,9 +84,9 @@ func (s *MetricsService) GetResources(ctx context.Context, duration time.Duratio
 	// Mock data
 	return &ResourceMetrics{
 		CPU:         s.generateMockPoints(duration, 45.0),
-		Memory:      s.generateMockPoints(duration, 2*1024*1024*1024), // 2 GB
+		Memory:      s.generateMockPoints(duration, 2*1024*1024*1024),  // 2 GB
 		DiskUsage:   s.generateMockPoints(duration, 50*1024*1024*1024), // 50 GB
-		NetworkIn:   s.generateMockPoints(duration, 10*1024*1024), // 10 MB/s
+		NetworkIn:   s.generateMockPoints(duration, 10*1024*1024),      // 10 MB/s
 		NetworkOut:  s.generateMockPoints(duration, 10*1024*1024),
 		OpenFiles:   s.generateMockPoints(duration, 1000),
 		Connections: s.generateMockPoints(duration, 500),

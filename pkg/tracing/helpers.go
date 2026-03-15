@@ -97,11 +97,11 @@ const (
 	AttrPartitionOffset = attribute.Key("streambus.partition.offset")
 
 	// Message attributes
-	AttrMessageKey      = attribute.Key("streambus.message.key")
-	AttrMessageSize     = attribute.Key("streambus.message.size")
-	AttrMessageCount    = attribute.Key("streambus.message.count")
-	AttrMessageOffset   = attribute.Key("streambus.message.offset")
-	AttrMessageBatch    = attribute.Key("streambus.message.batch")
+	AttrMessageKey    = attribute.Key("streambus.message.key")
+	AttrMessageSize   = attribute.Key("streambus.message.size")
+	AttrMessageCount  = attribute.Key("streambus.message.count")
+	AttrMessageOffset = attribute.Key("streambus.message.offset")
+	AttrMessageBatch  = attribute.Key("streambus.message.batch")
 
 	// Consumer attributes
 	AttrConsumerGroup  = attribute.Key("streambus.consumer.group")

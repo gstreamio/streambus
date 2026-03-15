@@ -320,13 +320,13 @@ func TestManager_Authorize(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		config         *SecurityConfig
-		principal      *Principal
-		action         Action
-		resource       Resource
-		expectAllowed  bool
-		expectError    bool
+		name          string
+		config        *SecurityConfig
+		principal     *Principal
+		action        Action
+		resource      Resource
+		expectAllowed bool
+		expectError   bool
 	}{
 		{
 			name: "authorization disabled",

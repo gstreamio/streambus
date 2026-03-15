@@ -68,7 +68,7 @@ func TestGroupCoordinator_JoinGroup(t *testing.T) {
 	assert.Equal(t, ErrorCodeNone, resp2.ErrorCode)
 	assert.NotEmpty(t, resp2.MemberID)
 	assert.NotEqual(t, resp2.MemberID, resp2.LeaderID) // Not the leader
-	assert.Equal(t, int32(2), resp2.GenerationID)       // Generation incremented
+	assert.Equal(t, int32(2), resp2.GenerationID)      // Generation incremented
 }
 
 func TestGroupCoordinator_SyncGroup(t *testing.T) {
@@ -518,7 +518,7 @@ func TestPersistentOffsetStorage(t *testing.T) {
 	// Test FetchOffsets
 	groupOffsets, err := storage.FetchOffsets("group-1")
 	require.NoError(t, err)
-	assert.Len(t, groupOffsets.Offsets, 2) // Two topics
+	assert.Len(t, groupOffsets.Offsets, 2)            // Two topics
 	assert.Len(t, groupOffsets.Offsets["topic-1"], 2) // Two partitions in topic-1
 	assert.Len(t, groupOffsets.Offsets["topic-2"], 1) // One partition in topic-2
 

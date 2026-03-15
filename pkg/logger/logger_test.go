@@ -176,10 +176,10 @@ func TestLoggingFunctions(t *testing.T) {
 	defer func() { _ = globalLogger.Sync() }()
 
 	tests := []struct {
-		name     string
-		logFunc  func()
-		level    string
-		message  string
+		name    string
+		logFunc func()
+		level   string
+		message string
 	}{
 		{
 			name: "Debug logging",

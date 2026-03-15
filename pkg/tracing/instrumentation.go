@@ -28,10 +28,10 @@ func (t *Tracer) InstrumentedOperation(ctx context.Context, operationName string
 // TraceProduceMessage traces message production
 func (t *Tracer) TraceProduceMessage(ctx context.Context, topic string, partition uint32, key, value []byte) (context.Context, trace.Span) {
 	return t.StartWithAttributes(ctx, "producer.send", map[string]interface{}{
-		"messaging.system":               "streambus",
-		"messaging.operation":            "send",
-		"messaging.destination":          topic,
-		"messaging.destination_partition": partition,
+		"messaging.system":                     "streambus",
+		"messaging.operation":                  "send",
+		"messaging.destination":                topic,
+		"messaging.destination_partition":      partition,
 		"messaging.message_payload_size_bytes": len(value),
 	})
 }
@@ -50,9 +50,9 @@ func (t *Tracer) TraceConsumeMessage(ctx context.Context, topic string, partitio
 // TraceStorageOperation traces storage layer operations
 func (t *Tracer) TraceStorageOperation(ctx context.Context, operation, component string) (context.Context, trace.Span) {
 	return t.StartWithAttributes(ctx, fmt.Sprintf("storage.%s", operation), map[string]interface{}{
-		"component":  component,
-		"operation":  operation,
-		"layer":      "storage",
+		"component": component,
+		"operation": operation,
+		"layer":     "storage",
 	})
 }
 
@@ -69,9 +69,9 @@ func (t *Tracer) TraceRaftOperation(ctx context.Context, operation string, term,
 // TraceNetworkRequest traces network requests between brokers
 func (t *Tracer) TraceNetworkRequest(ctx context.Context, operation, targetBroker string) (context.Context, trace.Span) {
 	return t.StartWithAttributes(ctx, fmt.Sprintf("network.%s", operation), map[string]interface{}{
-		"network.operation":      operation,
-		"network.peer.address":   targetBroker,
-		"network.protocol.name":  "streambus",
+		"network.operation":     operation,
+		"network.peer.address":  targetBroker,
+		"network.protocol.name": "streambus",
 	})
 }
 
@@ -94,7 +94,7 @@ func (t *Tracer) MeasureDuration(ctx context.Context, operation string, fn func(
 
 	if err != nil {
 		t.RecordError(ctx, err, map[string]interface{}{
-			"operation": operation,
+			"operation":   operation,
 			"duration_ms": duration.Milliseconds(),
 		})
 	}
@@ -118,7 +118,7 @@ func (t *Tracer) TraceWithRetry(ctx context.Context, operation string, maxRetrie
 		})
 
 		err := fn(attemptCtx, attempt)
-		
+
 		if err == nil {
 			attemptSpan.SetStatus(codes.Ok, "")
 			attemptSpan.End()

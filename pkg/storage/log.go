@@ -29,9 +29,9 @@ type logImpl struct {
 	immutableMemTables []MemTable
 
 	// Offset tracking
-	nextOffset      int64
-	highWaterMark   int64
-	logStartOffset  int64
+	nextOffset     int64
+	highWaterMark  int64
+	logStartOffset int64
 
 	// Flush coordination
 	flushInProgress atomic.Bool //nolint:unused // Reserved for future use in async flush coordination

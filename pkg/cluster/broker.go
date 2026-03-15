@@ -11,11 +11,11 @@ import (
 type BrokerStatus string
 
 const (
-	BrokerStatusStarting      BrokerStatus = "STARTING"      // Broker is starting up
-	BrokerStatusAlive         BrokerStatus = "ALIVE"         // Broker is healthy and serving
-	BrokerStatusDraining      BrokerStatus = "DRAINING"      // Broker is being drained (no new partitions)
+	BrokerStatusStarting       BrokerStatus = "STARTING"       // Broker is starting up
+	BrokerStatusAlive          BrokerStatus = "ALIVE"          // Broker is healthy and serving
+	BrokerStatusDraining       BrokerStatus = "DRAINING"       // Broker is being drained (no new partitions)
 	BrokerStatusDecommissioned BrokerStatus = "DECOMMISSIONED" // Broker has been removed
-	BrokerStatusFailed        BrokerStatus = "FAILED"        // Broker has failed health checks
+	BrokerStatusFailed         BrokerStatus = "FAILED"         // Broker has failed health checks
 )
 
 // BrokerMetadata contains metadata about a broker

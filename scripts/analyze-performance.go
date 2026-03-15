@@ -62,14 +62,14 @@ func analyzeProfile(filename string) []PerformanceIssue {
 
 	// Parse benchmark results
 	var (
-		allocsPerOp      float64
-		bytesPerOp       float64
-		benchmarkName    string
-		hasThroughput    bool
-		throughputMBps   float64
-		messagesPerSec   float64
-		hasLatency       bool
-		p99Latency       float64
+		allocsPerOp    float64
+		bytesPerOp     float64
+		benchmarkName  string
+		hasThroughput  bool
+		throughputMBps float64
+		messagesPerSec float64
+		hasLatency     bool
+		p99Latency     float64
 	)
 
 	allocPattern := regexp.MustCompile(`(\d+)\s+allocs/op`)

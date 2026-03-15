@@ -13,9 +13,9 @@ type BufferPool struct {
 }
 
 const (
-	smallBufferSize  = 4 * 1024      // 4KB
-	mediumBufferSize = 64 * 1024     // 64KB
-	largeBufferSize  = 1024 * 1024   // 1MB
+	smallBufferSize  = 4 * 1024    // 4KB
+	mediumBufferSize = 64 * 1024   // 64KB
+	largeBufferSize  = 1024 * 1024 // 1MB
 )
 
 // NewBufferPool creates a new buffer pool

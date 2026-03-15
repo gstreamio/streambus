@@ -367,11 +367,11 @@ func TestDiskStorage_Term_EdgeCases(t *testing.T) {
 	assert.Equal(t, uint64(3), term)
 
 	// Test term for compacted entry
-	term, err = storage.Term(1)
+	_, err = storage.Term(1)
 	assert.Error(t, err, "should fail for compacted entry")
 
 	// Test term for out of range entry
-	term, err = storage.Term(100)
+	_, err = storage.Term(100)
 	assert.Error(t, err, "should fail for out of range entry")
 }
 

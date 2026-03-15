@@ -70,10 +70,10 @@ type DataEncryptionKey struct {
 
 // EncryptedData represents encrypted data with metadata
 type EncryptedData struct {
-	Algorithm string `json:"algorithm"`
-	KeyID     string `json:"key_id"`
-	Nonce     []byte `json:"nonce"`
-	Data      []byte `json:"data"`
+	Algorithm string    `json:"algorithm"`
+	KeyID     string    `json:"key_id"`
+	Nonce     []byte    `json:"nonce"`
+	Data      []byte    `json:"data"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -91,7 +91,7 @@ type KeyManager struct {
 func NewKeyManager(config *EncryptionConfig) (*KeyManager, error) {
 	if !config.Enabled {
 		return &KeyManager{
-			config:  config,
+			config:   config,
 			dataKeys: make(map[string]*DataEncryptionKey),
 		}, nil
 	}

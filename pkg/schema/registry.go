@@ -16,13 +16,13 @@ type SchemaRegistry struct {
 	mu sync.RWMutex
 
 	// Schema storage
-	schemas        map[SchemaID]*Schema                  // id -> schema
-	subjectSchemas map[Subject]map[Version]*Schema       // subject -> version -> schema
-	subjectLatest  map[Subject]Version                   // subject -> latest version
-	fingerprints   map[Subject]map[string]SchemaID       // subject -> fingerprint -> id
+	schemas        map[SchemaID]*Schema            // id -> schema
+	subjectSchemas map[Subject]map[Version]*Schema // subject -> version -> schema
+	subjectLatest  map[Subject]Version             // subject -> latest version
+	fingerprints   map[Subject]map[string]SchemaID // subject -> fingerprint -> id
 
 	// Compatibility configuration
-	globalCompatibility CompatibilityMode
+	globalCompatibility  CompatibilityMode
 	subjectCompatibility map[Subject]CompatibilityMode
 
 	// ID generation
@@ -369,7 +369,7 @@ func (sr *SchemaRegistry) DeleteSubject(req *DeleteSubjectRequest) (*DeleteSubje
 	delete(sr.subjectCompatibility, req.Subject)
 
 	sr.logger.Info("Subject deleted", logging.Fields{
-		"subject": req.Subject,
+		"subject":  req.Subject,
 		"versions": len(deletedVersions),
 	})
 

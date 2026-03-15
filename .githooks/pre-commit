@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -e
+
+echo "=== Pre-commit checks ==="
+
+# 1. Format check — ensure gofmt has been run
+echo "Checking formatting..."
+UNFORMATTED=$(gofmt -l . 2>&1 | grep -v vendor || true)
+if [ -n "$UNFORMATTED" ]; then
+    echo "❌ The following files are not formatted:"
+    echo "$UNFORMATTED"
+    echo ""
+    echo "Run 'gofmt -w .' or 'make fmt' to fix."
+    exit 1
+fi
+echo "✅ Formatting OK"
+
+# 2. Lint — run golangci-lint on staged Go files
+echo "Running linter..."
+if command -v golangci-lint >/dev/null 2>&1; then
+    golangci-lint run ./...
+    echo "✅ Lint OK"
+else
+    echo "⚠️  golangci-lint not found, skipping (install: make tools)"
+fi
+
+# 3. Vulnerability check (warns but does not block on stdlib-only vulns)
+echo "Running vulnerability check..."
+if command -v govulncheck >/dev/null 2>&1; then
+    if ! govulncheck ./... 2>&1; then
+        echo "⚠️  Vulnerabilities found. Update Go toolchain or dependencies to resolve."
+        echo "⚠️  Continuing commit — fix before pushing."
+    else
+        echo "✅ Vulnerability check OK"
+    fi
+else
+    echo "⚠️  govulncheck not found, skipping (install: go install golang.org/x/vuln/cmd/govulncheck@latest)"
+fi
+
+echo "=== All pre-commit checks passed ==="

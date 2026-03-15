@@ -14,11 +14,11 @@ const (
 
 // memTableImpl implements MemTable using a skip list
 type memTableImpl struct {
-	head   *skipListNode
-	level  int
-	size   int64
-	mu     sync.RWMutex
-	rand   *rand.Rand
+	head  *skipListNode
+	level int
+	size  int64
+	mu    sync.RWMutex
+	rand  *rand.Rand
 }
 
 type skipListNode struct {

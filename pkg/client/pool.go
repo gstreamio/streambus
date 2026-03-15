@@ -33,6 +33,7 @@ func (c *connection) nextRequestID() uint64 {
 }
 
 // markUsed marks the connection as used
+//
 //nolint:unused // Reserved for future use in connection tracking
 func (c *connection) markUsed() {
 	c.mu.Lock()
@@ -66,6 +67,7 @@ func (c *connection) isHealthyLocked() bool {
 }
 
 // isHealthy checks if the connection is healthy
+//
 //nolint:unused // Reserved for future use in connection health monitoring
 func (c *connection) isHealthy() bool {
 	c.mu.Lock()

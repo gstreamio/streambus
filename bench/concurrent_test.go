@@ -14,9 +14,9 @@ import (
 // BenchmarkConcurrent_MultiProducer tests concurrent producers
 func BenchmarkConcurrent_MultiProducer(b *testing.B) {
 	testCases := []struct {
-		name        string
+		name         string
 		numProducers int
-		msgSize     int
+		msgSize      int
 	}{
 		{"10Producers_SmallMsg", 10, 100},
 		{"50Producers_SmallMsg", 50, 100},
@@ -345,7 +345,7 @@ func BenchmarkConcurrent_MixedWorkload(b *testing.B) {
 // BenchmarkConcurrent_ProducerContention tests contention on a single topic
 func BenchmarkConcurrent_ProducerContention(b *testing.B) {
 	testCases := []struct {
-		name        string
+		name         string
 		numProducers int
 	}{
 		{"LowContention_5", 5},

@@ -135,12 +135,12 @@ func TestHistogram(t *testing.T) {
 	assert.Equal(t, "A test histogram", histogram.Help())
 
 	// Observe some values
-	histogram.Observe(0.05)  // bucket 0
-	histogram.Observe(0.2)   // bucket 1
-	histogram.Observe(0.75)  // bucket 2
-	histogram.Observe(3.0)   // bucket 3
-	histogram.Observe(7.5)   // bucket 4
-	histogram.Observe(15.0)  // +Inf bucket
+	histogram.Observe(0.05) // bucket 0
+	histogram.Observe(0.2)  // bucket 1
+	histogram.Observe(0.75) // bucket 2
+	histogram.Observe(3.0)  // bucket 3
+	histogram.Observe(7.5)  // bucket 4
+	histogram.Observe(15.0) // +Inf bucket
 
 	value := histogram.Value().(map[string]interface{})
 	counts := value["counts"].([]uint64)

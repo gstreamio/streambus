@@ -46,17 +46,17 @@ type Config struct {
 // DefaultConfig returns sensible defaults for replication
 func DefaultConfig() *Config {
 	return &Config{
-		FetchMinBytes:                     1,                 // Return immediately with any data
-		FetchMaxBytes:                     1024 * 1024,       // 1MB
-		FetchMaxWaitMs:                    500,               // 500ms max wait
+		FetchMinBytes:                     1,                     // Return immediately with any data
+		FetchMaxBytes:                     1024 * 1024,           // 1MB
+		FetchMaxWaitMs:                    500,                   // 500ms max wait
 		FetcherInterval:                   50 * time.Millisecond, // Fetch every 50ms
-		ReplicaLagMaxMessages:             4000,              // 4000 messages
-		ReplicaLagTimeMaxMs:               10000,             // 10 seconds
-		HighWaterMarkCheckpointIntervalMs: 5000,              // 5 seconds
-		NumFetcherThreads:                 1,                 // Single-threaded initially
-		MaxInflightFetches:                1,                 // No pipelining initially
-		FetchBackoffMs:                    1000,              // 1 second backoff on error
-		ReplicaIDForFollower:              0,                 // Must be set
+		ReplicaLagMaxMessages:             4000,                  // 4000 messages
+		ReplicaLagTimeMaxMs:               10000,                 // 10 seconds
+		HighWaterMarkCheckpointIntervalMs: 5000,                  // 5 seconds
+		NumFetcherThreads:                 1,                     // Single-threaded initially
+		MaxInflightFetches:                1,                     // No pipelining initially
+		FetchBackoffMs:                    1000,                  // 1 second backoff on error
+		ReplicaIDForFollower:              0,                     // Must be set
 	}
 }
 

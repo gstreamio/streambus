@@ -46,7 +46,7 @@ func TestTransactionCoordinator_InitProducerID(t *testing.T) {
 	resp2, err := coordinator.InitProducerID(req2)
 	require.NoError(t, err)
 	assert.Equal(t, ErrorNone, resp2.ErrorCode)
-	assert.Equal(t, resp1.ProducerID, resp2.ProducerID) // Same producer ID
+	assert.Equal(t, resp1.ProducerID, resp2.ProducerID)    // Same producer ID
 	assert.Equal(t, ProducerEpoch(1), resp2.ProducerEpoch) // Epoch incremented
 
 	// Test different transaction ID

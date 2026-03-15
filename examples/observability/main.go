@@ -186,7 +186,7 @@ func main() {
 	fmt.Printf("   - Network requests: %d\n", messageCount*2)
 
 	// Storage metrics
-	streambusMetrics.StorageUsedBytes.Set(1024 * 1024 * 10) // 10 MB
+	streambusMetrics.StorageUsedBytes.Set(1024 * 1024 * 10)        // 10 MB
 	streambusMetrics.StorageAvailableBytes.Set(1024 * 1024 * 1024) // 1 GB
 	streambusMetrics.SegmentsTotal.Set(3)
 	fmt.Println("   - Storage: 10 MB used, 1 GB available")

@@ -87,9 +87,9 @@ func jsonProducer() {
 
 	// Define a struct for your data
 	type Event struct {
-		ID        string `json:"id"`
-		Type      string `json:"type"`
-		Timestamp int64  `json:"timestamp"`
+		ID        string                 `json:"id"`
+		Type      string                 `json:"type"`
+		Timestamp int64                  `json:"timestamp"`
 		Data      map[string]interface{} `json:"data"`
 	}
 

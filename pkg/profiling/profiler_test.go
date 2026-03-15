@@ -193,11 +193,11 @@ func TestProfiler_GCEndpoint(t *testing.T) {
 
 func TestProfiler_ProfilingRates(t *testing.T) {
 	p := New(&Config{
-		Enabled:               true,
-		EnableBlockProfiling:  true,
-		EnableMutexProfiling:  true,
-		BlockRate:             10,
-		MutexFraction:         5,
+		Enabled:              true,
+		EnableBlockProfiling: true,
+		EnableMutexProfiling: true,
+		BlockRate:            10,
+		MutexFraction:        5,
 	})
 
 	if p.config.BlockRate != 10 {

@@ -474,8 +474,8 @@ func TestStore_Propose_MaxRetriesExceeded(t *testing.T) {
 	// Should fail with either max retries or context error
 	assert.True(t, errors.Is(err, context.DeadlineExceeded) ||
 		(err != nil && (errors.Is(err, context.Canceled) ||
-		 strings.Contains(err.Error(), "max retries") ||
-		 strings.Contains(err.Error(), "context"))))
+			strings.Contains(err.Error(), "max retries") ||
+			strings.Contains(err.Error(), "context"))))
 	// Should have made multiple attempts
 	assert.Greater(t, attemptCount, 0)
 }

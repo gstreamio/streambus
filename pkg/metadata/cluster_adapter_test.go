@@ -351,9 +351,9 @@ func TestClusterMetadataStore_ParsePartitionKey(t *testing.T) {
 	adapter, _, _ := setupTestAdapter()
 
 	testCases := []struct {
-		key             string
-		expectedTopic   string
-		expectedPartID  int
+		key            string
+		expectedTopic  string
+		expectedPartID int
 	}{
 		{"test-topic:0", "test-topic", 0},
 		{"test-topic:5", "test-topic", 5},
@@ -381,7 +381,7 @@ func TestClusterMetadataStore_ParseAddress(t *testing.T) {
 		{"localhost:9092", "localhost", 9092},
 		{"192.168.1.1:8080", "192.168.1.1", 8080},
 		{"broker1.example.com:19092", "broker1.example.com", 19092},
-		{"invalid", "invalid", 0}, // Invalid format
+		{"invalid", "invalid", 0},   // Invalid format
 		{"host:abc", "host:abc", 0}, // Invalid port
 	}
 

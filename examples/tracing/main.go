@@ -40,8 +40,8 @@ func main() {
 			Type: tracing.ExporterTypeStdout, // Output to stdout for demo
 		},
 		Sampling: tracing.SamplingConfig{
-			SamplingRate: 1.0,       // Sample 100% of traces
-			ParentBased:  true,      // Respect parent sampling decisions
+			SamplingRate: 1.0,  // Sample 100% of traces
+			ParentBased:  true, // Respect parent sampling decisions
 		},
 		ResourceAttributes: map[string]string{
 			"region": "us-west-2",

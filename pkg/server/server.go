@@ -36,11 +36,11 @@ type Server struct {
 	wg     sync.WaitGroup
 
 	// Metrics
-	totalRequests   int64
-	totalErrors     int64
-	totalBytesSent  int64
-	totalBytesRecv  int64
-	startTime       time.Time
+	totalRequests  int64
+	totalErrors    int64
+	totalBytesSent int64
+	totalBytesRecv int64
+	startTime      time.Time
 }
 
 // New creates a new server

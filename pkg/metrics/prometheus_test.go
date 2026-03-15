@@ -145,11 +145,11 @@ func TestPrometheusExporter_HistogramBuckets(t *testing.T) {
 	registry := NewRegistry()
 
 	histogram := registry.GetOrCreateHistogram("request_duration", "Request duration", nil, []float64{0.1, 0.5, 1.0, 5.0})
-	histogram.Observe(0.05)  // In first bucket
-	histogram.Observe(0.3)   // In second bucket
-	histogram.Observe(0.8)   // In third bucket
-	histogram.Observe(2.0)   // In fourth bucket
-	histogram.Observe(10.0)  // In +Inf bucket
+	histogram.Observe(0.05) // In first bucket
+	histogram.Observe(0.3)  // In second bucket
+	histogram.Observe(0.8)  // In third bucket
+	histogram.Observe(2.0)  // In fourth bucket
+	histogram.Observe(10.0) // In +Inf bucket
 
 	exporter := NewPrometheusExporter(registry)
 	var buf bytes.Buffer
@@ -347,7 +347,7 @@ func TestStreamBusMetrics_StorageMetrics(t *testing.T) {
 	metrics := NewStreamBusMetrics(registry)
 
 	// Simulate storage activity
-	metrics.StorageUsedBytes.Set(1024 * 1024 * 1024) // 1 GB
+	metrics.StorageUsedBytes.Set(1024 * 1024 * 1024)           // 1 GB
 	metrics.StorageAvailableBytes.Set(10 * 1024 * 1024 * 1024) // 10 GB
 	metrics.SegmentsTotal.Set(150)
 	metrics.CompactionsTotal.Add(5)

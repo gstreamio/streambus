@@ -104,11 +104,11 @@ func NewQuotaTracker(tenantID TenantID, quotas *Quotas) *QuotaTracker {
 
 // QuotaError represents a quota exceeded error
 type QuotaError struct {
-	TenantID     TenantID
-	QuotaType    string
-	Current      int64
-	Limit        int64
-	Message      string
+	TenantID  TenantID
+	QuotaType string
+	Current   int64
+	Limit     int64
+	Message   string
 }
 
 func (e *QuotaError) Error() string {
@@ -333,33 +333,33 @@ func (qt *QuotaTracker) GetUsage() *Usage {
 	defer qt.mu.RUnlock()
 
 	return &Usage{
-		TenantID:             qt.tenantID,
-		Connections:          qt.currentConnections,
-		Producers:            qt.currentProducers,
-		Consumers:            qt.currentConsumers,
-		Topics:               qt.currentTopics,
-		Partitions:           qt.currentPartitions,
-		ConsumerGroups:       qt.currentConsumerGroups,
-		StorageBytes:         qt.currentStorageBytes,
-		BytesPerSecond:       int64(qt.bytesWindow.Rate()),
-		MessagesPerSecond:    int64(qt.messagesWindow.Rate()),
-		RequestsPerSecond:    int64(qt.requestsWindow.Rate()),
+		TenantID:          qt.tenantID,
+		Connections:       qt.currentConnections,
+		Producers:         qt.currentProducers,
+		Consumers:         qt.currentConsumers,
+		Topics:            qt.currentTopics,
+		Partitions:        qt.currentPartitions,
+		ConsumerGroups:    qt.currentConsumerGroups,
+		StorageBytes:      qt.currentStorageBytes,
+		BytesPerSecond:    int64(qt.bytesWindow.Rate()),
+		MessagesPerSecond: int64(qt.messagesWindow.Rate()),
+		RequestsPerSecond: int64(qt.requestsWindow.Rate()),
 	}
 }
 
 // Usage represents current resource usage for a tenant
 type Usage struct {
-	TenantID           TenantID
-	Connections        int
-	Producers          int
-	Consumers          int
-	Topics             int
-	Partitions         int
-	ConsumerGroups     int
-	StorageBytes       int64
-	BytesPerSecond     int64
-	MessagesPerSecond  int64
-	RequestsPerSecond  int64
+	TenantID          TenantID
+	Connections       int
+	Producers         int
+	Consumers         int
+	Topics            int
+	Partitions        int
+	ConsumerGroups    int
+	StorageBytes      int64
+	BytesPerSecond    int64
+	MessagesPerSecond int64
+	RequestsPerSecond int64
 }
 
 // UtilizationPercent calculates quota utilization percentage

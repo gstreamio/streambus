@@ -257,8 +257,8 @@ func (h *SecurityHandler) errorResponse(requestID uint64, errorCode protocol.Err
 // GetStats returns security handler statistics
 func (h *SecurityHandler) GetStats() map[string]int64 {
 	return map[string]int64{
-		"requests_handled":    atomic.LoadInt64(&h.requestsHandled),
-		"auth_failures":       atomic.LoadInt64(&h.authFailures),
-		"authz_denials":       atomic.LoadInt64(&h.authzDenials),
+		"requests_handled": atomic.LoadInt64(&h.requestsHandled),
+		"auth_failures":    atomic.LoadInt64(&h.authFailures),
+		"authz_denials":    atomic.LoadInt64(&h.authzDenials),
 	}
 }

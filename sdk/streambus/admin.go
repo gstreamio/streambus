@@ -14,16 +14,16 @@ type Admin struct {
 
 // TopicConfig holds topic configuration
 type TopicConfig struct {
-	Name               string
-	Partitions         int
-	ReplicationFactor  int
-	RetentionTime      time.Duration
-	RetentionBytes     int64
-	SegmentSize        int64
-	MinInSyncReplicas  int
+	Name                  string
+	Partitions            int
+	ReplicationFactor     int
+	RetentionTime         time.Duration
+	RetentionBytes        int64
+	SegmentSize           int64
+	MinInSyncReplicas     int
 	UncleanLeaderElection bool
-	CompressionType    string
-	MaxMessageBytes    int
+	CompressionType       string
+	MaxMessageBytes       int
 }
 
 // TopicMetadata holds topic metadata information
@@ -57,11 +57,11 @@ type BrokerMetadata struct {
 
 // ClusterMetadata holds cluster-wide metadata
 type ClusterMetadata struct {
-	ClusterID    string
-	Controller   int32
-	Brokers      []BrokerMetadata
-	Topics       []string
-	TotalTopics  int
+	ClusterID       string
+	Controller      int32
+	Brokers         []BrokerMetadata
+	Topics          []string
+	TotalTopics     int
 	TotalPartitions int
 }
 
@@ -215,7 +215,7 @@ func (a *Admin) GetClusterMetadata(ctx context.Context) (*ClusterMetadata, error
 
 	// Build cluster metadata
 	metadata := &ClusterMetadata{
-		ClusterID: "streambus-cluster",
+		ClusterID:  "streambus-cluster",
 		Controller: 1,
 		Brokers: []BrokerMetadata{
 			{
@@ -243,11 +243,11 @@ type ConsumerGroupDescription struct {
 
 // ConsumerGroupMember holds information about a consumer group member
 type ConsumerGroupMember struct {
-	MemberID       string
-	ClientID       string
-	ClientHost     string
-	Assignment     []TopicPartitionAssignment
-	HeartbeatTime  time.Time
+	MemberID      string
+	ClientID      string
+	ClientHost    string
+	Assignment    []TopicPartitionAssignment
+	HeartbeatTime time.Time
 }
 
 // TopicPartitionAssignment holds topic-partition assignment

@@ -75,16 +75,16 @@ type Config struct {
 // DefaultConfig returns a Config with sensible defaults for a typical deployment.
 func DefaultConfig() *Config {
 	return &Config{
-		TickInterval:               100 * time.Millisecond,
-		ElectionTick:               15, // 1.5 seconds (increased to prevent premature elections)
-		HeartbeatTick:              1,  // 100ms
-		MaxSizePerMsg:              1024 * 1024,
-		MaxInflightMsgs:            256,
-		SnapshotInterval:           10000,
-		SnapshotCatchUpEntries:     5000,
-		PreVote:                    true,
-		CheckQuorum:                true,
-		DisableProposalForwarding:  false,
+		TickInterval:              100 * time.Millisecond,
+		ElectionTick:              15, // 1.5 seconds (increased to prevent premature elections)
+		HeartbeatTick:             1,  // 100ms
+		MaxSizePerMsg:             1024 * 1024,
+		MaxInflightMsgs:           256,
+		SnapshotInterval:          10000,
+		SnapshotCatchUpEntries:    5000,
+		PreVote:                   true,
+		CheckQuorum:               true,
+		DisableProposalForwarding: false,
 	}
 }
 

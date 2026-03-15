@@ -233,8 +233,8 @@ func (tc *TransactionCoordinator) AddPartitionsToTxn(req *AddPartitionsToTxnRequ
 	tc.logTransaction(txn)
 
 	tc.logger.Debug("Added partitions to transaction", logging.Fields{
-		"transaction_id":    req.TransactionID,
-		"partition_count":   len(req.Partitions),
+		"transaction_id":   req.TransactionID,
+		"partition_count":  len(req.Partitions),
 		"total_partitions": len(txn.Partitions),
 	})
 
@@ -506,10 +506,10 @@ func (tc *TransactionCoordinator) Stats() CoordinatorStats {
 	defer tc.mu.RUnlock()
 
 	stats := CoordinatorStats{
-		ActiveTransactions:   0,
+		ActiveTransactions:    0,
 		CompletedTransactions: 0,
-		AbortedTransactions:  0,
-		TotalProducers:       len(tc.producers),
+		AbortedTransactions:   0,
+		TotalProducers:        len(tc.producers),
 	}
 
 	for _, txn := range tc.transactions {
@@ -528,8 +528,8 @@ func (tc *TransactionCoordinator) Stats() CoordinatorStats {
 
 // CoordinatorStats holds coordinator statistics
 type CoordinatorStats struct {
-	ActiveTransactions     int
-	CompletedTransactions  int
-	AbortedTransactions    int
-	TotalProducers         int
+	ActiveTransactions    int
+	CompletedTransactions int
+	AbortedTransactions   int
+	TotalProducers        int
 }

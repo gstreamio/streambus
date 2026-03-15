@@ -25,9 +25,9 @@ type Backoff struct {
 func NewBackoff() *Backoff {
 	return &Backoff{
 		InitialInterval: 100 * time.Millisecond, // Start small
-		MaxInterval:     30 * time.Second,        // Cap at 30s (Kafka default)
-		Multiplier:      2.0,                      // Double each time
-		Jitter:          0.2,                      // 20% jitter to avoid thundering herd
+		MaxInterval:     30 * time.Second,       // Cap at 30s (Kafka default)
+		Multiplier:      2.0,                    // Double each time
+		Jitter:          0.2,                    // 20% jitter to avoid thundering herd
 		currentInterval: 100 * time.Millisecond,
 	}
 }
@@ -79,16 +79,16 @@ type CircuitBreaker struct {
 type CircuitState int
 
 const (
-	StateClosed CircuitState = iota // Normal operation
-	StateOpen                        // Circuit open, rejecting requests
-	StateHalfOpen                    // Testing if service recovered
+	StateClosed   CircuitState = iota // Normal operation
+	StateOpen                         // Circuit open, rejecting requests
+	StateHalfOpen                     // Testing if service recovered
 )
 
 // NewCircuitBreaker creates a new circuit breaker with sensible defaults.
 // Defaults are based on Hystrix recommendations.
 func NewCircuitBreaker() *CircuitBreaker {
 	return &CircuitBreaker{
-		maxFailures:  5,              // Open circuit after 5 failures
+		maxFailures:  5,                // Open circuit after 5 failures
 		resetTimeout: 30 * time.Second, // Try again after 30s (Kafka default)
 		state:        StateClosed,
 	}

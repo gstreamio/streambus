@@ -338,7 +338,7 @@ func (c *Codec) calculateRequestPayloadSize(req *Request) (uint32, error) {
 	case RequestTypeProduce:
 		payload := req.Payload.(*ProduceRequest)
 		size := 4 + len(payload.Topic) + 4 // TopicLen + Topic + PartitionID
-		size += 4                           // NumMessages
+		size += 4                          // NumMessages
 		for _, msg := range payload.Messages {
 			size += msg.Size()
 		}

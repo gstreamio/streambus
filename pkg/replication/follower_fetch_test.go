@@ -49,7 +49,7 @@ func TestFollowerReplicator_handleFetchResponse_EpochChange(t *testing.T) {
 	// Response with higher epoch
 	resp := &FetchResponse{
 		ErrorCode:     ErrorNone,
-		LeaderEpoch:   5,  // Higher than current epoch (1)
+		LeaderEpoch:   5, // Higher than current epoch (1)
 		HighWaterMark: 95,
 		LogEndOffset:  105,
 		Messages:      nil,
@@ -82,7 +82,7 @@ func TestFollowerReplicator_handleFetchResponse_HWUpdate(t *testing.T) {
 	resp := &FetchResponse{
 		ErrorCode:     ErrorNone,
 		LeaderEpoch:   1,
-		HighWaterMark: 110,  // Higher than current HW (0, since not initialized from storage)
+		HighWaterMark: 110, // Higher than current HW (0, since not initialized from storage)
 		LogEndOffset:  120,
 		Messages:      nil,
 	}
@@ -139,7 +139,7 @@ func TestFollowerReplicator_handleFetchResponse_WithError(t *testing.T) {
 
 	// Response with error
 	resp := &FetchResponse{
-		ErrorCode: ErrorStaleEpoch,
+		ErrorCode:   ErrorStaleEpoch,
 		LeaderEpoch: 5,
 	}
 

@@ -508,6 +508,7 @@ func (h *StreamHandler) compileFilterPatterns() error {
 }
 
 // shouldFilterMessage determines if a message should be filtered out
+//
 //nolint:unused // Reserved for future use when message filtering is fully implemented
 func (h *StreamHandler) shouldFilterMessage(key, value []byte, headers map[string][]byte, timestamp time.Time) bool {
 	if h.link.Filter == nil || !h.link.Filter.Enabled {

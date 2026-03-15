@@ -284,9 +284,9 @@ func (m *Manager) GetUtilization(id TenantID) (map[string]float64, error) {
 
 // TenantStats returns summary statistics for a tenant
 type TenantStats struct {
-	Tenant       *Tenant
-	Usage        *Usage
-	Utilization  map[string]float64
+	Tenant      *Tenant
+	Usage       *Usage
+	Utilization map[string]float64
 }
 
 // GetTenantStats returns comprehensive stats for a tenant

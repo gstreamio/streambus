@@ -271,7 +271,7 @@ func TestQuotaTracker_UtilizationPercent(t *testing.T) {
 		MaxConnections:  100,
 		MaxStorageBytes: 1000,
 		MaxTopics:       10,
-		MaxPartitions:    100,  // Need to set this for AddTopic to work
+		MaxPartitions:   100, // Need to set this for AddTopic to work
 	}
 
 	tracker := NewQuotaTracker("tenant1", quotas)

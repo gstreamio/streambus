@@ -20,10 +20,10 @@ type ProduceResponse struct {
 
 // FetchResponse represents a fetch response
 type FetchResponse struct {
-	Topic          string
-	PartitionID    uint32
-	HighWaterMark  int64
-	Messages       []Message
+	Topic         string
+	PartitionID   uint32
+	HighWaterMark int64
+	Messages      []Message
 }
 
 // GetOffsetResponse represents a get offset response
