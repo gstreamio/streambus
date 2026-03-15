@@ -5,6 +5,25 @@ All notable changes to StreamBus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0](https://github.com/gstreamio/streambus/compare/v1.0.1...v1.1.0) (2026-03-15)
+
+
+### Features
+
+* add Kafka-compatible offset improvements ([f13ab29](https://github.com/gstreamio/streambus/commit/f13ab29e5f65e9871b4398f2cbb3c0a07228cd1d))
+* add schema validation, ACL enforcement, storage compaction, and consumer group improvements ([9c0b1f6](https://github.com/gstreamio/streambus/commit/9c0b1f68654ccfff08e14b6791e0daf0e4f8faae))
+
+
+### Bug Fixes
+
+* resolve lint errors in tests ([d7f918a](https://github.com/gstreamio/streambus/commit/d7f918abf27b510c3ef6c050586e35618f96fcfc))
+* upgrade dependencies to resolve security vulnerabilities ([c22fe11](https://github.com/gstreamio/streambus/commit/c22fe11e20d1eae9da324f823740e6572e1b82be))
+
+
+### Reverts
+
+* remove logo from README ([769bf69](https://github.com/gstreamio/streambus/commit/769bf692f4d3f567d2d51e0d83164828138672df))
+
 ## [Unreleased]
 
 ### In Progress
