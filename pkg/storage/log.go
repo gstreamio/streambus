@@ -279,10 +279,8 @@ func (l *logImpl) Compact() error {
 		return ErrLogClosed
 	}
 
-	// TODO: Implement compaction
-	// For now, this is a no-op
-
-	return nil
+	_, err := l.runCompaction()
+	return err
 }
 
 func (l *logImpl) Delete(beforeOffset Offset) error {

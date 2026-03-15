@@ -204,6 +204,13 @@ func (a *ACLAuthorizer) FindACLs(resourceType ResourceType, resourceName string,
 	return matches
 }
 
+// HasACLEntries returns true if there are any ACL entries configured
+func (a *ACLAuthorizer) HasACLEntries() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return len(a.entries) > 0
+}
+
 // ClearACLs removes all ACL entries
 func (a *ACLAuthorizer) ClearACLs() {
 	a.mu.Lock()

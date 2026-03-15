@@ -47,27 +47,77 @@ func (h *SecurityHandler) Handle(req *protocol.Request) *protocol.Response {
 		return h.authenticationFailedResponse(req.Header.RequestID, err)
 	}
 
-	// Check authorization for this request
+	// Determine the action and resource for this request
 	action, resource := h.getActionAndResource(req)
+
+	// Check authorization
+	if denied := h.checkAuthorization(ctx, req, principal, action, resource); denied != nil {
+		return denied
+	}
+
+	// Audit the allowed request
+	h.auditAllowedRequest(ctx, req, principal, action, resource)
+
+	// Pass to base handler
+	return h.baseHandler.Handle(req)
+}
+
+// checkAuthorization performs ACL enforcement and returns a denial response if
+// the principal is not authorized, or nil if the request is allowed.
+func (h *SecurityHandler) checkAuthorization(
+	ctx context.Context,
+	req *protocol.Request,
+	principal *security.Principal,
+	action security.Action,
+	resource security.Resource,
+) *protocol.Response {
+	// Permissive default: if no ACL entries are configured, allow all requests.
+	// This lets the broker operate without restrictions until ACLs are explicitly set.
+	if !h.securityManager.HasACLEntries() {
+		return nil
+	}
+
 	allowed, err := h.securityManager.Authorize(ctx, principal, action, resource)
 	if err != nil {
 		return h.errorResponse(req.Header.RequestID, protocol.ErrAuthorizationFailed, "authorization error: "+err.Error())
 	}
+
 	if !allowed {
 		atomic.AddInt64(&h.authzDenials, 1)
+		h.auditDeniedRequest(ctx, principal, action, resource)
 		return h.authorizationDeniedResponse(req.Header.RequestID, principal, action, resource)
 	}
 
-	// Audit the request
-	if h.securityManager.IsAuditEnabled() {
-		h.securityManager.AuditAction(ctx, principal, action, resource, map[string]string{
-			"request_type": req.Header.Type.String(),
-			"request_id":   fmt.Sprintf("%d", req.Header.RequestID),
-		})
-	}
+	return nil
+}
 
-	// Pass to base handler
-	return h.baseHandler.Handle(req)
+// auditAllowedRequest logs an audit event for an allowed request.
+func (h *SecurityHandler) auditAllowedRequest(
+	ctx context.Context,
+	req *protocol.Request,
+	principal *security.Principal,
+	action security.Action,
+	resource security.Resource,
+) {
+	if !h.securityManager.IsAuditEnabled() {
+		return
+	}
+	h.securityManager.AuditAction(ctx, principal, action, resource, map[string]string{
+		"request_type": req.Header.Type.String(),
+		"request_id":   fmt.Sprintf("%d", req.Header.RequestID),
+	})
+}
+
+// auditDeniedRequest logs a security audit event for a denied request.
+func (h *SecurityHandler) auditDeniedRequest(
+	ctx context.Context,
+	principal *security.Principal,
+	action security.Action,
+	resource security.Resource,
+) {
+	h.securityManager.AuditFailure(ctx, principal, action, resource,
+		fmt.Errorf("access denied: principal '%s' not authorized for '%s' on '%s'",
+			principal.ID, action, resource.Name))
 }
 
 // authenticate extracts credentials from request and authenticates

@@ -142,7 +142,7 @@ func (gc *GroupCoordinator) HandleJoinGroup(req *JoinGroupRequest) (*JoinGroupRe
 	// Extract subscription from protocols
 	if len(req.Protocols) > 0 {
 		member.ProtocolMetadata = req.Protocols[0].Metadata
-		// TODO: Parse subscription from metadata
+		member.Subscription = parseSubscriptionTopics(req.Protocols[0].Metadata)
 	}
 
 	group.Members[memberID] = member
@@ -241,7 +241,7 @@ func (gc *GroupCoordinator) HandleSyncGroup(req *SyncGroupRequest) (*SyncGroupRe
 	if req.MemberID == group.LeaderID && len(req.Assignments) > 0 {
 		for _, assignment := range req.Assignments {
 			if m, ok := group.Members[assignment.MemberID]; ok {
-				// TODO: Parse assignment bytes into MemberAssignment struct
+				m.Assignment = parseAssignmentBytes(assignment.Assignment)
 				m.State = MemberStateStable
 			}
 		}
@@ -569,6 +569,86 @@ func (gc *GroupCoordinator) checkExpiredMembers() {
 				group.StateTimestamp = now
 			}
 		}
+	}
+}
+
+// PerformAssignment runs partition assignment using the group's protocol strategy.
+// It builds MemberSubscription list from group members and invokes the chosen assignor.
+func (gc *GroupCoordinator) PerformAssignment(
+	groupID string,
+	partitions []TopicPartition,
+) (map[string][]TopicPartition, error) {
+	gc.mu.RLock()
+	defer gc.mu.RUnlock()
+
+	group, gerr := gc.getGroup(groupID)
+	if gerr != nil {
+		return nil, gerr
+	}
+
+	assignor := GetAssignor(group.ProtocolName)
+
+	members := buildMemberSubscriptions(group)
+
+	return assignor.Assign(members, partitions), nil
+}
+
+// buildMemberSubscriptions builds a list of MemberSubscription from group metadata.
+func buildMemberSubscriptions(group *GroupMetadata) []MemberSubscription {
+	members := make([]MemberSubscription, 0, len(group.Members))
+	for _, m := range group.Members {
+		members = append(members, MemberSubscription{
+			MemberID: m.MemberID,
+			Topics:   m.Subscription,
+		})
+	}
+	return members
+}
+
+// parseSubscriptionTopics extracts topic names from protocol metadata bytes.
+// The expected format is null-separated topic names. If parsing fails,
+// the raw bytes are treated as a single topic name.
+func parseSubscriptionTopics(metadata []byte) []string {
+	if len(metadata) == 0 {
+		return nil
+	}
+
+	// Try null-separated format
+	topics := splitByNull(metadata)
+	if len(topics) > 0 {
+		return topics
+	}
+
+	// Fall back to treating entire payload as a single topic name
+	return []string{string(metadata)}
+}
+
+// splitByNull splits bytes by null byte separator, returning non-empty strings.
+func splitByNull(data []byte) []string {
+	var topics []string
+	start := 0
+	for i, b := range data {
+		if b == 0 {
+			if i > start {
+				topics = append(topics, string(data[start:i]))
+			}
+			start = i + 1
+		}
+	}
+	if start < len(data) {
+		topics = append(topics, string(data[start:]))
+	}
+	return topics
+}
+
+// parseAssignmentBytes converts raw assignment bytes into a MemberAssignment struct.
+// Returns nil if data is empty.
+func parseAssignmentBytes(data []byte) *MemberAssignment {
+	if len(data) == 0 {
+		return nil
+	}
+	return &MemberAssignment{
+		UserData: data,
 	}
 }
 

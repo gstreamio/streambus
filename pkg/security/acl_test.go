@@ -636,6 +636,37 @@ func TestACLAuthorizer_FindACLs(t *testing.T) {
 	}
 }
 
+func TestACLAuthorizer_HasACLEntries(t *testing.T) {
+	auth := NewACLAuthorizer(&SecurityConfig{})
+
+	// No entries initially
+	if auth.HasACLEntries() {
+		t.Error("Expected no ACL entries initially")
+	}
+
+	// Add an entry
+	acl := &ACLEntry{
+		ID:           "acl1",
+		Principal:    "user1",
+		ResourceType: ResourceTypeTopic,
+		ResourceName: "test",
+		Action:       ActionTopicWrite,
+		Permission:   PermissionAllow,
+	}
+	_ = auth.AddACL(acl)
+
+	if !auth.HasACLEntries() {
+		t.Error("Expected HasACLEntries to return true after adding entry")
+	}
+
+	// Remove entry
+	_ = auth.RemoveACL("acl1")
+
+	if auth.HasACLEntries() {
+		t.Error("Expected HasACLEntries to return false after removing all entries")
+	}
+}
+
 func TestACLAuthorizer_ClearACLs(t *testing.T) {
 	auth := NewACLAuthorizer(&SecurityConfig{})
 

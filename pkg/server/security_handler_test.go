@@ -554,13 +554,28 @@ func TestSecurityHandler_errorResponse(t *testing.T) {
 }
 
 func TestSecurityHandler_Handle_WithAuthorizationDenied(t *testing.T) {
-	// Create security manager with authorization enabled but deny all
+	// Create security manager with authorization enabled
 	secMgr, err := security.NewManager(&security.SecurityConfig{
 		AuthzEnabled: true,
-		// No ACLs configured, so authorization will be denied by default
 	}, newTestLogger())
 	if err != nil {
 		t.Fatalf("Failed to create security manager: %v", err)
+	}
+
+	// Add an ACL entry that does NOT grant WRITE on "test-topic" for anonymous.
+	// This ensures ACL entries exist (so the permissive default does not apply)
+	// but the anonymous user is still denied for TOPIC_WRITE.
+	err = secMgr.AddACL(&security.ACLEntry{
+		ID:           "allow-other",
+		Principal:    "admin-user",
+		ResourceType: security.ResourceTypeTopic,
+		ResourceName: "other-topic",
+		PatternType:  security.PatternTypeLiteral,
+		Action:       security.ActionTopicWrite,
+		Permission:   security.PermissionAllow,
+	})
+	if err != nil {
+		t.Fatalf("Failed to add ACL: %v", err)
 	}
 
 	baseHandler := &mockHandler{

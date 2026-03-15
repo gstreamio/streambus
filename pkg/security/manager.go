@@ -356,6 +356,20 @@ func (m *Manager) RemoveACL(id string) error {
 	return aclAuth.RemoveACL(id)
 }
 
+// HasACLEntries returns true if there are any ACL entries configured
+func (m *Manager) HasACLEntries() bool {
+	if !m.authzEnabled {
+		return false
+	}
+
+	aclAuth, ok := m.authorizer.(*ACLAuthorizer)
+	if !ok {
+		return false
+	}
+
+	return aclAuth.HasACLEntries()
+}
+
 // ListACLs lists all ACL entries
 func (m *Manager) ListACLs() []*ACLEntry {
 	if !m.authzEnabled {

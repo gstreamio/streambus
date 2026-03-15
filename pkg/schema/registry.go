@@ -496,6 +496,35 @@ func (sr *SchemaRegistry) isValidCompatibilityMode(mode CompatibilityMode) bool 
 	return false
 }
 
+// ValidateMessage validates message data against the latest schema for a subject.
+// Returns nil if no schema is registered (opt-in enforcement) or if validation passes.
+func (sr *SchemaRegistry) ValidateMessage(subject Subject, data []byte) error {
+	sr.mu.RLock()
+	defer sr.mu.RUnlock()
+
+	latestVersion, exists := sr.subjectLatest[subject]
+	if !exists {
+		return nil // No schema registered, allow message through
+	}
+
+	schema := sr.subjectSchemas[subject][latestVersion]
+	if schema == nil {
+		return nil
+	}
+
+	dv := NewDataValidator()
+	return dv.ValidateData(schema.Format, schema.Definition, data)
+}
+
+// HasSchema returns true if a schema is registered for the given subject.
+func (sr *SchemaRegistry) HasSchema(subject Subject) bool {
+	sr.mu.RLock()
+	defer sr.mu.RUnlock()
+
+	_, exists := sr.subjectLatest[subject]
+	return exists
+}
+
 // Stats returns registry statistics
 func (sr *SchemaRegistry) Stats() RegistryStats {
 	sr.mu.RLock()

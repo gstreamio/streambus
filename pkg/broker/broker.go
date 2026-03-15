@@ -613,6 +613,13 @@ func (b *Broker) initServer() error {
 		handler = baseHandler
 	}
 
+	// Wrap with schema validation handler if schema registry is available
+	if b.schemaRegistry != nil {
+		schemaHandler := server.NewSchemaHandler(handler, b.schemaRegistry, true)
+		handler = schemaHandler
+		b.logger.Info("Schema validation enabled for produce path")
+	}
+
 	// Wrap with security handler if security is enabled
 	if b.securityManager != nil {
 		securityEnabled := b.securityManager.IsAuthenticationEnabled() || b.securityManager.IsAuthorizationEnabled()
@@ -682,6 +689,9 @@ func (b *Broker) initObservability() error {
 
 	// Register admin management API endpoints
 	b.registerAdminAPI(mux)
+
+	// Register schema registry API endpoints
+	b.registerSchemaAPI(mux)
 
 	httpAddr := fmt.Sprintf(":%d", b.config.HTTPPort)
 	b.httpServer = &http.Server{

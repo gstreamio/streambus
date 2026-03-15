@@ -161,6 +161,8 @@ const (
 	// Leader epoch error codes
 	ErrFencedLeaderEpoch ErrorCode = 50 // Leader epoch is fenced (stale producer/consumer)
 	ErrUnknownLeaderEpoch ErrorCode = 51 // Unknown leader epoch
+	// Schema registry error codes
+	ErrSchemaValidationFailed ErrorCode = 60 // Message failed schema validation
 )
 
 // String returns the string representation of ErrorCode
@@ -244,6 +246,8 @@ func (e ErrorCode) String() string {
 		return "FencedLeaderEpoch"
 	case ErrUnknownLeaderEpoch:
 		return "UnknownLeaderEpoch"
+	case ErrSchemaValidationFailed:
+		return "SchemaValidationFailed"
 	default:
 		return fmt.Sprintf("Unknown(%d)", e)
 	}
