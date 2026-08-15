@@ -1,5 +1,12 @@
 # StreamBus Consumer Group Example
 
+> **⚠️ Not currently functional**: `GroupConsumer` join/sync/heartbeat/offset-commit
+> coordination against a broker-side group coordinator is not implemented yet.
+> Running this example will fail fast with `ErrGroupCoordinationNotImplemented`
+> instead of silently pretending to join and then never receiving messages, which
+> is what earlier versions did. Use `Consumer` or `PartitionConsumer` for
+> single-partition consumption until real group coordination lands.
+
 This example demonstrates how to use StreamBus consumer groups for coordinated, scalable message consumption.
 
 ## Overview

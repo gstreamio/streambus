@@ -10,6 +10,9 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/gstreamio/streambus/pkg/logger"
+	"go.uber.org/zap"
 )
 
 // walImpl implements the WAL interface
@@ -136,7 +139,11 @@ func (w *walImpl) Truncate(beforeOffset Offset) error {
 			toKeep = append(toKeep, seg)
 		} else {
 			seg.close()
-			os.Remove(seg.path)
+			if err := os.Remove(seg.path); err != nil && !os.IsNotExist(err) {
+				logger.Warn("wal: failed to remove truncated segment",
+					zap.String("path", seg.path),
+					zap.Error(err))
+			}
 		}
 	}
 

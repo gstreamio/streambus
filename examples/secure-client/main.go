@@ -141,24 +141,3 @@ func produceWithTLS(c *client.Client) error {
 
 	return nil
 }
-
-// Example with insecure skip verify (development only!)
-func createInsecureClient() *client.Client {
-	config := client.DefaultConfig()
-	config.Brokers = []string{"localhost:9092"}
-
-	// CAUTION: This skips certificate verification - ONLY use for development!
-	config.Security = &client.SecurityConfig{
-		TLS: &client.TLSConfig{
-			Enabled:            true,
-			InsecureSkipVerify: true, // WARNING: Not safe for production!
-		},
-	}
-
-	c, err := client.New(config)
-	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
-	}
-
-	return c
-}

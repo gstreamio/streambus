@@ -2,9 +2,9 @@ package client
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,13 +61,15 @@ func TestGroupConsumer_Subscribe(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Subscribe
+	// Subscribe fails: group coordination against a broker-side coordinator
+	// isn't implemented, so this must not silently pretend to succeed.
 	err = gc.Subscribe(ctx)
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrGroupCoordinationNotImplemented))
 
-	// Verify state changed
-	assert.Equal(t, StateStable, gc.state)
-	assert.NotEmpty(t, gc.memberID)
+	// State rolls back to unjoined rather than faking a stable join.
+	assert.Equal(t, StateUnjoined, gc.state)
+	assert.Empty(t, gc.memberID)
 
 	// Clean up
 	gc.Close()
@@ -87,14 +89,13 @@ func TestGroupConsumer_Assignment(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Subscribe
+	// Subscribe fails before any assignment can happen.
 	err = gc.Subscribe(ctx)
-	require.NoError(t, err)
+	require.Error(t, err)
 
-	// Get assignment
+	// No assignment is made since the group was never actually joined.
 	assignment := gc.Assignment()
-	assert.NotEmpty(t, assignment)
-	assert.Contains(t, assignment, "test-topic")
+	assert.Empty(t, assignment)
 
 	// Clean up
 	gc.Close()
@@ -114,11 +115,8 @@ func TestGroupConsumer_CommitSync(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Subscribe
-	err = gc.Subscribe(ctx)
-	require.NoError(t, err)
-
-	// Commit offsets
+	// Commit offsets: must fail rather than silently reporting success,
+	// since there's no coordinator to persist the commit with.
 	offsets := map[string]map[int32]int64{
 		"test-topic": {
 			0: 100,
@@ -126,11 +124,12 @@ func TestGroupConsumer_CommitSync(t *testing.T) {
 	}
 
 	err = gc.CommitSync(ctx, offsets)
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrGroupCoordinationNotImplemented))
 
-	// Verify stats
+	// Stats must not claim a commit that never happened.
 	stats := gc.Stats()
-	assert.Equal(t, int64(1), stats.OffsetsCommitted)
+	assert.Equal(t, int64(0), stats.OffsetsCommitted)
 
 	// Clean up
 	gc.Close()
@@ -150,9 +149,9 @@ func TestGroupConsumer_Close(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Subscribe
+	// Subscribe fails, but Close must still work cleanly afterward.
 	err = gc.Subscribe(ctx)
-	require.NoError(t, err)
+	require.Error(t, err)
 
 	// Close
 	err = gc.Close()
@@ -180,16 +179,17 @@ func TestGroupConsumer_Stats(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Subscribe
+	// Subscribe fails, so stats must reflect an unjoined consumer, not a
+	// faked stable membership.
 	err = gc.Subscribe(ctx)
-	require.NoError(t, err)
+	require.Error(t, err)
 
 	// Get stats
 	stats := gc.Stats()
 	assert.Equal(t, "test-group", stats.GroupID)
-	assert.NotEmpty(t, stats.MemberID)
-	assert.Equal(t, StateStable, stats.State)
-	assert.Equal(t, int64(1), stats.RebalanceCount) // One rebalance on join
+	assert.Empty(t, stats.MemberID)
+	assert.Equal(t, StateUnjoined, stats.State)
+	assert.Equal(t, int64(0), stats.RebalanceCount)
 
 	// Clean up
 	gc.Close()
@@ -219,13 +219,12 @@ func TestGroupConsumer_RebalanceListener(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Subscribe (will trigger rebalance)
+	// Subscribe fails before any rebalance/assignment can occur.
 	err = gc.Subscribe(ctx)
-	require.NoError(t, err)
+	require.Error(t, err)
 
-	// Verify listener was called
-	assert.NotNil(t, assignedPartitions)
-	assert.Contains(t, assignedPartitions, "test-topic")
+	// Listener must not fire for an assignment that never happened.
+	assert.Nil(t, assignedPartitions)
 
 	// Clean up
 	gc.Close()
@@ -264,14 +263,12 @@ func TestGroupConsumer_HeartbeatSender(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Subscribe
+	// Subscribe fails, so the heartbeat sender goroutine is never started.
 	err = gc.Subscribe(ctx)
-	require.NoError(t, err)
+	require.Error(t, err)
 
-	// Wait a bit to allow heartbeats to run
-	time.Sleep(300 * time.Millisecond)
-
-	// Close should stop heartbeats cleanly
+	// Close must still return cleanly (no goroutine leak / deadlock waiting
+	// on a heartbeat sender that never launched).
 	err = gc.Close()
 	require.NoError(t, err)
 }

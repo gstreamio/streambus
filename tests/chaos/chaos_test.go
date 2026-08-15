@@ -39,7 +39,7 @@ func TestChaos_RandomLatency(t *testing.T) {
 	// Reduce duration for testing
 	scenario.Duration = 30 * time.Second
 
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
 	topic := fmt.Sprintf("chaos-latency-%d", time.Now().Unix())
 
 	testFunc := func(ctx context.Context) error {
@@ -115,7 +115,7 @@ func TestChaos_IntermittentErrors(t *testing.T) {
 	scenario := NewIntermittentErrorScenario(logger)
 	scenario.Duration = 30 * time.Second
 
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
 	topic := fmt.Sprintf("chaos-errors-%d", time.Now().Unix())
 
 	testFunc := func(ctx context.Context) error {
@@ -190,7 +190,7 @@ func TestChaos_SlowNetwork(t *testing.T) {
 	scenario := NewSlowNetworkScenario(logger)
 	scenario.Duration = 30 * time.Second
 
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
 	topic := fmt.Sprintf("chaos-slow-%d", time.Now().Unix())
 
 	testFunc := func(ctx context.Context) error {
@@ -264,7 +264,7 @@ func TestChaos_CombinedFaults(t *testing.T) {
 	scenario := NewCombinedChaosScenario(logger)
 	scenario.Duration = 60 * time.Second
 
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
 	topic := fmt.Sprintf("chaos-combined-%d", time.Now().Unix())
 
 	testFunc := func(ctx context.Context) error {

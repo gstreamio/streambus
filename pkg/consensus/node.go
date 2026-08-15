@@ -495,8 +495,8 @@ func (rn *RaftNode) convertReady(rd raft.Ready) Ready {
 	var softState *SoftState
 	if rd.SoftState != nil {
 		softState = &SoftState{
-			Lead:      rd.SoftState.Lead,
-			RaftState: StateType(rd.SoftState.RaftState),
+			Lead:      rd.Lead,
+			RaftState: StateType(rd.RaftState),
 		}
 	}
 

@@ -324,9 +324,10 @@ func (c *ComponentHealthChecker) Check(ctx context.Context) Check {
 	hasUnhealthy := false
 	hasDegraded := false
 	for _, result := range results {
-		if result.Status == StatusUnhealthy {
+		switch result.Status {
+		case StatusUnhealthy:
 			hasUnhealthy = true
-		} else if result.Status == StatusDegraded || result.Status == StatusUnknown {
+		case StatusDegraded, StatusUnknown:
 			hasDegraded = true
 		}
 	}

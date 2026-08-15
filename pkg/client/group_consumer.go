@@ -11,7 +11,13 @@ import (
 	"github.com/gstreamio/streambus/pkg/protocol"
 )
 
-// GroupConsumer is a consumer that coordinates with other consumers in a group
+// GroupConsumer is a consumer that coordinates with other consumers in a group.
+//
+// NOT YET IMPLEMENTED: join/sync/heartbeat/offset-commit coordination against a
+// broker-side group coordinator does not exist yet. Subscribe returns
+// ErrGroupCoordinationNotImplemented rather than silently faking a successful
+// join, as earlier versions did. Use Consumer or PartitionConsumer for
+// single-partition consumption in the meantime.
 type GroupConsumer struct {
 	client *Client
 	config GroupConsumerConfig
@@ -20,7 +26,6 @@ type GroupConsumer struct {
 	groupID      string
 	memberID     string
 	generationID int32
-	leaderID     string
 
 	// Topics and assignment
 	topics     []string
@@ -201,35 +206,20 @@ func (gc *GroupConsumer) Poll(ctx context.Context) (map[string]map[int32][]proto
 	return result, nil
 }
 
-// CommitSync commits offsets synchronously
+// CommitSync commits offsets synchronously.
+//
+// NOT YET IMPLEMENTED: returns ErrGroupCoordinationNotImplemented. There is no
+// broker-side group coordinator to commit offsets to yet, so this used to
+// silently report success while only incrementing a metric — offsets were
+// never actually persisted anywhere. Failing clearly here is safer than
+// callers believing their commit succeeded.
 func (gc *GroupConsumer) CommitSync(ctx context.Context, offsets map[string]map[int32]int64) error {
 	if atomic.LoadInt32(&gc.closed) == 1 {
 		return ErrConsumerClosed
 	}
+	_ = offsets
 
-	// Build commit request
-	commitReq := &group.OffsetCommitRequest{
-		GroupID:      gc.groupID,
-		GenerationID: gc.generationID,
-		MemberID:     gc.memberID,
-		Offsets:      make(map[string]map[int32]group.OffsetCommitData),
-	}
-
-	for topic, partitions := range offsets {
-		commitReq.Offsets[topic] = make(map[int32]group.OffsetCommitData)
-		for partition, offset := range partitions {
-			commitReq.Offsets[topic][partition] = group.OffsetCommitData{
-				Offset:   offset,
-				Metadata: "",
-			}
-		}
-	}
-
-	// TODO: Send commit request to coordinator
-	// For now, just track the metric
-	atomic.AddInt64(&gc.offsetsCommitted, 1)
-
-	return nil
+	return ErrGroupCoordinationNotImplemented
 }
 
 // Close closes the consumer and leaves the group
@@ -303,56 +293,13 @@ func (gc *GroupConsumer) joinGroup(ctx context.Context) error {
 			},
 		},
 	}
-
-	// TODO: Send join request to coordinator
-	// For now, simulate successful join
 	_ = joinReq
-	gc.mu.Lock()
-	gc.memberID = fmt.Sprintf("%s-%d", gc.config.ClientID, time.Now().UnixNano())
-	gc.generationID = 1
-	gc.leaderID = gc.memberID
-	gc.state = StateRebalancing
-	gc.mu.Unlock()
 
-	// Perform sync
-	return gc.syncGroup(ctx)
-}
-
-func (gc *GroupConsumer) syncGroup(ctx context.Context) error {
-	gc.mu.Lock()
-	isLeader := gc.memberID == gc.leaderID
-	gc.mu.Unlock()
-
-	var assignments []group.MemberAssignmentData
-	if isLeader {
-		// Leader computes assignments
-		assignments = gc.computeAssignments()
-	}
-
-	// Build sync request
-	syncReq := &group.SyncGroupRequest{
-		GroupID:      gc.groupID,
-		GenerationID: gc.generationID,
-		MemberID:     gc.memberID,
-		Assignments:  assignments,
-	}
-
-	// TODO: Send sync request to coordinator
-	// For now, simulate assignment
-	_ = syncReq
-	gc.mu.Lock()
-	// Assign all partitions to this consumer (simple case)
-	for _, topic := range gc.topics {
-		gc.assignment[topic] = []int32{0} // Assign partition 0
-	}
-	gc.state = StateStable
-	gc.mu.Unlock()
-
-	// Notify listener
-	gc.rebalanceListener.OnPartitionsAssigned(gc.assignment)
-
-	atomic.AddInt64(&gc.rebalanceCount, 1)
-	return nil
+	// Sending the join request to a broker-side group coordinator is not
+	// implemented yet. Fail clearly instead of simulating a successful join
+	// and a single-member sync/assignment, which previously made GroupConsumer
+	// look functional while never actually delivering messages (see Poll).
+	return ErrGroupCoordinationNotImplemented
 }
 
 func (gc *GroupConsumer) leaveGroup(ctx context.Context) error {
@@ -414,12 +361,6 @@ func (gc *GroupConsumer) sendHeartbeat() error {
 	_ = hbReq
 
 	return nil
-}
-
-func (gc *GroupConsumer) computeAssignments() []group.MemberAssignmentData {
-	// TODO: Implement proper assignment strategy
-	// For now, return empty (will be computed by coordinator in real impl)
-	return []group.MemberAssignmentData{}
 }
 
 func (gc *GroupConsumer) encodeSubscription() []byte {

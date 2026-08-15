@@ -15,7 +15,7 @@ func TestE2E_ProducerConsumerLifecycle(t *testing.T) {
 	}
 
 	// Test configuration
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
 	topic := fmt.Sprintf("test-lifecycle-%d", time.Now().Unix())
 	numMessages := 100
 
@@ -91,7 +91,7 @@ func TestE2E_MultiPartition(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
 	topic := fmt.Sprintf("test-multipart-%d", time.Now().Unix())
 	numPartitions := 3
 	messagesPerPartition := 50
@@ -162,7 +162,7 @@ func TestE2E_LargeMessages(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
 	topic := fmt.Sprintf("test-large-%d", time.Now().Unix())
 
 	cfg := &client.Config{
@@ -238,7 +238,7 @@ func TestE2E_HighThroughput(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
 	topic := fmt.Sprintf("test-throughput-%d", time.Now().Unix())
 	numMessages := 10000
 
@@ -328,7 +328,7 @@ func TestE2E_OrderingGuarantee(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
 	topic := fmt.Sprintf("test-ordering-%d", time.Now().Unix())
 	numMessages := 100
 

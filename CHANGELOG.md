@@ -26,10 +26,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING**: `GroupConsumer.Subscribe`/`CommitSync` now return
+  `ErrGroupCoordinationNotImplemented` instead of silently simulating a
+  successful join/sync/commit. Multi-partition consumer group coordination
+  against a broker-side coordinator was never actually wired up (`Poll` always
+  returned empty results); callers that previously received a fake success
+  need to handle this error and use `Consumer`/`PartitionConsumer` instead.
+- **BREAKING**: `TransactionalProducer.CommitTransaction`/
+  `SendOffsetsToTransaction` now return `ErrTransactionCoordinationNotImplemented`
+  instead of silently reporting success. `flushMessages` never actually wrote
+  committed messages to the broker, so a successful-looking commit previously
+  discarded every message in the transaction. Use `Producer` instead until
+  transaction coordination is implemented.
+
 ### In Progress
 - Web management UI
 - Kubernetes operator
 - Advanced stream processing
+- Real consumer-group coordination protocol (join/sync/heartbeat/offset-commit)
+- Real transaction-coordinator wiring for `TransactionalProducer`
 
 ## [1.0.1] - 2025-11-22
 

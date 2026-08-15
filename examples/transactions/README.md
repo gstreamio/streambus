@@ -1,5 +1,12 @@
 # StreamBus Transactions Example
 
+> **⚠️ Not currently functional**: `TransactionalProducer.CommitTransaction` and
+> `SendOffsetsToTransaction` have no transaction-coordinator wiring yet and return
+> `ErrTransactionCoordinationNotImplemented`. Earlier versions silently reported
+> a successful commit without ever writing the transaction's messages to the
+> broker - a silent data-loss bug. This example will now fail fast instead.
+> Use the plain `Producer`/`Consumer` for now.
+
 This example demonstrates **exactly-once semantics** using StreamBus transactions. It shows how to implement a transactional message processor that consumes from one topic, processes messages, and produces to another topic - all within atomic transactions.
 
 ## Overview

@@ -18,7 +18,7 @@ func TestOffsetManagement(t *testing.T) {
 	}
 
 	config := client.DefaultConfig()
-	config.Brokers = []string{"localhost:9092"}
+	config.Brokers = testBrokers()
 
 	c, err := client.New(config)
 	require.NoError(t, err, "Failed to create client")
@@ -180,7 +180,7 @@ func TestOffsetOutOfRange(t *testing.T) {
 	}
 
 	config := client.DefaultConfig()
-	config.Brokers = []string{"localhost:9092"}
+	config.Brokers = testBrokers()
 
 	c, err := client.New(config)
 	require.NoError(t, err)
@@ -201,7 +201,8 @@ func TestOffsetOutOfRange(t *testing.T) {
 		err := producer.Send(topic, []byte(fmt.Sprintf("key-%d", i)), []byte(fmt.Sprintf("value-%d", i)))
 		require.NoError(t, err)
 	}
-	producer.Flush(topic)
+	err = producer.Flush(topic)
+	require.NoError(t, err, "Failed to flush producer")
 	time.Sleep(1 * time.Second)
 
 	consumer := client.NewConsumer(c, topic, 0)
@@ -233,7 +234,7 @@ func TestConcurrentOffsetAccess(t *testing.T) {
 	}
 
 	config := client.DefaultConfig()
-	config.Brokers = []string{"localhost:9092"}
+	config.Brokers = testBrokers()
 
 	c, err := client.New(config)
 	require.NoError(t, err)
@@ -255,7 +256,8 @@ func TestConcurrentOffsetAccess(t *testing.T) {
 		err := producer.Send(topic, []byte(fmt.Sprintf("key-%d", i)), []byte(fmt.Sprintf("value-%d", i)))
 		require.NoError(t, err)
 	}
-	producer.Flush(topic)
+	err = producer.Flush(topic)
+	require.NoError(t, err, "Failed to flush producer")
 	time.Sleep(2 * time.Second)
 
 	// Create multiple consumers reading different ranges
@@ -326,7 +328,7 @@ func TestConcurrentOffsetAccess(t *testing.T) {
 // BenchmarkOffsetTracking benchmarks offset tracking performance
 func BenchmarkOffsetTracking(b *testing.B) {
 	config := client.DefaultConfig()
-	config.Brokers = []string{"localhost:9092"}
+	config.Brokers = testBrokers()
 
 	c, err := client.New(config)
 	if err != nil {

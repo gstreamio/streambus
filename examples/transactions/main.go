@@ -116,7 +116,9 @@ func processWithTransactions(ctx context.Context, consumer *client.Transactional
 	// Only messages from committed transactions will be returned
 	records, err := consumer.Poll(ctx)
 	if err != nil {
-		producer.AbortTransaction(ctx)
+		if abortErr := producer.AbortTransaction(ctx); abortErr != nil {
+			fmt.Printf("  ⚠️  Failed to abort transaction: %v\n", abortErr)
+		}
 		// For demo, we'll simulate messages if poll fails
 		return simulateBatch(ctx, producer, messageCount, txnCount)
 	}
@@ -124,7 +126,9 @@ func processWithTransactions(ctx context.Context, consumer *client.Transactional
 	// Process consumed messages
 	if len(records) == 0 {
 		// No messages available, abort transaction and simulate some
-		producer.AbortTransaction(ctx)
+		if abortErr := producer.AbortTransaction(ctx); abortErr != nil {
+			fmt.Printf("  ⚠️  Failed to abort transaction: %v\n", abortErr)
+		}
 		return simulateBatch(ctx, producer, messageCount, txnCount)
 	}
 
@@ -142,7 +146,9 @@ func processWithTransactions(ctx context.Context, consumer *client.Transactional
 		}
 
 		if err := producer.Send(ctx, "output-topic", 0, msg); err != nil {
-			producer.AbortTransaction(ctx)
+			if abortErr := producer.AbortTransaction(ctx); abortErr != nil {
+				fmt.Printf("  ⚠️  Failed to abort transaction: %v\n", abortErr)
+			}
 			return fmt.Errorf("failed to send message: %w", err)
 		}
 
@@ -160,7 +166,9 @@ func processWithTransactions(ctx context.Context, consumer *client.Transactional
 	}
 
 	if err := producer.SendOffsetsToTransaction(ctx, "processor-group", offsets); err != nil {
-		producer.AbortTransaction(ctx)
+		if abortErr := producer.AbortTransaction(ctx); abortErr != nil {
+			fmt.Printf("  ⚠️  Failed to abort transaction: %v\n", abortErr)
+		}
 		return fmt.Errorf("failed to add offsets to transaction: %w", err)
 	}
 
@@ -199,7 +207,9 @@ func simulateBatch(ctx context.Context, producer *client.TransactionalProducer, 
 		}
 
 		if err := producer.Send(ctx, "output-topic", 0, msg); err != nil {
-			producer.AbortTransaction(ctx)
+			if abortErr := producer.AbortTransaction(ctx); abortErr != nil {
+				fmt.Printf("  ⚠️  Failed to abort transaction: %v\n", abortErr)
+			}
 			return fmt.Errorf("failed to send message: %w", err)
 		}
 
@@ -215,7 +225,9 @@ func simulateBatch(ctx context.Context, producer *client.TransactionalProducer, 
 	}
 
 	if err := producer.SendOffsetsToTransaction(ctx, "processor-group", offsets); err != nil {
-		producer.AbortTransaction(ctx)
+		if abortErr := producer.AbortTransaction(ctx); abortErr != nil {
+			fmt.Printf("  ⚠️  Failed to abort transaction: %v\n", abortErr)
+		}
 		return fmt.Errorf("failed to add offsets to transaction: %w", err)
 	}
 
