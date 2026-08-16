@@ -1,7 +1,13 @@
-module github.com/shawntherrien/streambus/bench
+module github.com/gstreamio/streambus/bench
 
-go 1.21
+go 1.26.6
 
-require github.com/shawntherrien/streambus v0.0.0
+require github.com/gstreamio/streambus v0.0.0
 
-replace github.com/shawntherrien/streambus => ../
+require (
+	go.uber.org/multierr v1.11.0 // indirect
+	go.uber.org/zap v1.27.0 // indirect
+	golang.org/x/crypto v0.55.0 // indirect
+)
+
+replace github.com/gstreamio/streambus => ../

@@ -281,9 +281,9 @@ group := client.NewConsumerGroupBuilder("processing-group").
 
 See the [examples](examples/) directory for complete working examples:
 
-- [Simple Producer](examples/simple_producer.go) - Basic message production
-- [Simple Consumer](examples/simple_consumer.go) - Basic message consumption
-- [Admin Operations](examples/admin_operations.go) - Topic and cluster management
+- [Simple Producer](examples/simple_producer/main.go) - Basic message production
+- [Simple Consumer](examples/simple_consumer/main.go) - Basic message consumption
+- [Admin Operations](examples/admin_operations/main.go) - Topic and cluster management
 
 ## Performance Tips
 

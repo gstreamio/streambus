@@ -1,7 +1,9 @@
-module github.com/shawntherrien/streambus-sdk
+module github.com/gstreamio/streambus-sdk
 
-go 1.24.0
+go 1.26.6
 
-require github.com/shawntherrien/streambus v0.1.0
+require github.com/gstreamio/streambus v0.0.0
 
-replace github.com/shawntherrien/streambus => ../
+require golang.org/x/crypto v0.55.0 // indirect
+
+replace github.com/gstreamio/streambus => ../

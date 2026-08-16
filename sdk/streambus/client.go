@@ -141,7 +141,7 @@ func (c *Client) Close() error {
 // Ping checks connectivity to the brokers
 func (c *Client) Ping(ctx context.Context) error {
 	// Try to list topics as a connectivity check
-	_, err := c.underlying.ListTopics()
+	_, err := c.underlying.ListTopics(ctx)
 	return err
 }
 

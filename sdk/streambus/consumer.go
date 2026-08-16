@@ -61,7 +61,7 @@ func (c *Consumer) Consume(ctx context.Context, handler MessageHandler) error {
 			return ctx.Err()
 		default:
 			// Fetch messages
-			messages, err := c.underlying.Fetch()
+			messages, err := c.underlying.Fetch(ctx)
 			if err != nil {
 				if c.logger != nil {
 					c.logger.Error("Failed to fetch messages", "error", err)
@@ -101,7 +101,7 @@ func (c *Consumer) Consume(ctx context.Context, handler MessageHandler) error {
 
 // ConsumeN consumes up to N messages
 func (c *Consumer) ConsumeN(n int, handler MessageHandler) error {
-	messages, err := c.underlying.FetchN(n)
+	messages, err := c.underlying.FetchN(context.Background(), n)
 	if err != nil {
 		return fmt.Errorf("failed to fetch messages: %w", err)
 	}
@@ -137,7 +137,7 @@ func (c *Consumer) ConsumeJSON(ctx context.Context, handler func(msg *ReceivedMe
 // Subscribe subscribes to receive messages with a callback
 func (c *Consumer) Subscribe(handler MessageHandler) error {
 	// Start polling in the background
-	return c.underlying.Poll(5*time.Second, func(messages []protocol.Message) error {
+	return c.underlying.Poll(context.Background(), 5*time.Second, func(messages []protocol.Message) error {
 		for _, msg := range messages {
 			receivedMsg := &ReceivedMessage{
 				Topic:     c.topic,
