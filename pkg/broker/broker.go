@@ -311,7 +311,19 @@ func (b *Broker) Status() BrokerStatus {
 	return b.status
 }
 
-// initStorage initializes the storage engine
+// initStorage initializes the storage engine.
+//
+// Known limitation: this never actually assigns b.storage - it logs as if it
+// initialized a storage engine and returns nil (success) unconditionally.
+// b.storage therefore stays nil for the lifetime of every Broker. This is
+// currently harmless for request serving because the wire-protocol path
+// (b.server, built via server.NewHandlerWithDataDir in setupRoutes) owns its
+// own independent storage and does not depend on b.storage; all existing
+// readers of b.storage (e.g. Stop's Close call) already nil-check it. It is
+// NOT harmless for trackTenantStorage/updateTenantStorageUsage below, which
+// is written to read real usage from b.storage once wired up - until then,
+// tenant storage quota tracking never reflects real usage. See README.md's
+// Known Limitations section.
 func (b *Broker) initStorage() error {
 	b.logger.Info("Initializing storage engine", logging.Fields{
 		"data_dir": b.config.DataDir,
@@ -572,7 +584,12 @@ func (b *Broker) trackTenantStorage() {
 	}
 }
 
-// updateTenantStorageUsage updates storage usage for all tenants
+// updateTenantStorageUsage updates storage usage for all tenants.
+//
+// Known limitation: this never actually computes or reports real usage (see
+// b.storage / initStorage above) - it only logs a debug line per tenant, so
+// b.tenancyManager's per-tenant storage quota bookkeeping never reflects
+// actual bytes written. See README.md's Known Limitations section.
 func (b *Broker) updateTenantStorageUsage() {
 	if b.tenancyManager == nil {
 		return

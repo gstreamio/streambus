@@ -482,6 +482,40 @@ fast with a clear error instead, so they don't cause silent data loss:
   `SendOffsetsToTransaction` return `ErrTransactionCoordinationNotImplemented`.
   Use `Producer` instead.
 
+The following are known, deliberately-documented gaps (not silent-failure
+bugs) rather than something that needs fixing here - they intentionally
+return an empty/no-op result instead of an error, are not reachable from a
+real network client, or accept a parameter that isn't enforced yet:
+
+- **`pkg/broker` admin HTTP API**: `GET /api/v1/topics/:name/messages` always
+  returns an empty message array - it never reads from the storage engine and
+  ignores the `partition`/`offset`/`limit` query parameters. `GET
+  /api/v1/replication/links` always returns an empty list because no
+  replication manager is wired into the broker yet (all mutating operations
+  on replication links correctly return `501 Not Implemented`, so only this
+  read/list endpoint's empty response should not be mistaken for "no links
+  configured").
+- **`pkg/transaction.TransactionCoordinator`** (broker-side transaction
+  coordination): `EndTxn` drives the in-memory transaction state machine and
+  logs transitions, but never writes transaction marker records to affected
+  partitions or waits for replica acknowledgment - "committed" here doesn't
+  yet carry real durability guarantees. This is the broker-side counterpart
+  of the already-documented `TransactionalProducer` gap above. It is not
+  reachable from a real network client today (the wire-protocol dispatcher in
+  `pkg/server` does not route transaction requests to it), only from Go code
+  that imports `pkg/transaction` directly.
+- **`pkg/cluster.AssignmentConstraints.MaxPartitionsPerBroker`**: accepted by
+  `RoundRobinStrategy` but never enforced (and not referenced at all by the
+  range/sticky assignors in `pkg/consumer/group`). Setting a non-zero value
+  has no effect on the resulting assignment.
+- **`Broker.storage`** (`pkg/broker`) is declared but never assigned -
+  `initStorage` logs as if it initialized a storage engine and unconditionally
+  returns success. This is harmless for request serving today (the
+  wire-protocol path owns its own independent storage), but as a direct
+  consequence `updateTenantStorageUsage` can never report real per-tenant
+  storage usage, so multi-tenancy storage quota tracking never reflects
+  actual bytes written.
+
 ---
 
 ## Why Choose StreamBus?

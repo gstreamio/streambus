@@ -471,7 +471,16 @@ type MessageInfo struct {
 	Timestamp int64             `json:"timestamp"`
 }
 
-// handleTopicMessages handles GET /api/v1/topics/:name/messages
+// handleTopicMessages handles GET /api/v1/topics/:name/messages.
+//
+// Known limitation: this endpoint does not yet read from the storage engine.
+// It always returns an empty array regardless of the topic's actual content
+// or the partition/offset/limit query parameters, which are accepted but
+// ignored. This is a deliberate, documented stub (matching the empty-list
+// convention used elsewhere in this API for not-yet-wired subsystems, e.g.
+// handleConsumerGroups and listReplicationLinks) rather than a broker error,
+// so do not mistake an empty response here for "no messages in that range."
+// See README.md's Known Limitations section.
 func (b *Broker) handleTopicMessages(w http.ResponseWriter, r *http.Request, topicName string) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -776,7 +785,16 @@ func (b *Broker) handleReplicationLinkOperations(w http.ResponseWriter, r *http.
 	}
 }
 
-// listReplicationLinks returns all replication links
+// listReplicationLinks returns all replication links.
+//
+// Known limitation: the broker does not yet wire a replication manager into
+// this API, so this always returns an empty list rather than an error -
+// consistent with the read/list convention used elsewhere in this file for
+// not-yet-wired subsystems (see handleConsumerGroups). All mutating
+// operations on replication links (create/update/delete/start/stop/etc.)
+// correctly return 501 Not Implemented; this GET endpoint intentionally does
+// not, so do not mistake an empty response here for "no links configured."
+// See README.md's Known Limitations section.
 func (b *Broker) listReplicationLinks(w http.ResponseWriter, r *http.Request) {
 	// TODO: Implement when broker has replication manager
 	// For now, return empty list

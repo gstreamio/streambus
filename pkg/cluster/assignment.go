@@ -47,7 +47,17 @@ type AssignmentConstraints struct {
 	// RackAware enables rack-aware assignment (spread replicas across racks)
 	RackAware bool
 
-	// MaxPartitionsPerBroker limits partitions per broker
+	// MaxPartitionsPerBroker limits partitions per broker.
+	//
+	// Known limitation: this constraint is not currently enforced by any
+	// AssignmentStrategy. RoundRobinStrategy.selectReplicas reads it but
+	// never checks it (see the TODO there); RangeAssignor/StickyAssignor in
+	// pkg/consumer/group don't reference it at all. Setting a non-zero value
+	// does not raise an error - it is silently accepted and has no effect on
+	// the resulting assignment. Enforcing it properly would require passing
+	// each broker's already-assigned partition count (from state outside
+	// this package) into the strategy, which no current caller provides. See
+	// README.md's Known Limitations section.
 	MaxPartitionsPerBroker int
 
 	// PreferredLeaders maps partition keys to preferred leader broker IDs

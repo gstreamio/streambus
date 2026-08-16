@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"hash"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -268,6 +269,7 @@ func GenerateAPIKey() (string, error) {
 
 // APIKeyAuthenticator handles API key authentication
 type APIKeyAuthenticator struct {
+	mu   sync.RWMutex
 	keys map[string]*APIKey // key -> APIKey
 }
 
@@ -293,6 +295,8 @@ func NewAPIKeyAuthenticator() *APIKeyAuthenticator {
 
 // AddAPIKey adds an API key
 func (a *APIKeyAuthenticator) AddAPIKey(key *APIKey) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.keys[key.Key] = key
 }
 
@@ -303,7 +307,9 @@ func (a *APIKeyAuthenticator) Authenticate(ctx context.Context, credentials inte
 		return nil, fmt.Errorf("invalid credentials type for API key authentication")
 	}
 
+	a.mu.RLock()
 	key, exists := a.keys[apiCreds.APIKey]
+	a.mu.RUnlock()
 	if !exists {
 		return nil, fmt.Errorf("invalid API key")
 	}
