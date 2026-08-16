@@ -74,7 +74,7 @@ jobs:
         run: |
           echo "Integration tests require an external broker at localhost:9092"
           echo "Skipping for now - implement broker setup in future"
-          # go test -v -run 'TestE2E|TestIntegration' ./test/integration/...
+          # go test -v -run 'TestE2E|TestIntegration' ./tests/integration/...
         timeout-minutes: 10
 
   chaos-tests:
