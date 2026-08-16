@@ -156,7 +156,7 @@ jobs:
       - name: Run integration tests
         run: |
           # Start test cluster
-          docker-compose up -d broker1
+          docker compose up -d broker1
 
           # Wait for broker to be ready
           sleep 10
@@ -165,7 +165,7 @@ jobs:
           go test -v -tags=integration ./tests/integration/...
 
           # Cleanup
-          docker-compose down -v
+          docker compose down -v
 
   security-scan:
     name: Security Scan
