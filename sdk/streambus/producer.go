@@ -49,12 +49,12 @@ type Message struct {
 
 // Send sends a simple string message
 func (p *Producer) Send(topic, message string) error {
-	return p.underlying.Send(topic, nil, []byte(message))
+	return p.underlying.Send(context.Background(), topic, nil, []byte(message))
 }
 
 // SendWithKey sends a message with a key
 func (p *Producer) SendWithKey(topic, key, message string) error {
-	return p.underlying.Send(topic, []byte(key), []byte(message))
+	return p.underlying.Send(context.Background(), topic, []byte(key), []byte(message))
 }
 
 // SendJSON sends an object as JSON
@@ -69,7 +69,7 @@ func (p *Producer) SendJSON(topic string, key string, value interface{}) error {
 		keyBytes = []byte(key)
 	}
 
-	return p.underlying.Send(topic, keyBytes, data)
+	return p.underlying.Send(context.Background(), topic, keyBytes, data)
 }
 
 // SendMessage sends a structured message
@@ -87,10 +87,10 @@ func (p *Producer) SendMessage(msg *Message) error {
 	}
 
 	if partition == 0 {
-		return p.underlying.Send(msg.Topic, msg.Key, msg.Value)
+		return p.underlying.Send(context.Background(), msg.Topic, msg.Key, msg.Value)
 	}
 
-	return p.underlying.SendToPartition(msg.Topic, uint32(partition), msg.Key, msg.Value)
+	return p.underlying.SendToPartition(context.Background(), msg.Topic, uint32(partition), msg.Key, msg.Value)
 }
 
 // SendBatch sends multiple messages in a batch
@@ -126,7 +126,7 @@ func (p *Producer) SendAsync(ctx context.Context, topic, message string) <-chan 
 
 // Flush flushes any pending messages for a topic
 func (p *Producer) Flush(topic string) error {
-	return p.underlying.Flush(topic)
+	return p.underlying.Flush(context.Background(), topic)
 }
 
 // FlushAll flushes all pending messages

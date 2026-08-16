@@ -80,6 +80,7 @@ func (a *Admin) CreateTopic(config TopicConfig) error {
 	}
 
 	err := a.client.underlying.CreateTopic(
+		context.Background(),
 		config.Name,
 		uint32(config.Partitions),
 		uint16(config.ReplicationFactor),
@@ -122,7 +123,7 @@ func (a *Admin) DeleteTopic(topic string) error {
 
 // ListTopics lists all topics
 func (a *Admin) ListTopics() ([]string, error) {
-	topics, err := a.client.underlying.ListTopics()
+	topics, err := a.client.underlying.ListTopics(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to list topics: %w", err)
 	}
