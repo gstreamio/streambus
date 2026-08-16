@@ -84,6 +84,19 @@ func (pc *PartitionConsumer) FetchFromPartition(ctx context.Context, partitionID
 	state.mu.Lock()
 	defer state.mu.Unlock()
 
+	// The -1 "latest" sentinel from DefaultConfig is never a valid offset to
+	// send to the broker - resolve it to the current end-of-log offset the
+	// first time a fetch is attempted for this partition, so a consumer that
+	// never calls SeekPartition/SeekAll still starts from "latest" as
+	// documented.
+	if state.offset == -1 {
+		endOffset, err := pc.resolveEndOffset(ctx, partitionID)
+		if err != nil {
+			return nil, err
+		}
+		state.offset = endOffset
+	}
+
 	// Create fetch request
 	req := &protocol.Request{
 		Header: protocol.RequestHeader{
@@ -131,6 +144,35 @@ func (pc *PartitionConsumer) FetchFromPartition(ctx context.Context, partitionID
 	atomic.AddInt64(&pc.bytesRead, bytes)
 
 	return fetchResp.Messages, nil
+}
+
+// resolveEndOffset asks the broker for the current end-of-log (high water
+// mark) offset for the given partition of this consumer's topic.
+func (pc *PartitionConsumer) resolveEndOffset(ctx context.Context, partitionID uint32) (int64, error) {
+	req := &protocol.Request{
+		Header: protocol.RequestHeader{
+			Type:    protocol.RequestTypeGetOffset,
+			Version: protocol.ProtocolVersion,
+			Flags:   protocol.FlagNone,
+		},
+		Payload: &protocol.GetOffsetRequest{
+			Topic:       pc.topic,
+			PartitionID: partitionID,
+		},
+	}
+
+	broker := pc.client.config.Brokers[0]
+	resp, err := pc.client.sendRequestWithRetry(ctx, broker, req)
+	if err != nil {
+		return 0, err
+	}
+
+	offsetResp, ok := resp.Payload.(*protocol.GetOffsetResponse)
+	if !ok {
+		return 0, ErrInvalidResponse
+	}
+
+	return offsetResp.EndOffset, nil
 }
 
 // FetchAll fetches from all assigned partitions

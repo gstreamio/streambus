@@ -59,6 +59,18 @@ func (c *Consumer) FetchN(ctx context.Context, maxMessages int) ([]protocol.Mess
 		return nil, ErrInvalidTopic
 	}
 
+	// The -1 "latest" sentinel from DefaultConfig is never a valid offset to
+	// send to the broker - resolve it to the current end-of-log offset the
+	// first time a fetch is attempted, so a consumer that never calls Seek
+	// still starts consuming from "latest" as documented.
+	if c.offset == -1 {
+		endOffset, err := c.resolveEndOffset(ctx)
+		if err != nil {
+			return nil, err
+		}
+		c.offset = endOffset
+	}
+
 	req := &protocol.Request{
 		Header: protocol.RequestHeader{
 			Type:    protocol.RequestTypeFetch,
@@ -165,6 +177,13 @@ func (c *Consumer) GetEndOffset(ctx context.Context) (int64, error) {
 		return 0, ErrConsumerClosed
 	}
 
+	return c.resolveEndOffset(ctx)
+}
+
+// resolveEndOffset asks the broker for the current end-of-log (high water
+// mark) offset for this consumer's topic/partition. It does not check
+// c.closed - callers that need that check should do so themselves.
+func (c *Consumer) resolveEndOffset(ctx context.Context) (int64, error) {
 	req := &protocol.Request{
 		Header: protocol.RequestHeader{
 			Type:    protocol.RequestTypeGetOffset,
