@@ -11,7 +11,23 @@ import (
 	"github.com/gstreamio/streambus/pkg/logging"
 )
 
-// TransactionCoordinator manages transactional operations
+// TransactionCoordinator manages transactional operations.
+//
+// Known limitation: EndTxn only drives the in-memory transaction state
+// machine (Ongoing -> PrepareCommit/PrepareAbort -> CompleteCommit/
+// CompleteAbort) and logs the transitions; it does not write transaction
+// marker records to the affected partitions or wait for replica
+// acknowledgment before reporting ErrorCodeNone, so "committed"/"aborted"
+// here does not yet carry the durability guarantee a real Kafka-style
+// transaction coordinator provides. This mirrors, at the broker/coordinator
+// layer, the same gap that pkg/client.TransactionalProducer.CommitTransaction
+// already refuses to paper over on the client side (it returns
+// ErrTransactionCoordinationNotImplemented rather than silently succeeding).
+// As of this writing pkg/server's wire-protocol dispatcher does not route
+// InitProducerId/AddPartitionsToTxn/EndTxn/AddOffsetsToTxn requests to this
+// coordinator at all, so it is unreachable from a real network client; it is
+// reachable only by Go code that imports this package directly. See
+// README.md's Known Limitations section.
 type TransactionCoordinator struct {
 	mu sync.RWMutex
 
