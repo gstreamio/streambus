@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -15,7 +16,8 @@ func TestE2E_ProducerConsumerLifecycle(t *testing.T) {
 	}
 
 	// Test configuration
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
+	ctx := context.Background()
 	topic := fmt.Sprintf("test-lifecycle-%d", time.Now().Unix())
 	numMessages := 100
 
@@ -25,7 +27,12 @@ func TestE2E_ProducerConsumerLifecycle(t *testing.T) {
 		ConnectTimeout:          10 * time.Second,
 		ReadTimeout:             10 * time.Second,
 		WriteTimeout:            10 * time.Second,
+		RequestTimeout:          10 * time.Second,
 		MaxConnectionsPerBroker: 5,
+		ConsumerConfig: client.ConsumerConfig{
+			MaxFetchBytes: 1024 * 1024,
+			MaxWaitTime:   500 * time.Millisecond,
+		},
 	}
 
 	c, err := client.New(cfg)
@@ -43,7 +50,7 @@ func TestE2E_ProducerConsumerLifecycle(t *testing.T) {
 		key := []byte(fmt.Sprintf("key-%d", i))
 		value := []byte(fmt.Sprintf("message-%d", i))
 
-		err := producer.Send(topic, key, value)
+		err := producer.Send(ctx, topic, key, value)
 		if err != nil {
 			t.Fatalf("Failed to send message %d: %v", i, err)
 		}
@@ -63,7 +70,7 @@ func TestE2E_ProducerConsumerLifecycle(t *testing.T) {
 		case <-timeout:
 			t.Fatalf("Timeout: only consumed %d/%d messages", consumedCount, numMessages)
 		default:
-			messages, err := consumer.Fetch()
+			messages, err := consumer.Fetch(ctx)
 			if err != nil {
 				t.Fatalf("Failed to fetch messages: %v", err)
 			}
@@ -91,7 +98,8 @@ func TestE2E_MultiPartition(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
+	ctx := context.Background()
 	topic := fmt.Sprintf("test-multipart-%d", time.Now().Unix())
 	numPartitions := 3
 	messagesPerPartition := 50
@@ -99,7 +107,12 @@ func TestE2E_MultiPartition(t *testing.T) {
 	cfg := &client.Config{
 		Brokers:                 brokers,
 		ConnectTimeout:          10 * time.Second,
+		RequestTimeout:          10 * time.Second,
 		MaxConnectionsPerBroker: 5,
+		ConsumerConfig: client.ConsumerConfig{
+			MaxFetchBytes: 1024 * 1024,
+			MaxWaitTime:   500 * time.Millisecond,
+		},
 	}
 
 	c, err := client.New(cfg)
@@ -109,8 +122,12 @@ func TestE2E_MultiPartition(t *testing.T) {
 	}
 	defer c.Close()
 
-	// Create topic with multiple partitions (would need admin API)
-	// For now, assume topic exists or is auto-created
+	// Create topic with multiple partitions - auto-create on first produce
+	// only ever creates a single partition, so partitions beyond 0 would
+	// otherwise fail with "partition N does not exist".
+	if err := c.CreateTopic(ctx, topic, uint32(numPartitions), 1); err != nil {
+		t.Fatalf("Failed to create topic: %v", err)
+	}
 
 	// Produce to each partition
 	producer := client.NewProducer(c)
@@ -120,7 +137,7 @@ func TestE2E_MultiPartition(t *testing.T) {
 			key := []byte(fmt.Sprintf("part%d-key-%d", partID, i))
 			value := []byte(fmt.Sprintf("part%d-msg-%d", partID, i))
 
-			err := producer.SendToPartition(topic, uint32(partID), key, value)
+			err := producer.SendToPartition(ctx, topic, uint32(partID), key, value)
 			if err != nil {
 				t.Fatalf("Failed to send to partition %d: %v", partID, err)
 			}
@@ -140,7 +157,7 @@ func TestE2E_MultiPartition(t *testing.T) {
 			case <-timeout:
 				t.Fatalf("Timeout consuming from partition %d: got %d/%d", partID, consumed, messagesPerPartition)
 			default:
-				messages, err := consumer.Fetch()
+				messages, err := consumer.Fetch(ctx)
 				if err != nil {
 					t.Fatalf("Fetch failed for partition %d: %v", partID, err)
 				}
@@ -162,13 +179,19 @@ func TestE2E_LargeMessages(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
+	ctx := context.Background()
 	topic := fmt.Sprintf("test-large-%d", time.Now().Unix())
 
 	cfg := &client.Config{
 		Brokers:                 brokers,
 		ConnectTimeout:          10 * time.Second,
+		RequestTimeout:          10 * time.Second,
 		MaxConnectionsPerBroker: 5,
+		ConsumerConfig: client.ConsumerConfig{
+			MaxFetchBytes: 1024 * 1024,
+			MaxWaitTime:   500 * time.Millisecond,
+		},
 	}
 
 	c, err := client.New(cfg)
@@ -187,6 +210,10 @@ func TestE2E_LargeMessages(t *testing.T) {
 	}
 
 	producer := client.NewProducer(c)
+	// Created once outside the loop: a fresh consumer here would always
+	// default to offset 0 and keep re-reading the very first message sent,
+	// rather than advancing to the size-specific message each iteration.
+	consumer := client.NewConsumer(c, topic, 0)
 
 	for _, size := range sizes {
 		t.Logf("Testing message size: %d bytes", size)
@@ -199,14 +226,13 @@ func TestE2E_LargeMessages(t *testing.T) {
 		key := []byte(fmt.Sprintf("large-%d", size))
 
 		// Produce
-		err := producer.Send(topic, key, value)
+		err := producer.Send(ctx, topic, key, value)
 		if err != nil {
 			t.Fatalf("Failed to send %d byte message: %v", size, err)
 		}
 
 		// Consume
-		consumer := client.NewConsumer(c, topic, 0)
-		messages, err := consumer.Fetch()
+		messages, err := consumer.Fetch(ctx)
 		if err != nil {
 			t.Fatalf("Failed to fetch %d byte message: %v", size, err)
 		}
@@ -238,14 +264,20 @@ func TestE2E_HighThroughput(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
+	ctx := context.Background()
 	topic := fmt.Sprintf("test-throughput-%d", time.Now().Unix())
 	numMessages := 10000
 
 	cfg := &client.Config{
 		Brokers:                 brokers,
 		ConnectTimeout:          10 * time.Second,
+		RequestTimeout:          10 * time.Second,
 		MaxConnectionsPerBroker: 5,
+		ConsumerConfig: client.ConsumerConfig{
+			MaxFetchBytes: 1024 * 1024,
+			MaxWaitTime:   500 * time.Millisecond,
+		},
 	}
 
 	c, err := client.New(cfg)
@@ -264,7 +296,7 @@ func TestE2E_HighThroughput(t *testing.T) {
 		key := []byte(fmt.Sprintf("key-%d", i))
 		value := []byte(fmt.Sprintf("message-%d-data", i))
 
-		err := producer.Send(topic, key, value)
+		err := producer.Send(ctx, topic, key, value)
 		if err != nil {
 			t.Fatalf("Failed to send message %d: %v", i, err)
 		}
@@ -291,7 +323,7 @@ func TestE2E_HighThroughput(t *testing.T) {
 		case <-timeout:
 			t.Fatalf("Timeout: consumed %d/%d messages", consumed, numMessages)
 		default:
-			messages, err := consumer.Fetch()
+			messages, err := consumer.Fetch(ctx)
 			if err != nil {
 				t.Fatalf("Fetch failed: %v", err)
 			}
@@ -328,14 +360,20 @@ func TestE2E_OrderingGuarantee(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
+	ctx := context.Background()
 	topic := fmt.Sprintf("test-ordering-%d", time.Now().Unix())
 	numMessages := 100
 
 	cfg := &client.Config{
 		Brokers:                 brokers,
 		ConnectTimeout:          10 * time.Second,
+		RequestTimeout:          10 * time.Second,
 		MaxConnectionsPerBroker: 5,
+		ConsumerConfig: client.ConsumerConfig{
+			MaxFetchBytes: 1024 * 1024,
+			MaxWaitTime:   500 * time.Millisecond,
+		},
 	}
 
 	c, err := client.New(cfg)
@@ -352,7 +390,7 @@ func TestE2E_OrderingGuarantee(t *testing.T) {
 		key := []byte(fmt.Sprintf("seq-%05d", i))
 		value := []byte(fmt.Sprintf("message-%d", i))
 
-		err := producer.Send(topic, key, value)
+		err := producer.Send(ctx, topic, key, value)
 		if err != nil {
 			t.Fatalf("Failed to send message %d: %v", i, err)
 		}
@@ -372,7 +410,7 @@ func TestE2E_OrderingGuarantee(t *testing.T) {
 		case <-timeout:
 			t.Fatalf("Timeout: consumed %d/%d messages", consumed, numMessages)
 		default:
-			messages, err := consumer.Fetch()
+			messages, err := consumer.Fetch(ctx)
 			if err != nil {
 				t.Fatalf("Fetch failed: %v", err)
 			}

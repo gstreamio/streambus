@@ -129,6 +129,9 @@ func (l *logImpl) Read(offset Offset, maxBytes int) ([]*Message, error) {
 		zap.Int64("highWaterMark", int64(hwm)))
 
 	if offset < logStart {
+		// Genuinely invalid: before retention start, or a negative/unresolved
+		// sentinel offset (e.g. -1) sent to the broker literally instead of
+		// being resolved client-side first. This must propagate as an error.
 		logger.Debug("offset out of range: offset < logStart",
 			zap.Int64("offset", int64(offset)),
 			zap.Int64("logStart", int64(logStart)))
@@ -136,10 +139,16 @@ func (l *logImpl) Read(offset Offset, maxBytes int) ([]*Message, error) {
 	}
 
 	if offset >= hwm {
-		logger.Debug("offset out of range: offset >= highWaterMark",
+		// Not an error: this is the normal steady state for a caught-up
+		// consumer polling for new messages. Returning ErrOffsetOutOfRange
+		// here previously got silently swallowed by handleFetch into an
+		// empty-but-successful response - which happened to look right for
+		// this specific case, but meant a genuinely invalid offset (the
+		// branch above) was indistinguishable from "no new messages yet".
+		logger.Debug("caught up: offset >= highWaterMark",
 			zap.Int64("offset", int64(offset)),
 			zap.Int64("highWaterMark", int64(hwm)))
-		return nil, ErrOffsetOutOfRange
+		return []*Message{}, nil
 	}
 
 	messages := make([]*Message, 0)

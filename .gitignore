@@ -16,6 +16,24 @@ dist/
 *.out
 coverage.html
 coverage.txt
+coverage-*.txt
+coverage-*.out
+test-*-output.txt
+
+# Compiled example/demo binaries (built ad hoc with `go build ./examples/...`,
+# not part of `make build`) - allow only known source/doc file types through.
+examples/*/*
+!examples/*/*.go
+!examples/*/*.md
+!examples/*/*.yaml
+!examples/*/*.yml
+!examples/*/*.json
+!examples/*/*.sh
+
+# Stray root-level binaries from ad hoc `go build -o <name> ./cmd/...`
+/broker
+/security
+/metadata
 
 # Dependency directories
 vendor/

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
@@ -11,6 +12,8 @@ import (
 func main() {
 	fmt.Println("StreamBus Producer Example")
 	fmt.Println("==========================")
+
+	ctx := context.Background()
 
 	// Create client configuration
 	config := client.DefaultConfig()
@@ -25,7 +28,7 @@ func main() {
 
 	// Create topic
 	fmt.Println("\nCreating topic 'events'...")
-	err = c.CreateTopic("events", 3, 1) // 3 partitions, replication factor 1
+	err = c.CreateTopic(ctx, "events", 3, 1) // 3 partitions, replication factor 1
 	if err != nil {
 		log.Printf("Topic creation failed (may already exist): %v", err)
 	}
@@ -41,7 +44,7 @@ func main() {
 		key := []byte(fmt.Sprintf("key-%d", i))
 		value := []byte(fmt.Sprintf("message-%d: Hello from StreamBus at %s", i, time.Now().Format(time.RFC3339)))
 
-		err := producer.Send("events", key, value)
+		err := producer.Send(ctx, "events", key, value)
 		if err != nil {
 			log.Printf("Failed to send message %d: %v", i, err)
 			continue
@@ -53,7 +56,7 @@ func main() {
 
 	// Flush any remaining batched messages
 	fmt.Println("\nFlushing producer...")
-	err = producer.FlushAll()
+	err = producer.FlushAll(ctx)
 	if err != nil {
 		log.Printf("Failed to flush: %v", err)
 	}

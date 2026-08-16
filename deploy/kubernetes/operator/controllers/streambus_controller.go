@@ -59,7 +59,7 @@ func (r *StreamBusClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 
 	// Handle deletion
-	if cluster.ObjectMeta.DeletionTimestamp != nil {
+	if cluster.DeletionTimestamp != nil {
 		return r.handleDeletion(ctx, cluster)
 	}
 

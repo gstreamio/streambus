@@ -125,6 +125,16 @@ func (c *Config) Validate() error {
 		return ErrInvalidTimeout
 	}
 
+	// A zero RequestTimeout makes every request's context.WithTimeout
+	// already-expired, so every call fails instantly with a timeout error
+	// that gives no hint the real problem is the config itself. Callers who
+	// build a Config literal directly (instead of starting from
+	// DefaultConfig()) need this caught here, not discovered as a mystery
+	// "request timeout" deep in the retry logic.
+	if c.RequestTimeout <= 0 {
+		return ErrInvalidTimeout
+	}
+
 	if c.MaxConnectionsPerBroker <= 0 {
 		return ErrInvalidMaxConnections
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
@@ -11,6 +12,8 @@ import (
 func main() {
 	fmt.Println("StreamBus Consumer Example")
 	fmt.Println("==========================")
+
+	ctx := context.Background()
 
 	// Create client configuration
 	config := client.DefaultConfig()
@@ -44,7 +47,7 @@ func main() {
 
 	// Consume messages
 	for {
-		messages, err := consumer.Fetch()
+		messages, err := consumer.Fetch(ctx)
 		if err != nil {
 			log.Printf("Fetch error: %v", err)
 			time.Sleep(1 * time.Second)

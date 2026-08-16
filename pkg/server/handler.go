@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -165,14 +166,19 @@ func (h *Handler) handleFetch(req *protocol.Request) *protocol.Response {
 	// Read messages from log starting at offset
 	storageMessages, err := partition.log.Read(storage.Offset(payload.Offset), int(payload.MaxBytes))
 	if err != nil {
-		// Log read errors at debug level
 		logger.Debug("read error",
 			zap.String("topic", payload.Topic),
 			zap.Uint32("partition", payload.PartitionID),
 			zap.Int64("offset", payload.Offset),
 			zap.Error(err))
-		// No messages available, return empty list
-		storageMessages = []*storage.Message{}
+		// A genuinely invalid offset (before retention start, negative, etc.)
+		// must be reported to the client - silently returning an empty list
+		// here made it indistinguishable from "no new messages yet" and
+		// masked real offset-tracking bugs on the client side.
+		if errors.Is(err, storage.ErrOffsetOutOfRange) {
+			return h.errorResponse(req.Header.RequestID, protocol.ErrOffsetOutOfRange, err.Error())
+		}
+		return h.errorResponse(req.Header.RequestID, protocol.ErrStorageError, err.Error())
 	}
 
 	// Convert storage messages to protocol messages

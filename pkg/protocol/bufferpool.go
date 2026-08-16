@@ -67,11 +67,12 @@ func (p *BufferPool) Put(buf []byte) {
 	buf = buf[:cap(buf)]
 
 	capacity := cap(buf)
-	if capacity == smallBufferSize {
+	switch capacity {
+	case smallBufferSize:
 		p.small.Put(&buf)
-	} else if capacity == mediumBufferSize {
+	case mediumBufferSize:
 		p.medium.Put(&buf)
-	} else if capacity == largeBufferSize {
+	case largeBufferSize:
 		p.large.Put(&buf)
 	}
 	// Don't pool oversized buffers - let GC handle them

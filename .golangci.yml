@@ -1,0 +1,30 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+  exclusions:
+    rules:
+      # Deferred/inline cleanup calls (Close, Stop, Shutdown, RemoveAll,
+      # Setenv/Unsetenv, Fprint* to an http.ResponseWriter) have nothing
+      # actionable to do with their error at these call sites - forcing
+      # `_ = x.Close()` everywhere is churn, not correctness. Genuinely
+      # meaningful error returns (e.g. Producer.Flush, AbortTransaction)
+      # are handled explicitly in code instead of excluded here.
+      - linters:
+          - errcheck
+        text: 'Error return value of .*\.(Close|Stop|Shutdown|close)`? is not checked'
+      - linters:
+          - errcheck
+        text: 'Error return value of .(os\.RemoveAll|os\.Setenv|os\.Unsetenv|fmt\.Fprintf|fmt\.Fprintln|fmt\.Fprint). is not checked'
+      # Consumer.Seek(offset int64) error is a domain-specific Kafka-offset
+      # seek, not meant to implement io.Seeker - govet's stdmethods check
+      # flags any method literally named "Seek" regardless of intent.
+      # Renaming a public API method just to silence this would be a
+      # needless breaking change.
+      - linters:
+          - govet
+        text: 'stdmethods: method Seek\(offset int64\) error should have signature'

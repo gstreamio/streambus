@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -34,11 +35,19 @@ func init() {
 	if level == "" {
 		level = "info"
 	}
-	Init(LogLevel(level))
+	if err := Init(LogLevel(level)); err != nil {
+		// A logging package must never crash its importer's process before
+		// main() even runs. Fall back to a no-op logger instead of
+		// panicking - callers still get Init()'s returned error if they
+		// call it again themselves.
+		fmt.Fprintf(os.Stderr, "logger: failed to initialize, logging disabled: %v\n", err)
+		globalLogger = zap.NewNop()
+		globalSugar = globalLogger.Sugar()
+	}
 }
 
 // Init initializes the global logger with the specified log level
-func Init(level LogLevel) {
+func Init(level LogLevel) error {
 	zapLevel := parseLogLevel(level)
 
 	// Use production config for performance
@@ -72,10 +81,11 @@ func Init(level LogLevel) {
 		}),
 	)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("failed to build zap logger: %w", err)
 	}
 
 	globalSugar = globalLogger.Sugar()
+	return nil
 }
 
 // parseLogLevel converts string to zapcore.Level

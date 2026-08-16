@@ -221,16 +221,18 @@ func (r *Registry) ReadinessCheck(ctx context.Context) Check {
 	response := r.CheckAll(ctx)
 
 	status := StatusHealthy
-	if response.Status == StatusUnhealthy {
+	switch response.Status {
+	case StatusUnhealthy:
 		status = StatusUnhealthy
-	} else if response.Status == StatusDegraded {
+	case StatusDegraded:
 		status = StatusDegraded
 	}
 
 	message := "ready to serve traffic"
-	if status == StatusUnhealthy {
+	switch status {
+	case StatusUnhealthy:
 		message = "not ready to serve traffic"
-	} else if status == StatusDegraded {
+	case StatusDegraded:
 		message = "ready but degraded"
 	}
 

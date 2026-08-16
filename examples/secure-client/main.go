@@ -105,10 +105,9 @@ func createSecureClient() *client.Client {
 // produceWithTLS demonstrates producing messages with a secure client
 func produceWithTLS(c *client.Client) error {
 	ctx := context.Background()
-	_ = ctx // Suppress unused variable warning
 
 	// Create topic first
-	if err := c.CreateTopic("secure-topic", 1, 1); err != nil {
+	if err := c.CreateTopic(ctx, "secure-topic", 1, 1); err != nil {
 		// Topic may already exist, log but continue
 		log.Printf("Topic creation: %v (may already exist)", err)
 	}
@@ -132,7 +131,7 @@ func produceWithTLS(c *client.Client) error {
 	}
 
 	for _, msg := range messages {
-		err := producer.Send("secure-topic", msg.key, msg.value)
+		err := producer.Send(ctx, "secure-topic", msg.key, msg.value)
 		if err != nil {
 			return fmt.Errorf("failed to send message: %w", err)
 		}
@@ -140,25 +139,4 @@ func produceWithTLS(c *client.Client) error {
 	}
 
 	return nil
-}
-
-// Example with insecure skip verify (development only!)
-func createInsecureClient() *client.Client {
-	config := client.DefaultConfig()
-	config.Brokers = []string{"localhost:9092"}
-
-	// CAUTION: This skips certificate verification - ONLY use for development!
-	config.Security = &client.SecurityConfig{
-		TLS: &client.TLSConfig{
-			Enabled:            true,
-			InsecureSkipVerify: true, // WARNING: Not safe for production!
-		},
-	}
-
-	c, err := client.New(config)
-	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
-	}
-
-	return c
 }

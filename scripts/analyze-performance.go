@@ -214,9 +214,10 @@ func printText(issues []PerformanceIssue) {
 
 	for i, issue := range issues {
 		icon := "⚠"
-		if issue.Severity == "critical" {
+		switch issue.Severity {
+		case "critical":
 			icon = "✗"
-		} else if issue.Severity == "info" {
+		case "info":
 			icon = "ℹ"
 		}
 
@@ -267,9 +268,10 @@ func printMarkdown(issues []PerformanceIssue) {
 	warnings := 0
 
 	for _, issue := range issues {
-		if issue.Severity == "critical" {
+		switch issue.Severity {
+		case "critical":
 			critical++
-		} else if issue.Severity == "warning" {
+		case "warning":
 			warnings++
 		}
 	}
@@ -281,9 +283,10 @@ func printMarkdown(issues []PerformanceIssue) {
 
 	for _, issue := range issues {
 		icon := "⚠️"
-		if issue.Severity == "critical" {
+		switch issue.Severity {
+		case "critical":
 			icon = "🔴"
-		} else if issue.Severity == "info" {
+		case "info":
 			icon = "ℹ️"
 		}
 

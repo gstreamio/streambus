@@ -445,8 +445,6 @@ StreamBus is currently in **active development** with production-ready core comp
 - Binary protocol with producer/consumer clients
 
 **Advanced Streaming**
-- Consumer groups with automatic rebalancing
-- Transactions and exactly-once semantics
 - Schema registry (Avro/Protobuf/JSON Schema)
 - Idempotent producers
 
@@ -467,6 +465,27 @@ StreamBus is currently in **active development** with production-ready core comp
 - Kubernetes operator
 - Additional admin tooling
 - Extended test coverage (current: 81%, target: 85%+)
+- **Consumer group coordination**: `GroupConsumer` join/sync/heartbeat/offset-commit
+  against a broker-side coordinator (multi-partition consumer groups)
+- **Transaction coordination**: `TransactionalProducer` commit/abort against a
+  transaction coordinator (exactly-once semantics)
+
+### Known Limitations ⚠️
+
+These previously looked functional (silently simulated success) but now fail
+fast with a clear error instead, so they don't cause silent data loss:
+
+- **`GroupConsumer`** (multi-partition consumer groups): `Subscribe` and
+  `CommitSync` return `ErrGroupCoordinationNotImplemented`. Use `Consumer` /
+  `PartitionConsumer` for single-partition consumption instead.
+- **`TransactionalProducer`** (exactly-once semantics): `CommitTransaction` and
+  `SendOffsetsToTransaction` return `ErrTransactionCoordinationNotImplemented`.
+  Use `Producer` instead.
+- **`GroupConsumer`/`PartitionConsumer` default `StartOffset: -1` ("latest")
+  is never resolved to a concrete offset** before being sent to the broker -
+  a fresh consumer relying on this default gets `ErrOffsetOutOfRange` rather
+  than actually starting from the latest offset. Call `Seek`/`SeekToEnd`/
+  `SeekAll` explicitly until this is fixed.
 
 ---
 

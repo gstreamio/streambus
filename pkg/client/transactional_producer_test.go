@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/gstreamio/streambus/pkg/protocol"
@@ -128,18 +129,21 @@ func TestTransactionalProducer_CommitTransaction(t *testing.T) {
 	err = producer.Send(ctx, "test-topic", 0, msg)
 	require.NoError(t, err)
 
-	// Commit transaction
+	// Commit transaction: must fail rather than silently discarding the
+	// message, since there's no coordinator to durably flush it to.
 	err = producer.CommitTransaction(ctx)
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrTransactionCoordinationNotImplemented))
 
-	// Verify state
+	// A failed commit aborts the transaction rather than leaving it stuck.
 	assert.Equal(t, ProducerStateReady, producer.state)
 	assert.Nil(t, producer.currentTransaction)
 
-	// Verify stats
+	// Verify stats: commit did not happen, but the abort triggered by the
+	// failed flush is tracked.
 	stats := producer.Stats()
-	assert.Equal(t, int64(1), stats.TransactionsCommitted)
-	assert.Equal(t, int64(0), stats.TransactionsAborted)
+	assert.Equal(t, int64(0), stats.TransactionsCommitted)
+	assert.Equal(t, int64(1), stats.TransactionsAborted)
 	assert.Equal(t, int64(1), stats.MessagesProduced)
 }
 
@@ -197,7 +201,7 @@ func TestTransactionalProducer_MultipleTransactions(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Transaction 1 - Commit
+	// Transaction 1 - attempted commit (fails: not implemented, auto-aborts)
 	err = producer.BeginTransaction(ctx)
 	require.NoError(t, err)
 
@@ -210,7 +214,7 @@ func TestTransactionalProducer_MultipleTransactions(t *testing.T) {
 	require.NoError(t, err)
 
 	err = producer.CommitTransaction(ctx)
-	require.NoError(t, err)
+	require.Error(t, err)
 
 	// Transaction 2 - Abort
 	err = producer.BeginTransaction(ctx)
@@ -227,7 +231,7 @@ func TestTransactionalProducer_MultipleTransactions(t *testing.T) {
 	err = producer.AbortTransaction(ctx)
 	require.NoError(t, err)
 
-	// Transaction 3 - Commit
+	// Transaction 3 - attempted commit (fails: not implemented, auto-aborts)
 	err = producer.BeginTransaction(ctx)
 	require.NoError(t, err)
 
@@ -240,12 +244,13 @@ func TestTransactionalProducer_MultipleTransactions(t *testing.T) {
 	require.NoError(t, err)
 
 	err = producer.CommitTransaction(ctx)
-	require.NoError(t, err)
+	require.Error(t, err)
 
-	// Verify stats
+	// Verify stats: no transaction can actually commit yet, so all three
+	// end up counted as aborts (the failed-commit auto-abort included).
 	stats := producer.Stats()
-	assert.Equal(t, int64(2), stats.TransactionsCommitted)
-	assert.Equal(t, int64(1), stats.TransactionsAborted)
+	assert.Equal(t, int64(0), stats.TransactionsCommitted)
+	assert.Equal(t, int64(3), stats.TransactionsAborted)
 	assert.Equal(t, int64(3), stats.MessagesProduced)
 }
 
@@ -308,11 +313,12 @@ func TestTransactionalProducer_SendOffsetsToTransaction(t *testing.T) {
 	}
 
 	err = producer.SendOffsetsToTransaction(ctx, "consumer-group-1", offsets)
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrTransactionCoordinationNotImplemented))
 
-	// Commit
+	// Commit also fails: not implemented yet.
 	err = producer.CommitTransaction(ctx)
-	require.NoError(t, err)
+	require.Error(t, err)
 }
 
 func TestTransactionalProducer_Close(t *testing.T) {
@@ -382,8 +388,10 @@ func TestTransactionalProducer_Stats(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Do some transactions
-	for i := 0; i < 3; i++ {
+	// Do some transactions. Commit isn't implemented yet, so a "commit"
+	// attempt fails and auto-aborts; only the explicit abort path succeeds
+	// directly.
+	for i := range 3 {
 		err = producer.BeginTransaction(ctx)
 		require.NoError(t, err)
 
@@ -397,15 +405,17 @@ func TestTransactionalProducer_Stats(t *testing.T) {
 
 		if i%2 == 0 {
 			err = producer.CommitTransaction(ctx)
+			require.Error(t, err)
 		} else {
 			err = producer.AbortTransaction(ctx)
+			require.NoError(t, err)
 		}
-		require.NoError(t, err)
 	}
 
-	// Final stats
+	// Final stats: every transaction ends up aborted (two failed commits
+	// that auto-abort, plus one explicit abort).
 	stats = producer.Stats()
-	assert.Equal(t, int64(2), stats.TransactionsCommitted)
-	assert.Equal(t, int64(1), stats.TransactionsAborted)
+	assert.Equal(t, int64(0), stats.TransactionsCommitted)
+	assert.Equal(t, int64(3), stats.TransactionsAborted)
 	assert.Equal(t, int64(3), stats.MessagesProduced)
 }

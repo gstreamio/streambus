@@ -23,10 +23,17 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v4
-        with:
-          version: latest
-          args: --timeout=5m
+        run: |
+          # golangci-lint-action@v4 hardcodes v1-only CLI flags
+          # (--out-format=github-actions), which a v2 binary rejects
+          # outright - and v1's "latest" resolution (e.g. v1.64.8) was
+          # built with an older Go toolchain than go.mod's `go 1.25.8`
+          # directive, which v1 itself refuses to run against. Install via
+          # `go install` (Go's own module proxy/checksum verification)
+          # rather than the release-artifact install script, which hit a
+          # checksum mismatch against the GitHub release tarball.
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+          "$(go env GOPATH)/bin/golangci-lint" run --timeout=5m ./...
 
   test:
     name: Test
@@ -52,7 +59,14 @@ jobs:
         run: go mod download
 
       - name: Run tests
-        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+        # -short: this job has no live broker/multi-node cluster to talk to,
+        # so integration-style tests (already guarded with
+        # `if testing.Short() { t.Skip(...) }`) must be skipped here, same
+        # as test.yml's "Unit Tests" job. Without it, e.g.
+        # pkg/consensus.TestNode_Snapshot hits a real (separate,
+        # pre-existing) deadlock in RaftNode.Stop() under -race and times
+        # out the whole job after 10m.
+        run: go test -v -short -race -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -141,17 +155,21 @@ jobs:
 
       - name: Run integration tests
         run: |
-          # Start test cluster
-          docker-compose up -d broker1
+          # Start the full 3-node cluster - broker1.yaml hardcodes all three
+          # brokers as Raft peers, so starting broker1 alone can never reach
+          # quorum (1 of 3) and never elects a leader, leaving every request
+          # that needs consensus (e.g. CreateTopic) to hang or reset the
+          # connection.
+          docker compose up -d
 
-          # Wait for broker to be ready
-          sleep 10
+          # Wait for the cluster to elect a leader
+          sleep 20
 
           # Run integration tests
           go test -v -tags=integration ./tests/integration/...
 
           # Cleanup
-          docker-compose down -v
+          docker compose down -v
 
   security-scan:
     name: Security Scan

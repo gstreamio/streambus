@@ -58,7 +58,7 @@ func (v *DefaultValidator) validateAvro(definition string) error {
 	// Check for required Avro fields
 	schemaType, hasType := schema["type"]
 	if !hasType {
-		return fmt.Errorf("Avro schema must have 'type' field")
+		return fmt.Errorf("avro schema must have 'type' field")
 	}
 
 	// Validate type is one of the Avro primitive or complex types
@@ -89,10 +89,10 @@ func (v *DefaultValidator) validateAvro(definition string) error {
 	// For record types, check for required fields
 	if typeStr == "record" {
 		if _, hasName := schema["name"]; !hasName {
-			return fmt.Errorf("Avro record schema must have 'name' field")
+			return fmt.Errorf("avro record schema must have 'name' field")
 		}
 		if _, hasFields := schema["fields"]; !hasFields {
-			return fmt.Errorf("Avro record schema must have 'fields' array")
+			return fmt.Errorf("avro record schema must have 'fields' array")
 		}
 	}
 

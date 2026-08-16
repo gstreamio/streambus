@@ -3,6 +3,7 @@ package timeout
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 )
@@ -336,11 +337,19 @@ func (o *Operation) ExecuteWithRetry(parent context.Context, maxRetries int, fn 
 var defaultManager *Manager
 
 func init() {
-	var err error
-	defaultManager, err = NewManager(DefaultConfig())
+	config := DefaultConfig()
+	manager, err := NewManager(config)
 	if err != nil {
-		panic(fmt.Sprintf("failed to create default timeout manager: %v", err))
+		// A package init() must never crash the importer's whole process.
+		// WithRaftProposal/WithHealthCheck/WithRequest dereference
+		// defaultManager directly with no nil check, so falling back to a
+		// bare Manager (skipping the validation NewManager just failed)
+		// avoids trading this panic for a less debuggable nil-pointer one
+		// the first time those helpers are called.
+		fmt.Fprintf(os.Stderr, "timeout: default config failed validation (%v), using it anyway\n", err)
+		manager = &Manager{config: config}
 	}
+	defaultManager = manager
 }
 
 // SetDefaultManager sets the global default timeout manager

@@ -146,21 +146,25 @@ func (c *Client) sendRequest(ctx context.Context, broker string, req *protocol.R
 }
 
 // sendRequestWithRetry sends a request with retry logic
-func (c *Client) sendRequestWithRetry(broker string, req *protocol.Request) (*protocol.Response, error) {
+func (c *Client) sendRequestWithRetry(ctx context.Context, broker string, req *protocol.Request) (*protocol.Response, error) {
 	var lastErr error
 	backoff := c.config.RetryBackoff
 
 	for attempt := 0; attempt <= c.config.MaxRetries; attempt++ {
 		if attempt > 0 {
-			// Wait before retry
-			time.Sleep(backoff)
+			// Wait before retry, but stop immediately if ctx is cancelled
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoff):
+			}
 			backoff = backoff * 2
 			if backoff > c.config.RetryMaxDelay {
 				backoff = c.config.RetryMaxDelay
 			}
 		}
 
-		resp, err := c.sendRequest(c.ctx, broker, req)
+		resp, err := c.sendRequest(ctx, broker, req)
 		if err == nil {
 			return resp, nil
 		}
@@ -177,7 +181,7 @@ func (c *Client) sendRequestWithRetry(broker string, req *protocol.Request) (*pr
 }
 
 // HealthCheck sends a health check request to a broker
-func (c *Client) HealthCheck(broker string) error {
+func (c *Client) HealthCheck(ctx context.Context, broker string) error {
 	c.mu.RLock()
 	if c.closed {
 		c.mu.RUnlock()
@@ -194,7 +198,7 @@ func (c *Client) HealthCheck(broker string) error {
 		Payload: &protocol.HealthCheckRequest{},
 	}
 
-	resp, err := c.sendRequest(c.ctx, broker, req)
+	resp, err := c.sendRequest(ctx, broker, req)
 	if err != nil {
 		return err
 	}
@@ -207,7 +211,7 @@ func (c *Client) HealthCheck(broker string) error {
 }
 
 // CreateTopic creates a new topic
-func (c *Client) CreateTopic(topic string, numPartitions uint32, replicationFactor uint16) error {
+func (c *Client) CreateTopic(ctx context.Context, topic string, numPartitions uint32, replicationFactor uint16) error {
 	c.mu.RLock()
 	if c.closed {
 		c.mu.RUnlock()
@@ -234,12 +238,12 @@ func (c *Client) CreateTopic(topic string, numPartitions uint32, replicationFact
 
 	// Send to first broker (later will have broker discovery)
 	broker := c.config.Brokers[0]
-	_, err := c.sendRequestWithRetry(broker, req)
+	_, err := c.sendRequestWithRetry(ctx, broker, req)
 	return err
 }
 
 // DeleteTopic deletes a topic
-func (c *Client) DeleteTopic(topic string) error {
+func (c *Client) DeleteTopic(ctx context.Context, topic string) error {
 	c.mu.RLock()
 	if c.closed {
 		c.mu.RUnlock()
@@ -264,12 +268,12 @@ func (c *Client) DeleteTopic(topic string) error {
 
 	// Send to first broker
 	broker := c.config.Brokers[0]
-	_, err := c.sendRequestWithRetry(broker, req)
+	_, err := c.sendRequestWithRetry(ctx, broker, req)
 	return err
 }
 
 // ListTopics lists all topics
-func (c *Client) ListTopics() ([]string, error) {
+func (c *Client) ListTopics(ctx context.Context) ([]string, error) {
 	c.mu.RLock()
 	if c.closed {
 		c.mu.RUnlock()
@@ -288,7 +292,7 @@ func (c *Client) ListTopics() ([]string, error) {
 
 	// Send to first broker
 	broker := c.config.Brokers[0]
-	resp, err := c.sendRequestWithRetry(broker, req)
+	resp, err := c.sendRequestWithRetry(ctx, broker, req)
 	if err != nil {
 		return nil, err
 	}

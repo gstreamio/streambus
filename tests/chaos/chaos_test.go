@@ -39,13 +39,14 @@ func TestChaos_RandomLatency(t *testing.T) {
 	// Reduce duration for testing
 	scenario.Duration = 30 * time.Second
 
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
 	topic := fmt.Sprintf("chaos-latency-%d", time.Now().Unix())
 
 	testFunc := func(ctx context.Context) error {
 		cfg := &client.Config{
 			Brokers:                 brokers,
 			ConnectTimeout:          10 * time.Second,
+			RequestTimeout:          10 * time.Second,
 			MaxConnectionsPerBroker: 5,
 		}
 
@@ -79,7 +80,7 @@ func TestChaos_RandomLatency(t *testing.T) {
 				key := []byte(fmt.Sprintf("key-%d", messageID))
 				value := []byte(fmt.Sprintf("message-%d", messageID))
 
-				err := producer.Send(topic, key, value)
+				err := producer.Send(ctx, topic, key, value)
 				if err != nil {
 					atomic.AddInt64(&errorCount, 1)
 				} else {
@@ -115,13 +116,14 @@ func TestChaos_IntermittentErrors(t *testing.T) {
 	scenario := NewIntermittentErrorScenario(logger)
 	scenario.Duration = 30 * time.Second
 
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
 	topic := fmt.Sprintf("chaos-errors-%d", time.Now().Unix())
 
 	testFunc := func(ctx context.Context) error {
 		cfg := &client.Config{
 			Brokers:                 brokers,
 			ConnectTimeout:          10 * time.Second,
+			RequestTimeout:          10 * time.Second,
 			MaxConnectionsPerBroker: 5,
 		}
 
@@ -155,7 +157,7 @@ func TestChaos_IntermittentErrors(t *testing.T) {
 				key := []byte(fmt.Sprintf("key-%d", messageID))
 				value := []byte(fmt.Sprintf("message-%d", messageID))
 
-				err := producer.Send(topic, key, value)
+				err := producer.Send(ctx, topic, key, value)
 				if err != nil {
 					atomic.AddInt64(&realErrorCount, 1)
 				} else {
@@ -190,13 +192,14 @@ func TestChaos_SlowNetwork(t *testing.T) {
 	scenario := NewSlowNetworkScenario(logger)
 	scenario.Duration = 30 * time.Second
 
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
 	topic := fmt.Sprintf("chaos-slow-%d", time.Now().Unix())
 
 	testFunc := func(ctx context.Context) error {
 		cfg := &client.Config{
 			Brokers:                 brokers,
 			ConnectTimeout:          10 * time.Second,
+			RequestTimeout:          10 * time.Second,
 			MaxConnectionsPerBroker: 5,
 		}
 
@@ -229,7 +232,7 @@ func TestChaos_SlowNetwork(t *testing.T) {
 				key := []byte(fmt.Sprintf("key-%d", messageID))
 				value := []byte(fmt.Sprintf("message-%d", messageID))
 
-				err := producer.Send(topic, key, value)
+				err := producer.Send(ctx, topic, key, value)
 				if err != nil {
 					atomic.AddInt64(&timeoutCount, 1)
 				} else {
@@ -264,13 +267,14 @@ func TestChaos_CombinedFaults(t *testing.T) {
 	scenario := NewCombinedChaosScenario(logger)
 	scenario.Duration = 60 * time.Second
 
-	brokers := []string{"localhost:9092"}
+	brokers := testBrokers()
 	topic := fmt.Sprintf("chaos-combined-%d", time.Now().Unix())
 
 	testFunc := func(ctx context.Context) error {
 		cfg := &client.Config{
 			Brokers:                 brokers,
 			ConnectTimeout:          10 * time.Second,
+			RequestTimeout:          10 * time.Second,
 			MaxConnectionsPerBroker: 5,
 		}
 
@@ -315,7 +319,7 @@ func TestChaos_CombinedFaults(t *testing.T) {
 					key := []byte(fmt.Sprintf("key-%d", messageID))
 					value := []byte(fmt.Sprintf("message-%d", messageID))
 
-					err := producer.Send(topic, key, value)
+					err := producer.Send(ctx, topic, key, value)
 					if err != nil {
 						atomic.AddInt64(&errorCount, 1)
 					} else {
@@ -342,7 +346,7 @@ func TestChaos_CombinedFaults(t *testing.T) {
 						continue
 					}
 
-					messages, err := consumer.Fetch()
+					messages, err := consumer.Fetch(ctx)
 					if err == nil {
 						atomic.AddInt64(&consumedCount, int64(len(messages)))
 					}

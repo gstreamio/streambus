@@ -11,7 +11,14 @@ import (
 	"github.com/gstreamio/streambus/pkg/transaction"
 )
 
-// TransactionalProducer provides exactly-once semantics for message production
+// TransactionalProducer provides exactly-once semantics for message production.
+//
+// NOT YET IMPLEMENTED: there is no transaction-coordinator wiring yet.
+// CommitTransaction and SendOffsetsToTransaction return
+// ErrTransactionCoordinationNotImplemented rather than silently reporting
+// success, as earlier versions did - flushMessages never actually wrote
+// committed messages to the broker, so a successful-looking commit silently
+// dropped every message in the transaction. Use Producer for now.
 type TransactionalProducer struct {
 	client *Client
 	config TransactionalProducerConfig
@@ -168,7 +175,11 @@ func (tp *TransactionalProducer) Send(ctx context.Context, topic string, partiti
 	return nil
 }
 
-// SendOffsetsToTransaction adds consumer group offsets to the transaction
+// SendOffsetsToTransaction adds consumer group offsets to the transaction.
+//
+// NOT YET IMPLEMENTED: returns ErrTransactionCoordinationNotImplemented rather
+// than silently discarding the offsets, since there's no coordinator to add
+// them to.
 func (tp *TransactionalProducer) SendOffsetsToTransaction(ctx context.Context, groupID string, offsets map[string]map[int32]int64) error {
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
@@ -180,21 +191,17 @@ func (tp *TransactionalProducer) SendOffsetsToTransaction(ctx context.Context, g
 	if tp.state != ProducerStateInTransaction {
 		return fmt.Errorf("no transaction in progress")
 	}
+	_ = groupID
+	_ = offsets
 
-	// In a real implementation, this would call the coordinator to add offsets to transaction
-	// For now, this is a placeholder
-	req := &transaction.AddOffsetsToTxnRequest{
-		TransactionID: tp.transactionID,
-		ProducerID:    tp.producerID,
-		ProducerEpoch: tp.producerEpoch,
-		GroupID:       groupID,
-	}
-	_ = req
-
-	return nil
+	return ErrTransactionCoordinationNotImplemented
 }
 
-// CommitTransaction commits the current transaction
+// CommitTransaction commits the current transaction.
+//
+// NOT YET IMPLEMENTED: flushMessages cannot actually write the transaction's
+// messages to the broker yet, so this returns ErrTransactionCoordinationNotImplemented
+// (wrapped) and aborts the transaction rather than reporting a fake success.
 func (tp *TransactionalProducer) CommitTransaction(ctx context.Context) error {
 	tp.mu.Lock()
 	if atomic.LoadInt32(&tp.closed) == 1 {
@@ -386,22 +393,9 @@ func (tp *TransactionalProducer) addPartitionToTxn(ctx context.Context, topic st
 }
 
 func (tp *TransactionalProducer) flushMessages(ctx context.Context, txn *Transaction) error {
-	// In a real implementation, this would write all messages to the broker
-	// with transactional markers
-
-	// Group messages by topic/partition
-	messagesByPartition := make(map[string]map[int32][]protocol.Message)
-	for _, pending := range txn.Messages {
-		if messagesByPartition[pending.Topic] == nil {
-			messagesByPartition[pending.Topic] = make(map[int32][]protocol.Message)
-		}
-		messagesByPartition[pending.Topic][pending.Partition] = append(
-			messagesByPartition[pending.Topic][pending.Partition],
-			pending.Message,
-		)
-	}
-
-	// Would write to broker with producer ID and epoch
-	// For now, simulate success
-	return nil
+	// Writing all messages to the broker with transactional markers (producer
+	// ID + epoch) is not implemented yet. Fail clearly instead of discarding
+	// txn.Messages silently and letting CommitTransaction report success.
+	_ = txn
+	return ErrTransactionCoordinationNotImplemented
 }

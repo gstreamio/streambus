@@ -68,7 +68,7 @@ func NewPartitionConsumerWithConfig(client *Client, topic string, partitions []u
 }
 
 // FetchFromPartition fetches messages from a specific partition
-func (pc *PartitionConsumer) FetchFromPartition(partitionID uint32) ([]protocol.Message, error) {
+func (pc *PartitionConsumer) FetchFromPartition(ctx context.Context, partitionID uint32) ([]protocol.Message, error) {
 	if atomic.LoadInt32(&pc.closed) == 1 {
 		return nil, ErrConsumerClosed
 	}
@@ -101,7 +101,7 @@ func (pc *PartitionConsumer) FetchFromPartition(partitionID uint32) ([]protocol.
 
 	// Send request (with partition routing in the future)
 	broker := pc.client.config.Brokers[0]
-	resp, err := pc.client.sendRequestWithRetry(broker, req)
+	resp, err := pc.client.sendRequestWithRetry(ctx, broker, req)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +134,7 @@ func (pc *PartitionConsumer) FetchFromPartition(partitionID uint32) ([]protocol.
 }
 
 // FetchAll fetches from all assigned partitions
-func (pc *PartitionConsumer) FetchAll() (map[uint32][]protocol.Message, error) {
+func (pc *PartitionConsumer) FetchAll(ctx context.Context) (map[uint32][]protocol.Message, error) {
 	if atomic.LoadInt32(&pc.closed) == 1 {
 		return nil, ErrConsumerClosed
 	}
@@ -149,7 +149,7 @@ func (pc *PartitionConsumer) FetchAll() (map[uint32][]protocol.Message, error) {
 		go func(pid uint32) {
 			defer wg.Done()
 
-			messages, err := pc.FetchFromPartition(pid)
+			messages, err := pc.FetchFromPartition(ctx, pid)
 			if err != nil {
 				mu.Lock()
 				lastErr = err
@@ -173,7 +173,7 @@ func (pc *PartitionConsumer) FetchAll() (map[uint32][]protocol.Message, error) {
 }
 
 // FetchRoundRobin fetches from partitions in round-robin fashion
-func (pc *PartitionConsumer) FetchRoundRobin() ([]protocol.Message, error) {
+func (pc *PartitionConsumer) FetchRoundRobin(ctx context.Context) ([]protocol.Message, error) {
 	if atomic.LoadInt32(&pc.closed) == 1 {
 		return nil, ErrConsumerClosed
 	}
@@ -186,7 +186,7 @@ func (pc *PartitionConsumer) FetchRoundRobin() ([]protocol.Message, error) {
 
 	// Try each partition once
 	for _, partitionID := range pc.partitions {
-		messages, err := pc.FetchFromPartition(partitionID)
+		messages, err := pc.FetchFromPartition(ctx, partitionID)
 		if err != nil {
 			// Log error but continue with other partitions
 			continue
@@ -314,7 +314,7 @@ func (pc *PartitionConsumer) PollPartitions(ctx context.Context, interval time.D
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			results, err := pc.FetchAll()
+			results, err := pc.FetchAll(ctx)
 			if err != nil {
 				// Log error but continue polling
 				continue

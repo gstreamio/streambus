@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -18,7 +19,8 @@ func TestOffsetManagement(t *testing.T) {
 	}
 
 	config := client.DefaultConfig()
-	config.Brokers = []string{"localhost:9092"}
+	config.Brokers = testBrokers()
+	ctx := context.Background()
 
 	c, err := client.New(config)
 	require.NoError(t, err, "Failed to create client")
@@ -27,7 +29,7 @@ func TestOffsetManagement(t *testing.T) {
 	topic := fmt.Sprintf("test-offset-mgmt-%d", time.Now().Unix())
 
 	// Create topic first
-	err = c.CreateTopic(topic, 1, 1)
+	err = c.CreateTopic(ctx, topic, 1, 1)
 	require.NoError(t, err, "Failed to create topic")
 
 	// Wait for topic to be ready
@@ -44,14 +46,14 @@ func TestOffsetManagement(t *testing.T) {
 		key := fmt.Sprintf("key-%d", i)
 		value := fmt.Sprintf("value-%d", i)
 
-		err := producer.Send(topic, []byte(key), []byte(value))
+		err := producer.Send(ctx, topic, []byte(key), []byte(value))
 		require.NoError(t, err, "Failed to send message %d", i)
 
 		expectedMessages[int64(i)] = value
 	}
 
 	// Flush to ensure all messages are written
-	err = producer.Flush(topic)
+	err = producer.Flush(ctx, topic)
 	require.NoError(t, err, "Failed to flush producer")
 
 	// Give broker time to persist messages
@@ -66,7 +68,7 @@ func TestOffsetManagement(t *testing.T) {
 		err := consumer.Seek(0)
 		require.NoError(t, err)
 
-		messages, err := consumer.FetchN(messageCount)
+		messages, err := consumer.FetchN(ctx, messageCount)
 		require.NoError(t, err)
 		require.Len(t, messages, messageCount)
 
@@ -93,7 +95,7 @@ func TestOffsetManagement(t *testing.T) {
 		require.NoError(t, err)
 
 		// Fetch next 3 messages
-		messages, err := consumer.FetchN(3)
+		messages, err := consumer.FetchN(ctx, 3)
 		require.NoError(t, err)
 		require.Len(t, messages, 3)
 
@@ -108,9 +110,14 @@ func TestOffsetManagement(t *testing.T) {
 
 	// Test 3: Verify offset persistence across consumer restarts
 	t.Run("OffsetPersistence", func(t *testing.T) {
-		// First consumer reads 3 messages
+		// First consumer reads 3 messages. NewConsumer defaults to StartOffset
+		// -1 ("latest"), which is never resolved to a concrete offset before
+		// being sent to the broker, so an explicit Seek(0) is required here
+		// to actually start from the beginning.
 		consumer1 := client.NewConsumer(c, topic, 0)
-		messages1, err := consumer1.FetchN(3)
+		err := consumer1.Seek(0)
+		require.NoError(t, err)
+		messages1, err := consumer1.FetchN(ctx, 3)
 		require.NoError(t, err)
 		require.Len(t, messages1, 3)
 
@@ -124,7 +131,7 @@ func TestOffsetManagement(t *testing.T) {
 		err = consumer2.Seek(lastOffset + 1)
 		require.NoError(t, err)
 
-		messages2, err := consumer2.FetchN(1)
+		messages2, err := consumer2.FetchN(ctx, 1)
 		require.NoError(t, err)
 		require.Len(t, messages2, 1)
 
@@ -138,19 +145,23 @@ func TestOffsetManagement(t *testing.T) {
 		consumer := client.NewConsumer(c, topic, 0)
 		defer consumer.Close()
 
-		// Seek to end to find the highest offset
-		err := consumer.Seek(-1) // Latest
+		// Seek to end to find the highest offset. Consumer.Seek rejects
+		// negative offsets outright (no -1-means-latest convention like
+		// PartitionConsumer.SeekPartition has), so SeekToEnd - which
+		// resolves the actual end offset via GetEndOffset first - is the
+		// correct way to do this.
+		err := consumer.SeekToEnd(ctx)
 		require.NoError(t, err)
 
 		// Produce 5 more messages
 		for i := 0; i < 5; i++ {
 			key := fmt.Sprintf("new-key-%d", i)
 			value := fmt.Sprintf("new-value-%d", i)
-			err := producer.Send(topic, []byte(key), []byte(value))
+			err := producer.Send(ctx, topic, []byte(key), []byte(value))
 			require.NoError(t, err)
 		}
 
-		err = producer.Flush(topic)
+		err = producer.Flush(ctx, topic)
 		require.NoError(t, err)
 
 		time.Sleep(1 * time.Second)
@@ -159,7 +170,7 @@ func TestOffsetManagement(t *testing.T) {
 		err = consumer.Seek(int64(messageCount))
 		require.NoError(t, err)
 
-		newMessages, err := consumer.FetchN(5)
+		newMessages, err := consumer.FetchN(ctx, 5)
 		require.NoError(t, err)
 		require.Len(t, newMessages, 5)
 
@@ -180,7 +191,8 @@ func TestOffsetOutOfRange(t *testing.T) {
 	}
 
 	config := client.DefaultConfig()
-	config.Brokers = []string{"localhost:9092"}
+	config.Brokers = testBrokers()
+	ctx := context.Background()
 
 	c, err := client.New(config)
 	require.NoError(t, err)
@@ -189,7 +201,7 @@ func TestOffsetOutOfRange(t *testing.T) {
 	topic := fmt.Sprintf("test-offset-range-%d", time.Now().Unix())
 
 	// Create topic
-	err = c.CreateTopic(topic, 1, 1)
+	err = c.CreateTopic(ctx, topic, 1, 1)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
@@ -198,10 +210,11 @@ func TestOffsetOutOfRange(t *testing.T) {
 	defer producer.Close()
 
 	for i := 0; i < 5; i++ {
-		err := producer.Send(topic, []byte(fmt.Sprintf("key-%d", i)), []byte(fmt.Sprintf("value-%d", i)))
+		err := producer.Send(ctx, topic, []byte(fmt.Sprintf("key-%d", i)), []byte(fmt.Sprintf("value-%d", i)))
 		require.NoError(t, err)
 	}
-	producer.Flush(topic)
+	err = producer.Flush(ctx, topic)
+	require.NoError(t, err, "Failed to flush producer")
 	time.Sleep(1 * time.Second)
 
 	consumer := client.NewConsumer(c, topic, 0)
@@ -212,7 +225,7 @@ func TestOffsetOutOfRange(t *testing.T) {
 		err := consumer.Seek(1000)
 		require.NoError(t, err) // Seek itself might succeed
 
-		messages, err := consumer.FetchN(1)
+		messages, err := consumer.FetchN(ctx, 1)
 		// Should either return empty or error
 		if err == nil {
 			assert.Len(t, messages, 0, "Should not return messages for offset beyond end")
@@ -233,7 +246,8 @@ func TestConcurrentOffsetAccess(t *testing.T) {
 	}
 
 	config := client.DefaultConfig()
-	config.Brokers = []string{"localhost:9092"}
+	config.Brokers = testBrokers()
+	ctx := context.Background()
 
 	c, err := client.New(config)
 	require.NoError(t, err)
@@ -242,7 +256,7 @@ func TestConcurrentOffsetAccess(t *testing.T) {
 	topic := fmt.Sprintf("test-concurrent-offset-%d", time.Now().Unix())
 
 	// Create topic
-	err = c.CreateTopic(topic, 1, 1)
+	err = c.CreateTopic(ctx, topic, 1, 1)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
@@ -252,10 +266,11 @@ func TestConcurrentOffsetAccess(t *testing.T) {
 
 	messageCount := 100
 	for i := 0; i < messageCount; i++ {
-		err := producer.Send(topic, []byte(fmt.Sprintf("key-%d", i)), []byte(fmt.Sprintf("value-%d", i)))
+		err := producer.Send(ctx, topic, []byte(fmt.Sprintf("key-%d", i)), []byte(fmt.Sprintf("value-%d", i)))
 		require.NoError(t, err)
 	}
-	producer.Flush(topic)
+	err = producer.Flush(ctx, topic)
+	require.NoError(t, err, "Failed to flush producer")
 	time.Sleep(2 * time.Second)
 
 	// Create multiple consumers reading different ranges
@@ -288,7 +303,7 @@ func TestConcurrentOffsetAccess(t *testing.T) {
 				return
 			}
 
-			messages, err := consumer.FetchN(tests[idx].count)
+			messages, err := consumer.FetchN(ctx, tests[idx].count)
 			tests[idx].messages = messages
 			tests[idx].err = err
 			done <- idx
@@ -326,7 +341,8 @@ func TestConcurrentOffsetAccess(t *testing.T) {
 // BenchmarkOffsetTracking benchmarks offset tracking performance
 func BenchmarkOffsetTracking(b *testing.B) {
 	config := client.DefaultConfig()
-	config.Brokers = []string{"localhost:9092"}
+	config.Brokers = testBrokers()
+	ctx := context.Background()
 
 	c, err := client.New(config)
 	if err != nil {
@@ -337,15 +353,15 @@ func BenchmarkOffsetTracking(b *testing.B) {
 	topic := fmt.Sprintf("bench-offset-%d", time.Now().Unix())
 
 	// Create topic
-	_ = c.CreateTopic(topic, 1, 1)
+	_ = c.CreateTopic(ctx, topic, 1, 1)
 	time.Sleep(1 * time.Second)
 
 	// Produce test messages
 	producer := client.NewProducer(c)
 	for i := 0; i < 1000; i++ {
-		_ = producer.Send(topic, []byte(fmt.Sprintf("key-%d", i)), []byte(fmt.Sprintf("value-%d", i)))
+		_ = producer.Send(ctx, topic, []byte(fmt.Sprintf("key-%d", i)), []byte(fmt.Sprintf("value-%d", i)))
 	}
-	_ = producer.Flush(topic)
+	_ = producer.Flush(ctx, topic)
 	producer.Close()
 	time.Sleep(1 * time.Second)
 
@@ -359,7 +375,7 @@ func BenchmarkOffsetTracking(b *testing.B) {
 		_ = consumer.Seek(offset)
 
 		// Fetch one message
-		_, _ = consumer.FetchN(1)
+		_, _ = consumer.FetchN(ctx, 1)
 
 		consumer.Close()
 	}

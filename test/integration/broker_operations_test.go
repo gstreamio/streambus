@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -76,9 +77,11 @@ func TestBrokerOperations(t *testing.T) {
 		}
 		defer func() { _ = c.Close() }()
 
+		ctx := context.Background()
+
 		// Create topic
 		topicName := "test-topic"
-		if err := c.CreateTopic(topicName, 1, 1); err != nil {
+		if err := c.CreateTopic(ctx, topicName, 1, 1); err != nil {
 			t.Fatalf("Failed to create topic: %v", err)
 		}
 
@@ -89,8 +92,14 @@ func TestBrokerOperations(t *testing.T) {
 		defer func() { _ = producer.Close() }()
 
 		testData := []byte("integration test message")
-		if err := producer.Send(topicName, []byte("key1"), testData); err != nil {
+		if err := producer.Send(ctx, topicName, []byte("key1"), testData); err != nil {
 			t.Fatalf("Failed to produce message: %v", err)
+		}
+		// DefaultConfig batches by default (BatchSize: 100), so a lone
+		// message just sits buffered until the periodic flush timer fires -
+		// flush explicitly rather than racing it.
+		if err := producer.Flush(ctx, topicName); err != nil {
+			t.Fatalf("Failed to flush producer: %v", err)
 		}
 
 		// Consume message
@@ -98,7 +107,7 @@ func TestBrokerOperations(t *testing.T) {
 		defer func() { _ = consumer.Close() }()
 
 		_ = consumer.SeekToBeginning()
-		messages, err := consumer.Fetch()
+		messages, err := consumer.Fetch(ctx)
 		if err != nil {
 			t.Fatalf("Failed to consume messages: %v", err)
 		}
@@ -138,7 +147,7 @@ func TestBrokerOperations(t *testing.T) {
 		defer func() { _ = c.Close() }()
 
 		// Create topic
-		if err := c.CreateTopic("shutdown-test", 1, 1); err != nil {
+		if err := c.CreateTopic(context.Background(), "shutdown-test", 1, 1); err != nil {
 			t.Fatalf("Failed to create topic: %v", err)
 		}
 
@@ -173,14 +182,16 @@ func TestBrokerOperations(t *testing.T) {
 			t.Fatalf("Failed to create client: %v", err)
 		}
 
+		ctx := context.Background()
+
 		topicName := "persist-topic"
-		if err := c1.CreateTopic(topicName, 1, 1); err != nil {
+		if err := c1.CreateTopic(ctx, topicName, 1, 1); err != nil {
 			t.Fatalf("Failed to create topic: %v", err)
 		}
 
 		producer := client.NewProducer(c1)
 		testMsg := []byte("persistent message")
-		if err := producer.Send(topicName, []byte("key"), testMsg); err != nil {
+		if err := producer.Send(ctx, topicName, []byte("key"), testMsg); err != nil {
 			t.Fatalf("Failed to produce message: %v", err)
 		}
 
@@ -215,7 +226,7 @@ func TestBrokerOperations(t *testing.T) {
 		defer func() { _ = consumer.Close() }()
 
 		_ = consumer.SeekToBeginning()
-		messages, err := consumer.Fetch()
+		messages, err := consumer.Fetch(ctx)
 		if err != nil {
 			t.Fatalf("Failed to consume messages after restart: %v", err)
 		}
@@ -254,10 +265,12 @@ func TestBrokerOperations(t *testing.T) {
 		}
 		defer func() { _ = c.Close() }()
 
+		ctx := context.Background()
+
 		// Create multiple topics
 		topics := []string{"topic-a", "topic-b", "topic-c"}
 		for _, topic := range topics {
-			if err := c.CreateTopic(topic, 3, 1); err != nil {
+			if err := c.CreateTopic(ctx, topic, 3, 1); err != nil {
 				t.Fatalf("Failed to create topic %s: %v", topic, err)
 			}
 		}
@@ -270,8 +283,14 @@ func TestBrokerOperations(t *testing.T) {
 
 		for _, topic := range topics {
 			msg := []byte("message for " + topic)
-			if err := producer.Send(topic, []byte("key"), msg); err != nil {
+			if err := producer.Send(ctx, topic, []byte("key"), msg); err != nil {
 				t.Errorf("Failed to produce to %s: %v", topic, err)
+			}
+			// DefaultConfig batches by default (BatchSize: 100), so a lone
+			// message just sits buffered until the periodic flush timer
+			// fires - flush explicitly rather than racing it.
+			if err := producer.Flush(ctx, topic); err != nil {
+				t.Errorf("Failed to flush producer for %s: %v", topic, err)
 			}
 		}
 
@@ -279,7 +298,7 @@ func TestBrokerOperations(t *testing.T) {
 		for _, topic := range topics {
 			consumer := client.NewConsumer(c, topic, 0)
 			_ = consumer.SeekToBeginning()
-			messages, err := consumer.Fetch()
+			messages, err := consumer.Fetch(ctx)
 			_ = consumer.Close()
 
 			if err != nil {
