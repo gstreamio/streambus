@@ -424,6 +424,41 @@ func TestProducer_Close(t *testing.T) {
 	}
 }
 
+// TestProducer_Close_PropagatesFlushError pins the fix for Close()
+// discarding FlushAll()'s error: a batched message that fails to flush at
+// Close() time (broker unreachable) must be reported to the caller, not
+// silently swallowed - otherwise there is no way to learn the message was
+// dropped.
+func TestProducer_Close_PropagatesFlushError(t *testing.T) {
+	ctx := context.Background()
+
+	config := DefaultConfig()
+	config.Brokers = []string{"127.0.0.1:1"} // nothing listens here
+	config.RequestTimeout = 500 * time.Millisecond
+	config.MaxRetries = 0
+	config.ProducerConfig.BatchSize = 10                  // large enough that Send() only buffers
+	config.ProducerConfig.BatchTimeout = 10 * time.Second // long enough the timer won't flush first
+
+	client, err := New(config)
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.Close()
+
+	producer := NewProducerWithConfig(client, config.ProducerConfig)
+
+	// Buffers only - BatchSize is 10, so this does not attempt a network
+	// send and returns nil regardless of broker reachability.
+	if err := producer.Send(ctx, "test-topic", []byte("key"), []byte("value")); err != nil {
+		t.Fatalf("Send (buffering) failed: %v", err)
+	}
+
+	// Close must flush the pending batch and surface the failure.
+	if err := producer.Close(); err == nil {
+		t.Error("Expected Close to return the flush failure, got nil")
+	}
+}
+
 func TestConsumer_New(t *testing.T) {
 	config := DefaultConfig()
 	client, err := New(config)
