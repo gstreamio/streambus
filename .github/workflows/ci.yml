@@ -28,9 +28,11 @@ jobs:
           # (--out-format=github-actions), which a v2 binary rejects
           # outright - and v1's "latest" resolution (e.g. v1.64.8) was
           # built with an older Go toolchain than go.mod's `go 1.25.8`
-          # directive, which v1 itself refuses to run against. Install and
-          # invoke v2 directly instead of going through the action.
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.12.2
+          # directive, which v1 itself refuses to run against. Install via
+          # `go install` (Go's own module proxy/checksum verification)
+          # rather than the release-artifact install script, which hit a
+          # checksum mismatch against the GitHub release tarball.
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
           "$(go env GOPATH)/bin/golangci-lint" run --timeout=5m ./...
           args: --timeout=5m
 
