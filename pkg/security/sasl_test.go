@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/sha512"
+	"sync"
 	"testing"
 	"time"
 
@@ -511,6 +512,41 @@ func TestGenerateAPIKey(t *testing.T) {
 	if key1 == key2 {
 		t.Error("Expected different API keys")
 	}
+}
+
+// TestAPIKeyAuthenticator_ConcurrentAddAndAuthenticate confirms a real data
+// race: APIKeyAuthenticator.keys is a plain map with no synchronization, so
+// AddAPIKey (a write) and Authenticate (a read) racing on separate goroutines
+// - the same pattern as an admin rotating/adding an API key while other
+// clients are authenticating - is detected by `go test -race`. This must be
+// run with -race to be meaningful.
+func TestAPIKeyAuthenticator_ConcurrentAddAndAuthenticate(t *testing.T) {
+	auth := NewAPIKeyAuthenticator()
+
+	var wg sync.WaitGroup
+	const n = 50
+
+	wg.Add(2 * n)
+	for i := 0; i < n; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			auth.AddAPIKey(&APIKey{
+				Key:     "key",
+				Secret:  "secret",
+				Enabled: true,
+			})
+			_ = i
+		}()
+		go func() {
+			defer wg.Done()
+			_, _ = auth.Authenticate(context.Background(), &APIKeyCredentials{
+				APIKey:    "key",
+				APISecret: "secret",
+			})
+		}()
+	}
+	wg.Wait()
 }
 
 func TestAPIKeyAuthenticator(t *testing.T) {
