@@ -129,9 +129,9 @@ func TestPartitionConsumer_FetchFromPartition(t *testing.T) {
 	pc := NewPartitionConsumer(client, topic, []uint32{0})
 	defer pc.Close()
 
-	// PartitionConsumer defaults to StartOffset -1 ("latest"), which is
-	// never resolved to a concrete offset before being sent to the broker,
-	// so an explicit seek to the beginning is required here.
+	// PartitionConsumer defaults to StartOffset -1 ("latest"), which resolves
+	// to the current end-of-log offset on first fetch; seek explicitly to
+	// the beginning here so this test observes the pre-existing messages.
 	if err := pc.SeekAll(0); err != nil {
 		t.Fatalf("Failed to seek: %v", err)
 	}
@@ -233,9 +233,9 @@ func TestPartitionConsumer_FetchAll(t *testing.T) {
 	pc := NewPartitionConsumer(client, topic, []uint32{0, 1, 2})
 	defer pc.Close()
 
-	// PartitionConsumer defaults to StartOffset -1 ("latest"), which is
-	// never resolved to a concrete offset before being sent to the broker,
-	// so an explicit seek to the beginning is required here.
+	// PartitionConsumer defaults to StartOffset -1 ("latest"), which resolves
+	// to the current end-of-log offset on first fetch; seek explicitly to
+	// the beginning here so this test observes the pre-existing messages.
 	if err := pc.SeekAll(0); err != nil {
 		t.Fatalf("Failed to seek: %v", err)
 	}

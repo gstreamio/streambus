@@ -57,6 +57,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Config` literal directly instead of starting from `DefaultConfig()`.
 
 ### Fixed
+- `Consumer`/`PartitionConsumer`'s default `StartOffset: -1` ("latest") was
+  never resolved to a concrete offset before being sent to the broker - a
+  fresh consumer relying on this documented default (no explicit `Seek`/
+  `SeekPartition`/`SeekAll` call) sent the literal `-1` in the fetch request
+  and got `ErrOffsetOutOfRange` instead of starting from the current
+  end-of-log offset. `Consumer.FetchN` and `PartitionConsumer.FetchFromPartition`
+  now lazily resolve an unresolved `-1` offset to the real end-of-log offset
+  (the same lookup `GetEndOffset` already performed) the first time a fetch
+  is attempted, so a consumer that never seeks now correctly starts
+  consuming only new messages going forward.
 - `Consumer.FetchN`'s `maxMessages` parameter was never actually used to
   bound the response - the broker only limits by byte size (`MaxBytes`), so
   a call like `FetchN(ctx, 20)` could return every message that fit in that
