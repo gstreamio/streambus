@@ -2,6 +2,8 @@ module github.com/gstreamio/streambus/deploy/kubernetes/operator
 
 go 1.26.0
 
+toolchain go1.26.6
+
 require (
 	k8s.io/api v0.36.3
 	k8s.io/apimachinery v0.36.3

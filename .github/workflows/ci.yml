@@ -7,7 +7,7 @@ on:
     branches: [ main, dev ]
 
 env:
-  GO_VERSION: '1.25.8'
+  GO_VERSION: '1.26.6'
 
 jobs:
   lint:
@@ -27,7 +27,7 @@ jobs:
           # golangci-lint-action@v4 hardcodes v1-only CLI flags
           # (--out-format=github-actions), which a v2 binary rejects
           # outright - and v1's "latest" resolution (e.g. v1.64.8) was
-          # built with an older Go toolchain than go.mod's `go 1.25.8`
+          # built with an older Go toolchain than go.mod's `go 1.26.6`
           # directive, which v1 itself refuses to run against. Install via
           # `go install` (Go's own module proxy/checksum verification)
           # rather than the release-artifact install script, which hit a
