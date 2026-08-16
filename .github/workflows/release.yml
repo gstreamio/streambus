@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 env:
-  GO_VERSION: '1.25.8'
+  GO_VERSION: '1.26.6'
   REGISTRY: ghcr.io
   IMAGE_NAME_BROKER: ${{ github.repository }}/broker
   IMAGE_NAME_OPERATOR: ${{ github.repository }}/operator
