@@ -1,6 +1,7 @@
 package link
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -1023,10 +1024,14 @@ func TestStreamHandler_ConnectToCluster_WithSecurityConfig(t *testing.T) {
 		},
 	}
 
-	// This will fail without real brokers, but exercises the security config path
+	// TLS is not implemented for cross-cluster replication connections, so
+	// requesting EnableTLS must fail loudly rather than silently connecting
+	// in plaintext. Before the fix, this discarded config.Security.EnableTLS
+	// entirely (`_ = config.Security.EnableTLS`) and proceeded to connect
+	// without any encryption.
 	_, err = handler.connectToCluster(config)
-	if err != nil {
-		t.Logf("Expected error without real brokers: %v", err)
+	if !errors.Is(err, ErrTLSNotImplemented) {
+		t.Fatalf("Expected ErrTLSNotImplemented, got: %v", err)
 	}
 }
 

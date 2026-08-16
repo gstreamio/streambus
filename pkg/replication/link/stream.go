@@ -2,6 +2,7 @@ package link
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sync"
@@ -9,6 +10,13 @@ import (
 
 	"github.com/gstreamio/streambus/pkg/client"
 )
+
+// ErrTLSNotImplemented is returned when a replication link's cluster
+// security config requests EnableTLS but this package does not yet apply any
+// TLS settings to the underlying client connection. Failing loudly here
+// avoids silently replicating data across cluster boundaries in plaintext
+// when an operator explicitly configured encryption.
+var ErrTLSNotImplemented = errors.New("replication link: EnableTLS is set but TLS is not yet implemented for cross-cluster replication connections")
 
 // StreamHandler handles the replication stream for a single link
 type StreamHandler struct {
@@ -219,10 +227,12 @@ func (h *StreamHandler) connectToCluster(config *ClusterConfig) (*client.Client,
 		MaxRetries:     config.MaxRetries,
 	}
 
-	// Apply security configuration if present
-	// TODO: Configure TLS settings when Security.EnableTLS is true (not implemented yet)
-	if config.Security != nil {
-		_ = config.Security.EnableTLS
+	// Apply security configuration if present.
+	// TODO: Configure TLS settings when Security.EnableTLS is true.
+	// Until that's implemented, refuse to silently fall back to a plaintext
+	// connection when TLS was explicitly requested.
+	if config.Security != nil && config.Security.EnableTLS {
+		return nil, ErrTLSNotImplemented
 	}
 
 	// Create and connect client
