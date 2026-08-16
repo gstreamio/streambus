@@ -844,7 +844,8 @@ func TestManager_checkAutomaticFailover_WithAutoFailback(t *testing.T) {
 // FailingStorage is a mock storage that can simulate failures
 type FailingStorage struct {
 	*memoryStorage
-	failOnSave bool
+	failOnSave          bool
+	failOnOffsetMapping bool
 }
 
 func (s *FailingStorage) SaveLink(link *ReplicationLink) error {
@@ -859,6 +860,64 @@ func (s *FailingStorage) SaveCheckpoint(checkpoint *Checkpoint) error {
 		return fmt.Errorf("simulated save failure")
 	}
 	return s.memoryStorage.SaveCheckpoint(checkpoint)
+}
+
+func (s *FailingStorage) SaveOffsetMapping(mapping *OffsetMapping) error {
+	if s.failOnOffsetMapping {
+		return fmt.Errorf("simulated offset mapping save failure")
+	}
+	return s.memoryStorage.SaveOffsetMapping(mapping)
+}
+
+// TestManager_Failover_OffsetMappingPersistFailure verifies that a failure to
+// persist an offset mapping during Failover is surfaced as a failed failover
+// event and a returned error, rather than being silently discarded. Before the
+// fix, Failover ignored the SaveOffsetMapping error entirely (`_ = ...`), so a
+// caller received event.Success == true (via the fallthrough SaveLink success)
+// even though the target cluster's offset mapping was never durably persisted.
+func TestManager_Failover_OffsetMappingPersistFailure(t *testing.T) {
+	storage := &FailingStorage{
+		memoryStorage: NewMemoryStorage().(*memoryStorage),
+	}
+	mgr := NewManager(storage).(*manager)
+	defer mgr.Close()
+
+	link := createTestLink("offset-mapping-fail", "Offset Mapping Fail")
+	link.Type = ReplicationTypeActivePassive
+	if err := mgr.CreateLink(link); err != nil {
+		t.Fatalf("CreateLink failed: %v", err)
+	}
+
+	checkpoint := &Checkpoint{
+		LinkID:       "offset-mapping-fail",
+		Topic:        "test-topic",
+		Partition:    0,
+		SourceOffset: 100,
+		TargetOffset: 95,
+		Timestamp:    time.Now(),
+		Metadata:     make(map[string]string),
+	}
+	if err := mgr.SetCheckpoint(checkpoint); err != nil {
+		t.Fatalf("SetCheckpoint failed: %v", err)
+	}
+
+	// Only offset mapping persistence fails; SaveLink still succeeds, so a
+	// pre-fix Failover would report success despite the lost offset mapping.
+	storage.failOnOffsetMapping = true
+
+	event, err := mgr.Failover("offset-mapping-fail")
+	if err == nil {
+		t.Fatal("Expected Failover to return an error when SaveOffsetMapping fails")
+	}
+	if event == nil {
+		t.Fatal("Expected a non-nil failover event")
+	}
+	if event.Success {
+		t.Error("Expected event.Success to be false when offset mapping persistence fails")
+	}
+	if event.ErrorMessage == "" {
+		t.Error("Expected event.ErrorMessage to describe the offset mapping persistence failure")
+	}
 }
 
 // TestManager_PauseLink_NonActive tests pausing a non-active link
@@ -1466,6 +1525,55 @@ func TestManager_checkLinkHealth_WithHandler(t *testing.T) {
 	if retrievedLink.Health.Status != "healthy" {
 		t.Errorf("Expected health status 'healthy', got %s", retrievedLink.Health.Status)
 	}
+}
+
+// TestManager_checkLinkHealth_AutomaticFailoverDoesNotPanic reproduces the production
+// path exercised by healthMonitorLoop: checkLinkHealth calls checkAutomaticFailover
+// WITHOUT holding m.mu, but checkAutomaticFailover assumes the caller already holds
+// m.mu (it unlocks/relocks around the Failover call). Before the fix, hitting the
+// shouldFailover branch through this path panicked with "sync: unlock of unlocked
+// mutex" the first time replication lag/failures/unreachability crossed a configured
+// automatic-failover threshold - exactly when failover matters most.
+func TestManager_checkLinkHealth_AutomaticFailoverDoesNotPanic(t *testing.T) {
+	storage := NewMemoryStorage()
+	mgr := NewManager(storage).(*manager)
+	defer mgr.Close()
+
+	link := createTestLink("health-autofailover", "Health Auto Failover")
+	link.Status = ReplicationStatusActive
+	link.Type = ReplicationTypeActivePassive
+	link.FailoverConfig = &FailoverConfig{
+		Enabled:                true,
+		FailoverThreshold:      1000, // 1 second
+		MaxConsecutiveFailures: 5,
+	}
+	if err := mgr.CreateLink(link); err != nil {
+		t.Fatalf("CreateLink failed: %v", err)
+	}
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+	handler.health = &ReplicationHealth{
+		Status:                 "degraded",
+		SourceClusterReachable: true,
+		TargetClusterReachable: true,
+	}
+	handler.metrics = &ReplicationMetrics{
+		ReplicationLag:      5000, // exceeds FailoverThreshold -> triggers automatic failover
+		ConsecutiveFailures: 1,
+	}
+	mgr.streamHandlers["health-autofailover"] = handler
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("checkLinkHealth panicked (mutex lock/unlock mismatch): %v", r)
+		}
+	}()
+
+	// This is exactly what healthMonitorLoop calls periodically in production.
+	mgr.checkLinkHealth("health-autofailover")
 }
 
 // TestManager_SetCheckpoint_UpdatesLinkMetrics tests that SetCheckpoint updates link metrics

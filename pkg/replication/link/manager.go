@@ -544,9 +544,18 @@ func (m *manager) Failover(linkID string) (*FailoverEvent, error) {
 				}
 				m.offsetMappings[linkID][topic][partition] = mapping
 
-				// Persist if storage available
+				// Persist if storage available. A failure here must not be
+				// swallowed: if the offset mapping isn't durably recorded,
+				// the failover event would falsely report success while the
+				// target cluster lacks the state needed to resume correctly
+				// after a crash.
 				if m.storage != nil {
-					_ = m.storage.SaveOffsetMapping(mapping)
+					if err := m.storage.SaveOffsetMapping(mapping); err != nil {
+						event.Success = false
+						event.ErrorMessage = fmt.Sprintf("failed to persist offset mapping for %s: %v", key, err)
+						event.Duration = time.Since(startTime)
+						return event, fmt.Errorf("failover failed: %w", err)
+					}
 				}
 			}
 		}
@@ -855,9 +864,15 @@ func (m *manager) checkLinkHealth(linkID string) {
 			_ = m.storage.SaveLink(link)
 		}
 
-		// Check if automatic failover should be triggered
+		// Check if automatic failover should be triggered.
+		// checkAutomaticFailover expects to be called with m.mu already held: it
+		// unlocks/relocks internally around the call to Failover (which acquires
+		// m.mu itself). Calling it without the lock held causes an "unlock of
+		// unlocked mutex" panic as soon as a failover threshold is crossed.
 		if link.FailoverConfig != nil && link.FailoverConfig.Enabled {
+			m.mu.Lock()
 			m.checkAutomaticFailover(linkID, link)
+			m.mu.Unlock()
 		}
 	}
 }
