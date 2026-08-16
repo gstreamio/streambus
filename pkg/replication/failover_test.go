@@ -577,12 +577,35 @@ func TestFailoverCoordinator_GetMetrics(t *testing.T) {
 		t.Fatalf("RegisterPartition failed: %v", err)
 	}
 
-	// GetMetrics should complete without error (even if TODO not implemented yet)
-	metrics = fc.GetMetrics()
+	// Mark leader as failed and trigger a real failover
+	fc.failureDetector.mu.Lock()
+	fc.failureDetector.lastHeartbeat[1] = time.Now().Add(-1 * time.Hour)
+	fc.failureDetector.mu.Unlock()
 
-	// Note: The TODO comment in GetMetrics suggests it's not fully implemented yet
-	// So we just verify the function can be called without error
-	// Once implementation is complete, this test can be enhanced
+	fc.mu.RLock()
+	state := fc.partitions[key]
+	fc.mu.RUnlock()
+
+	if err := fc.triggerFailover(state); err != nil {
+		t.Fatalf("triggerFailover failed: %v", err)
+	}
+
+	// GetMetrics must now reflect the real failover that just happened -
+	// previously it always returned a zero-valued FailoverMetrics{}, silently
+	// hiding failovers that had actually occurred.
+	metrics = fc.GetMetrics()
+	if metrics.TotalFailovers != 1 {
+		t.Errorf("TotalFailovers = %d, want 1", metrics.TotalFailovers)
+	}
+	if metrics.SuccessfulFailovers != 1 {
+		t.Errorf("SuccessfulFailovers = %d, want 1", metrics.SuccessfulFailovers)
+	}
+	if metrics.FailedFailovers != 0 {
+		t.Errorf("FailedFailovers = %d, want 0", metrics.FailedFailovers)
+	}
+	if metrics.LastFailoverTime.IsZero() {
+		t.Error("LastFailoverTime should be set after a failover")
+	}
 }
 
 func TestFailoverCoordinator_GetMetrics_ThreadSafety(t *testing.T) {

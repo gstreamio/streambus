@@ -25,6 +25,9 @@ type FailoverCoordinator struct {
 	// Metadata client (for ISR and leader updates)
 	metadataClient MetadataClient
 
+	// metrics tracks failover statistics, protected by mu
+	metrics FailoverMetrics
+
 	// Lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -216,6 +219,8 @@ func (fc *FailoverCoordinator) triggerFailover(state *PartitionFailoverState) er
 	state.failoverInProgress = true
 	fc.mu.Unlock()
 
+	startTime := time.Now()
+
 	defer func() {
 		fc.mu.Lock()
 		state.failoverInProgress = false
@@ -228,6 +233,7 @@ func (fc *FailoverCoordinator) triggerFailover(state *PartitionFailoverState) er
 	// Step 1: Elect new leader from ISR
 	newLeader, err := fc.electNewLeader(state)
 	if err != nil {
+		fc.recordFailoverResult(startTime, false)
 		return fmt.Errorf("leader election failed: %w", err)
 	}
 
@@ -239,6 +245,7 @@ func (fc *FailoverCoordinator) triggerFailover(state *PartitionFailoverState) er
 	defer cancel()
 
 	if err := fc.metadataClient.UpdatePartitionLeader(ctx, state.topic, state.partitionID, newLeader, newEpoch); err != nil {
+		fc.recordFailoverResult(startTime, false)
 		return fmt.Errorf("failed to update partition leader: %w", err)
 	}
 
@@ -252,7 +259,33 @@ func (fc *FailoverCoordinator) triggerFailover(state *PartitionFailoverState) er
 	log.Printf("[FailoverCoordinator %d] Failover complete for %s:%d: new leader=%d, epoch=%d",
 		fc.brokerID, state.topic, state.partitionID, newLeader, newEpoch)
 
+	fc.recordFailoverResult(startTime, true)
+
 	return nil
+}
+
+// recordFailoverResult updates failover metrics after a failover attempt completes.
+func (fc *FailoverCoordinator) recordFailoverResult(startTime time.Time, success bool) {
+	duration := time.Since(startTime)
+
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+
+	fc.metrics.TotalFailovers++
+	if success {
+		fc.metrics.SuccessfulFailovers++
+	} else {
+		fc.metrics.FailedFailovers++
+	}
+	fc.metrics.LastFailoverTime = time.Now()
+
+	// Running average over all recorded failovers (success and failure).
+	if fc.metrics.TotalFailovers == 1 {
+		fc.metrics.AverageFailoverTime = duration
+	} else {
+		total := fc.metrics.AverageFailoverTime * time.Duration(fc.metrics.TotalFailovers-1)
+		fc.metrics.AverageFailoverTime = (total + duration) / time.Duration(fc.metrics.TotalFailovers)
+	}
 }
 
 // electNewLeader elects a new leader from ISR using preferred replica strategy
@@ -333,6 +366,7 @@ type FailoverMetrics struct {
 
 // GetMetrics returns failover metrics
 func (fc *FailoverCoordinator) GetMetrics() FailoverMetrics {
-	// TODO: Implement metrics tracking
-	return FailoverMetrics{}
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	return fc.metrics
 }
