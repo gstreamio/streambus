@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -70,6 +71,8 @@ func TestClient_HealthCheck(t *testing.T) {
 	srv, addr := setupTestServer(t)
 	defer func() { _ = srv.Stop() }()
 
+	ctx := context.Background()
+
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
 
@@ -79,7 +82,7 @@ func TestClient_HealthCheck(t *testing.T) {
 	}
 	defer client.Close()
 
-	err = client.HealthCheck(addr)
+	err = client.HealthCheck(ctx, addr)
 	if err != nil {
 		t.Errorf("Health check failed: %v", err)
 	}
@@ -89,6 +92,8 @@ func TestClient_CreateTopic(t *testing.T) {
 	srv, addr := setupTestServer(t)
 	defer func() { _ = srv.Stop() }()
 
+	ctx := context.Background()
+
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
 
@@ -98,7 +103,7 @@ func TestClient_CreateTopic(t *testing.T) {
 	}
 	defer client.Close()
 
-	err = client.CreateTopic("test-topic", 1, 1)
+	err = client.CreateTopic(ctx, "test-topic", 1, 1)
 	if err != nil {
 		t.Errorf("CreateTopic failed: %v", err)
 	}
@@ -107,6 +112,8 @@ func TestClient_CreateTopic(t *testing.T) {
 func TestClient_DeleteTopic(t *testing.T) {
 	srv, addr := setupTestServer(t)
 	defer func() { _ = srv.Stop() }()
+
+	ctx := context.Background()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -118,12 +125,12 @@ func TestClient_DeleteTopic(t *testing.T) {
 	defer client.Close()
 
 	// Create topic first
-	err = client.CreateTopic("test-topic", 1, 1)
+	err = client.CreateTopic(ctx, "test-topic", 1, 1)
 	if err != nil {
 		t.Fatalf("Failed to create topic: %v", err)
 	}
 
-	err = client.DeleteTopic("test-topic")
+	err = client.DeleteTopic(ctx, "test-topic")
 	if err != nil {
 		t.Errorf("DeleteTopic failed: %v", err)
 	}
@@ -132,6 +139,8 @@ func TestClient_DeleteTopic(t *testing.T) {
 func TestClient_ListTopics(t *testing.T) {
 	srv, addr := setupTestServer(t)
 	defer func() { _ = srv.Stop() }()
+
+	ctx := context.Background()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -142,7 +151,7 @@ func TestClient_ListTopics(t *testing.T) {
 	}
 	defer client.Close()
 
-	topics, err := client.ListTopics()
+	topics, err := client.ListTopics(ctx)
 	if err != nil {
 		t.Errorf("ListTopics failed: %v", err)
 	}
@@ -152,6 +161,8 @@ func TestClient_ListTopics(t *testing.T) {
 }
 
 func TestClient_Close(t *testing.T) {
+	ctx := context.Background()
+
 	config := DefaultConfig()
 	client, err := New(config)
 	if err != nil {
@@ -170,7 +181,7 @@ func TestClient_Close(t *testing.T) {
 	}
 
 	// Operations after close should fail
-	err = client.HealthCheck(config.Brokers[0])
+	err = client.HealthCheck(ctx, config.Brokers[0])
 	if err != ErrClientClosed {
 		t.Errorf("Expected ErrClientClosed, got %v", err)
 	}
@@ -199,6 +210,8 @@ func TestProducer_Send(t *testing.T) {
 	srv, addr := setupTestServer(t)
 	defer func() { _ = srv.Stop() }()
 
+	ctx := context.Background()
+
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
 	config.ProducerConfig.BatchSize = 0 // Disable batching for this test
@@ -210,7 +223,7 @@ func TestProducer_Send(t *testing.T) {
 	defer client.Close()
 
 	// Create topic first
-	err = client.CreateTopic("test-topic", 1, 1)
+	err = client.CreateTopic(ctx, "test-topic", 1, 1)
 	if err != nil {
 		t.Fatalf("Failed to create topic: %v", err)
 	}
@@ -218,7 +231,7 @@ func TestProducer_Send(t *testing.T) {
 	producer := NewProducerWithConfig(client, config.ProducerConfig)
 	defer producer.Close()
 
-	err = producer.Send("test-topic", []byte("key1"), []byte("value1"))
+	err = producer.Send(ctx, "test-topic", []byte("key1"), []byte("value1"))
 	if err != nil {
 		t.Errorf("Send failed: %v", err)
 	}
@@ -233,6 +246,8 @@ func TestProducer_SendToPartition(t *testing.T) {
 	srv, addr := setupTestServer(t)
 	defer func() { _ = srv.Stop() }()
 
+	ctx := context.Background()
+
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
 
@@ -243,7 +258,7 @@ func TestProducer_SendToPartition(t *testing.T) {
 	defer client.Close()
 
 	// Create topic first
-	err = client.CreateTopic("test-topic", 1, 1)
+	err = client.CreateTopic(ctx, "test-topic", 1, 1)
 	if err != nil {
 		t.Fatalf("Failed to create topic: %v", err)
 	}
@@ -251,7 +266,7 @@ func TestProducer_SendToPartition(t *testing.T) {
 	producer := NewProducer(client)
 	defer producer.Close()
 
-	err = producer.SendToPartition("test-topic", 0, []byte("key1"), []byte("value1"))
+	err = producer.SendToPartition(ctx, "test-topic", 0, []byte("key1"), []byte("value1"))
 	if err != nil {
 		t.Errorf("SendToPartition failed: %v", err)
 	}
@@ -261,6 +276,8 @@ func TestProducer_SendMessages(t *testing.T) {
 	srv, addr := setupTestServer(t)
 	defer func() { _ = srv.Stop() }()
 
+	ctx := context.Background()
+
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
 
@@ -271,7 +288,7 @@ func TestProducer_SendMessages(t *testing.T) {
 	defer client.Close()
 
 	// Create topic first
-	err = client.CreateTopic("test-topic", 1, 1)
+	err = client.CreateTopic(ctx, "test-topic", 1, 1)
 	if err != nil {
 		t.Fatalf("Failed to create topic: %v", err)
 	}
@@ -285,7 +302,7 @@ func TestProducer_SendMessages(t *testing.T) {
 		{Key: []byte("key3"), Value: []byte("value3")},
 	}
 
-	err = producer.SendMessages("test-topic", messages)
+	err = producer.SendMessages(ctx, "test-topic", messages)
 	if err != nil {
 		t.Errorf("SendMessages failed: %v", err)
 	}
@@ -294,6 +311,8 @@ func TestProducer_SendMessages(t *testing.T) {
 func TestProducer_Batching(t *testing.T) {
 	srv, addr := setupTestServer(t)
 	defer func() { _ = srv.Stop() }()
+
+	ctx := context.Background()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -307,7 +326,7 @@ func TestProducer_Batching(t *testing.T) {
 	defer client.Close()
 
 	// Create topic first
-	err = client.CreateTopic("test-topic", 1, 1)
+	err = client.CreateTopic(ctx, "test-topic", 1, 1)
 	if err != nil {
 		t.Fatalf("Failed to create topic: %v", err)
 	}
@@ -317,7 +336,7 @@ func TestProducer_Batching(t *testing.T) {
 
 	// Send messages that should batch
 	for i := 0; i < 3; i++ {
-		err = producer.Send("test-topic", []byte("key"), []byte("value"))
+		err = producer.Send(ctx, "test-topic", []byte("key"), []byte("value"))
 		if err != nil {
 			t.Errorf("Send failed: %v", err)
 		}
@@ -336,6 +355,8 @@ func TestProducer_Flush(t *testing.T) {
 	srv, addr := setupTestServer(t)
 	defer func() { _ = srv.Stop() }()
 
+	ctx := context.Background()
+
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
 	config.ProducerConfig.BatchSize = 10
@@ -348,7 +369,7 @@ func TestProducer_Flush(t *testing.T) {
 	defer client.Close()
 
 	// Create topic first
-	err = client.CreateTopic("test-topic", 1, 1)
+	err = client.CreateTopic(ctx, "test-topic", 1, 1)
 	if err != nil {
 		t.Fatalf("Failed to create topic: %v", err)
 	}
@@ -357,18 +378,18 @@ func TestProducer_Flush(t *testing.T) {
 	defer producer.Close()
 
 	// Send a few messages (less than batch size)
-	err = producer.Send("test-topic", []byte("key1"), []byte("value1"))
+	err = producer.Send(ctx, "test-topic", []byte("key1"), []byte("value1"))
 	if err != nil {
 		t.Errorf("Send failed: %v", err)
 	}
 
-	err = producer.Send("test-topic", []byte("key2"), []byte("value2"))
+	err = producer.Send(ctx, "test-topic", []byte("key2"), []byte("value2"))
 	if err != nil {
 		t.Errorf("Send failed: %v", err)
 	}
 
 	// Flush immediately
-	err = producer.Flush("test-topic")
+	err = producer.Flush(ctx, "test-topic")
 	if err != nil {
 		t.Errorf("Flush failed: %v", err)
 	}
@@ -380,6 +401,8 @@ func TestProducer_Flush(t *testing.T) {
 }
 
 func TestProducer_Close(t *testing.T) {
+	ctx := context.Background()
+
 	config := DefaultConfig()
 	client, err := New(config)
 	if err != nil {
@@ -395,7 +418,7 @@ func TestProducer_Close(t *testing.T) {
 	}
 
 	// Operations after close should fail
-	err = producer.Send("test-topic", []byte("key"), []byte("value"))
+	err = producer.Send(ctx, "test-topic", []byte("key"), []byte("value"))
 	if err != ErrProducerClosed {
 		t.Errorf("Expected ErrProducerClosed, got %v", err)
 	}
@@ -432,6 +455,8 @@ func TestConsumer_Fetch(t *testing.T) {
 	srv, addr := setupTestServer(t)
 	defer func() { _ = srv.Stop() }()
 
+	ctx := context.Background()
+
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
 
@@ -442,15 +467,15 @@ func TestConsumer_Fetch(t *testing.T) {
 	defer client.Close()
 
 	// Create topic first
-	err = client.CreateTopic("test-topic", 1, 1)
+	err = client.CreateTopic(ctx, "test-topic", 1, 1)
 	if err != nil {
 		t.Fatalf("Failed to create topic: %v", err)
 	}
 
 	// Produce some messages
 	producer := NewProducer(client)
-	_ = producer.Send("test-topic", []byte("key1"), []byte("value1"))
-	_ = producer.Send("test-topic", []byte("key2"), []byte("value2"))
+	_ = producer.Send(ctx, "test-topic", []byte("key1"), []byte("value1"))
+	_ = producer.Send(ctx, "test-topic", []byte("key2"), []byte("value2"))
 	producer.Close()
 
 	// Now consume
@@ -464,7 +489,7 @@ func TestConsumer_Fetch(t *testing.T) {
 	}
 
 	// Fetch messages
-	messages, err := consumer.Fetch()
+	messages, err := consumer.Fetch(ctx)
 	if err != nil {
 		t.Errorf("Fetch failed: %v", err)
 	}
@@ -525,6 +550,8 @@ func TestConsumer_SeekToBeginning(t *testing.T) {
 }
 
 func TestConsumer_Close(t *testing.T) {
+	ctx := context.Background()
+
 	config := DefaultConfig()
 	client, err := New(config)
 	if err != nil {
@@ -540,7 +567,7 @@ func TestConsumer_Close(t *testing.T) {
 	}
 
 	// Operations after close should fail
-	_, err = consumer.Fetch()
+	_, err = consumer.Fetch(ctx)
 	if err != ErrConsumerClosed {
 		t.Errorf("Expected ErrConsumerClosed, got %v", err)
 	}
@@ -549,6 +576,8 @@ func TestConsumer_Close(t *testing.T) {
 func TestConsumer_FetchOne(t *testing.T) {
 	srv, addr := setupTestServer(t)
 	defer func() { _ = srv.Stop() }()
+
+	ctx := context.Background()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -560,14 +589,14 @@ func TestConsumer_FetchOne(t *testing.T) {
 	defer client.Close()
 
 	// Create topic first
-	err = client.CreateTopic("test-topic", 1, 1)
+	err = client.CreateTopic(ctx, "test-topic", 1, 1)
 	if err != nil {
 		t.Fatalf("Failed to create topic: %v", err)
 	}
 
 	// Produce a message
 	producer := NewProducer(client)
-	_ = producer.Send("test-topic", []byte("key1"), []byte("value1"))
+	_ = producer.Send(ctx, "test-topic", []byte("key1"), []byte("value1"))
 	producer.Close()
 
 	// Now consume
@@ -581,7 +610,7 @@ func TestConsumer_FetchOne(t *testing.T) {
 	}
 
 	// Fetch one message
-	msg, err := consumer.FetchOne()
+	msg, err := consumer.FetchOne(ctx)
 	if err != nil {
 		t.Errorf("FetchOne failed: %v", err)
 	}
@@ -600,6 +629,8 @@ func TestConsumer_FetchOne_NoMessages(t *testing.T) {
 	srv, addr := setupTestServer(t)
 	defer func() { _ = srv.Stop() }()
 
+	ctx := context.Background()
+
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
 
@@ -610,7 +641,7 @@ func TestConsumer_FetchOne_NoMessages(t *testing.T) {
 	defer client.Close()
 
 	// Create topic but don't produce any messages
-	err = client.CreateTopic("empty-topic", 1, 1)
+	err = client.CreateTopic(ctx, "empty-topic", 1, 1)
 	if err != nil {
 		t.Fatalf("Failed to create topic: %v", err)
 	}
@@ -624,7 +655,7 @@ func TestConsumer_FetchOne_NoMessages(t *testing.T) {
 	}
 
 	// Fetch one message from empty topic
-	_, err = consumer.FetchOne()
+	_, err = consumer.FetchOne(ctx)
 	if err != ErrNoMessages {
 		t.Errorf("Expected ErrNoMessages, got %v", err)
 	}
@@ -633,6 +664,8 @@ func TestConsumer_FetchOne_NoMessages(t *testing.T) {
 func TestConsumer_SeekToEnd(t *testing.T) {
 	srv, addr := setupTestServer(t)
 	defer func() { _ = srv.Stop() }()
+
+	ctx := context.Background()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -644,21 +677,21 @@ func TestConsumer_SeekToEnd(t *testing.T) {
 	defer client.Close()
 
 	// Create topic and produce messages
-	err = client.CreateTopic("test-topic", 1, 1)
+	err = client.CreateTopic(ctx, "test-topic", 1, 1)
 	if err != nil {
 		t.Fatalf("Failed to create topic: %v", err)
 	}
 
 	producer := NewProducer(client)
-	_ = producer.Send("test-topic", []byte("key1"), []byte("value1"))
-	_ = producer.Send("test-topic", []byte("key2"), []byte("value2"))
+	_ = producer.Send(ctx, "test-topic", []byte("key1"), []byte("value1"))
+	_ = producer.Send(ctx, "test-topic", []byte("key2"), []byte("value2"))
 	producer.Close()
 
 	consumer := NewConsumer(client, "test-topic", 0)
 	defer consumer.Close()
 
 	// Seek to end
-	err = consumer.SeekToEnd()
+	err = consumer.SeekToEnd(ctx)
 	if err != nil {
 		t.Errorf("SeekToEnd failed: %v", err)
 	}
@@ -673,6 +706,8 @@ func TestConsumer_GetEndOffset(t *testing.T) {
 	srv, addr := setupTestServer(t)
 	defer func() { _ = srv.Stop() }()
 
+	ctx := context.Background()
+
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
 
@@ -683,21 +718,21 @@ func TestConsumer_GetEndOffset(t *testing.T) {
 	defer client.Close()
 
 	// Create topic and produce messages
-	err = client.CreateTopic("test-topic", 1, 1)
+	err = client.CreateTopic(ctx, "test-topic", 1, 1)
 	if err != nil {
 		t.Fatalf("Failed to create topic: %v", err)
 	}
 
 	producer := NewProducer(client)
-	_ = producer.Send("test-topic", []byte("key1"), []byte("value1"))
-	_ = producer.Send("test-topic", []byte("key2"), []byte("value2"))
+	_ = producer.Send(ctx, "test-topic", []byte("key1"), []byte("value1"))
+	_ = producer.Send(ctx, "test-topic", []byte("key2"), []byte("value2"))
 	producer.Close()
 
 	consumer := NewConsumer(client, "test-topic", 0)
 	defer consumer.Close()
 
 	// Get end offset
-	endOffset, err := consumer.GetEndOffset()
+	endOffset, err := consumer.GetEndOffset(ctx)
 	if err != nil {
 		t.Errorf("GetEndOffset failed: %v", err)
 	}
@@ -709,6 +744,8 @@ func TestConsumer_GetEndOffset(t *testing.T) {
 }
 
 func TestConsumer_GetEndOffset_Closed(t *testing.T) {
+	ctx := context.Background()
+
 	config := DefaultConfig()
 	client, err := New(config)
 	if err != nil {
@@ -720,7 +757,7 @@ func TestConsumer_GetEndOffset_Closed(t *testing.T) {
 	consumer.Close()
 
 	// GetEndOffset on closed consumer should fail
-	_, err = consumer.GetEndOffset()
+	_, err = consumer.GetEndOffset(ctx)
 	if err != ErrConsumerClosed {
 		t.Errorf("Expected ErrConsumerClosed, got %v", err)
 	}
@@ -729,6 +766,8 @@ func TestConsumer_GetEndOffset_Closed(t *testing.T) {
 func TestConsumer_Stats(t *testing.T) {
 	srv, addr := setupTestServer(t)
 	defer func() { _ = srv.Stop() }()
+
+	ctx := context.Background()
 
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
@@ -740,13 +779,13 @@ func TestConsumer_Stats(t *testing.T) {
 	defer client.Close()
 
 	// Create topic and produce messages
-	err = client.CreateTopic("test-topic", 1, 1)
+	err = client.CreateTopic(ctx, "test-topic", 1, 1)
 	if err != nil {
 		t.Fatalf("Failed to create topic: %v", err)
 	}
 
 	producer := NewProducer(client)
-	_ = producer.Send("test-topic", []byte("key1"), []byte("value1"))
+	_ = producer.Send(ctx, "test-topic", []byte("key1"), []byte("value1"))
 	producer.Close()
 
 	consumer := NewConsumer(client, "test-topic", 0)
@@ -758,7 +797,7 @@ func TestConsumer_Stats(t *testing.T) {
 		t.Fatalf("Failed to seek: %v", err)
 	}
 
-	_, err = consumer.Fetch()
+	_, err = consumer.Fetch(ctx)
 	if err != nil {
 		t.Fatalf("Failed to fetch: %v", err)
 	}
@@ -910,6 +949,8 @@ func BenchmarkProducer_Send(b *testing.B) {
 	srv, addr := setupTestServer(&testing.T{})
 	defer func() { _ = srv.Stop() }()
 
+	ctx := context.Background()
+
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
 	config.ProducerConfig.BatchSize = 0 // Disable batching
@@ -918,7 +959,7 @@ func BenchmarkProducer_Send(b *testing.B) {
 	defer client.Close()
 
 	// Create topic first
-	_ = client.CreateTopic("test-topic", 1, 1)
+	_ = client.CreateTopic(ctx, "test-topic", 1, 1)
 
 	producer := NewProducerWithConfig(client, config.ProducerConfig)
 	defer producer.Close()
@@ -930,7 +971,7 @@ func BenchmarkProducer_Send(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		err := producer.Send("test-topic", key, value)
+		err := producer.Send(ctx, "test-topic", key, value)
 		if err != nil {
 			b.Fatalf("Send failed: %v", err)
 		}
@@ -941,6 +982,8 @@ func BenchmarkConsumer_Fetch(b *testing.B) {
 	srv, addr := setupTestServer(&testing.T{})
 	defer func() { _ = srv.Stop() }()
 
+	ctx := context.Background()
+
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
 
@@ -948,10 +991,10 @@ func BenchmarkConsumer_Fetch(b *testing.B) {
 	defer client.Close()
 
 	// Create topic and produce some messages
-	_ = client.CreateTopic("test-topic", 1, 1)
+	_ = client.CreateTopic(ctx, "test-topic", 1, 1)
 	producer := NewProducer(client)
 	for i := 0; i < 100; i++ {
-		_ = producer.Send("test-topic", []byte("key"), []byte("value"))
+		_ = producer.Send(ctx, "test-topic", []byte("key"), []byte("value"))
 	}
 	producer.Close()
 
@@ -963,7 +1006,7 @@ func BenchmarkConsumer_Fetch(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_, err := consumer.Fetch()
+		_, err := consumer.Fetch(ctx)
 		if err != nil {
 			b.Fatalf("Fetch failed: %v", err)
 		}

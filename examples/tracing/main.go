@@ -113,7 +113,7 @@ func main() {
 	defer c.Close()
 
 	// Create topic
-	err = c.CreateTopic("traced-events", 3, 1)
+	err = c.CreateTopic(ctx, "traced-events", 3, 1)
 	if err != nil {
 		tracing.RecordError(createTopicSpan, err)
 		log.Printf("Topic may already exist: %v", err)
@@ -143,7 +143,7 @@ func main() {
 
 		startTime := time.Now()
 
-		err := producer.Send("traced-events", key, value)
+		err := producer.Send(produceCtx, "traced-events", key, value)
 		if err != nil {
 			tracing.RecordError(produceSpan, err)
 			log.Printf("Failed to send message: %v", err)

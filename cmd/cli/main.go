@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -66,7 +67,7 @@ var topicCreateCmd = &cobra.Command{
 		defer c.Close()
 
 		// Create topic (using administrative API)
-		if err := c.CreateTopic(topicName, uint32(partitions), uint16(replication)); err != nil {
+		if err := c.CreateTopic(cmd.Context(), topicName, uint32(partitions), uint16(replication)); err != nil {
 			return fmt.Errorf("failed to create topic: %w", err)
 		}
 
@@ -93,7 +94,7 @@ var topicListCmd = &cobra.Command{
 		defer c.Close()
 
 		// List topics
-		topics, err := c.ListTopics()
+		topics, err := c.ListTopics(cmd.Context())
 		if err != nil {
 			return fmt.Errorf("failed to list topics: %w", err)
 		}
@@ -148,13 +149,13 @@ var produceCmd = &cobra.Command{
 		defer producer.Close()
 
 		// Send message
-		err = producer.Send(topic, []byte(key), []byte(message))
+		err = producer.Send(cmd.Context(), topic, []byte(key), []byte(message))
 		if err != nil {
 			return fmt.Errorf("failed to send message: %w", err)
 		}
 
 		// Flush
-		if err := producer.Flush(topic); err != nil {
+		if err := producer.Flush(cmd.Context(), topic); err != nil {
 			return fmt.Errorf("failed to flush: %w", err)
 		}
 
@@ -212,40 +213,51 @@ var consumeCmd = &cobra.Command{
 
 		fmt.Println("Consuming messages... (Press Ctrl+C to stop)")
 
-		// Set up signal handling
+		// Set up signal handling. Cancelling ctx makes Poll return
+		// immediately instead of waiting for its next tick.
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+		ctx, cancel := context.WithCancel(cmd.Context())
+		defer cancel()
+		go func() {
+			<-sigChan
+			cancel()
+		}()
 
 		messagesConsumed := 0
 
 		// Poll for messages
 		for {
-			select {
-			case <-sigChan:
+			if ctx.Err() != nil {
 				fmt.Printf("\n\nConsumed %d messages\n", messagesConsumed)
 				return nil
-			default:
-				err := consumer.Poll(1*time.Second, func(messages []protocol.Message) error {
-					for _, msg := range messages {
-						fmt.Printf("Offset: %d, Key: %s, Value: %s\n",
-							msg.Offset, string(msg.Key), string(msg.Value))
-						messagesConsumed++
+			}
 
-						if maxMessages > 0 && messagesConsumed >= maxMessages {
-							return fmt.Errorf("reached max messages")
-						}
-					}
-					return nil
-				})
+			err := consumer.Poll(ctx, 1*time.Second, func(messages []protocol.Message) error {
+				for _, msg := range messages {
+					fmt.Printf("Offset: %d, Key: %s, Value: %s\n",
+						msg.Offset, string(msg.Key), string(msg.Value))
+					messagesConsumed++
 
-				if err != nil {
-					if err.Error() == "reached max messages" {
-						fmt.Printf("\nConsumed %d messages\n", messagesConsumed)
-						return nil
+					if maxMessages > 0 && messagesConsumed >= maxMessages {
+						return fmt.Errorf("reached max messages")
 					}
-					// Ignore timeout errors
-					continue
 				}
+				return nil
+			})
+
+			if err != nil {
+				if err.Error() == "reached max messages" {
+					fmt.Printf("\nConsumed %d messages\n", messagesConsumed)
+					return nil
+				}
+				if ctx.Err() != nil {
+					fmt.Printf("\n\nConsumed %d messages\n", messagesConsumed)
+					return nil
+				}
+				// Ignore timeout errors
+				continue
 			}
 		}
 	},

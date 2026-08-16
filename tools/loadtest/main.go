@@ -136,8 +136,10 @@ func runProducer(ctx context.Context, wg *sync.WaitGroup, id int, config *LoadTe
 
 	// Create client
 	clientCfg := &client.Config{
-		Brokers:        config.Brokers,
-		ConnectTimeout: 30 * time.Second,
+		Brokers:                 config.Brokers,
+		ConnectTimeout:          30 * time.Second,
+		RequestTimeout:          30 * time.Second,
+		MaxConnectionsPerBroker: 5,
 	}
 
 	c, err := client.New(clientCfg)
@@ -194,7 +196,7 @@ func runProducer(ctx context.Context, wg *sync.WaitGroup, id int, config *LoadTe
 			key := []byte(fmt.Sprintf("producer-%d-msg-%d", id, messageCount))
 
 			start := time.Now()
-			err := producer.Send(config.Topic, key, value)
+			err := producer.Send(ctx, config.Topic, key, value)
 			latency := time.Since(start)
 
 			if err != nil {
@@ -219,8 +221,10 @@ func runConsumer(ctx context.Context, wg *sync.WaitGroup, id int, config *LoadTe
 
 	// Create client
 	clientCfg := &client.Config{
-		Brokers:        config.Brokers,
-		ConnectTimeout: 30 * time.Second,
+		Brokers:                 config.Brokers,
+		ConnectTimeout:          30 * time.Second,
+		RequestTimeout:          30 * time.Second,
+		MaxConnectionsPerBroker: 5,
 	}
 
 	c, err := client.New(clientCfg)
@@ -262,7 +266,7 @@ func runConsumer(ctx context.Context, wg *sync.WaitGroup, id int, config *LoadTe
 			})
 			return
 		default:
-			msgs, err := consumer.Fetch()
+			msgs, err := consumer.Fetch(ctx)
 			if err != nil {
 				if ctx.Err() != nil {
 					// Context cancelled, normal shutdown

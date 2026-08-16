@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -44,12 +45,12 @@ func NewConsumerWithConfig(client *Client, topic string, partitionID uint32, con
 }
 
 // Fetch fetches messages from the current offset
-func (c *Consumer) Fetch() ([]protocol.Message, error) {
-	return c.FetchN(int(c.config.MaxFetchBytes / 1024)) // Estimate messages based on size
+func (c *Consumer) Fetch(ctx context.Context) ([]protocol.Message, error) {
+	return c.FetchN(ctx, int(c.config.MaxFetchBytes/1024)) // Estimate messages based on size
 }
 
 // FetchN fetches up to N messages
-func (c *Consumer) FetchN(maxMessages int) ([]protocol.Message, error) {
+func (c *Consumer) FetchN(ctx context.Context, maxMessages int) ([]protocol.Message, error) {
 	if atomic.LoadInt32(&c.closed) == 1 {
 		return nil, ErrConsumerClosed
 	}
@@ -74,7 +75,7 @@ func (c *Consumer) FetchN(maxMessages int) ([]protocol.Message, error) {
 
 	// Send to first broker (later will have partition routing)
 	broker := c.client.config.Brokers[0]
-	resp, err := c.client.sendRequestWithRetry(broker, req)
+	resp, err := c.client.sendRequestWithRetry(ctx, broker, req)
 	if err != nil {
 		return nil, err
 	}
@@ -85,29 +86,38 @@ func (c *Consumer) FetchN(maxMessages int) ([]protocol.Message, error) {
 		return nil, ErrInvalidResponse
 	}
 
+	// The broker only bounds the response by byte size (MaxBytes), not
+	// message count, so it can return more than maxMessages when enough
+	// messages fit in that budget. Truncate here rather than advancing the
+	// offset past (and discarding) messages the caller never received.
+	messages := fetchResp.Messages
+	if maxMessages > 0 && len(messages) > maxMessages {
+		messages = messages[:maxMessages]
+	}
+
 	// Update offset for next fetch
-	if len(fetchResp.Messages) > 0 {
+	if len(messages) > 0 {
 		// Set offset to the last message's offset + 1 for the next fetch
-		lastMessage := fetchResp.Messages[len(fetchResp.Messages)-1]
+		lastMessage := messages[len(messages)-1]
 		c.offset = lastMessage.Offset + 1
 	}
 
 	// Update metrics
-	atomic.AddInt64(&c.messagesRead, int64(len(fetchResp.Messages)))
+	atomic.AddInt64(&c.messagesRead, int64(len(messages)))
 	atomic.AddInt64(&c.fetchCount, 1)
 
 	var bytes int64
-	for _, msg := range fetchResp.Messages {
+	for _, msg := range messages {
 		bytes += int64(len(msg.Key) + len(msg.Value))
 	}
 	atomic.AddInt64(&c.bytesRead, bytes)
 
-	return fetchResp.Messages, nil
+	return messages, nil
 }
 
 // FetchOne fetches a single message
-func (c *Consumer) FetchOne() (*protocol.Message, error) {
-	messages, err := c.FetchN(1)
+func (c *Consumer) FetchOne(ctx context.Context) (*protocol.Message, error) {
+	messages, err := c.FetchN(ctx, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -139,9 +149,9 @@ func (c *Consumer) SeekToBeginning() error {
 }
 
 // SeekToEnd seeks to the end of the partition
-func (c *Consumer) SeekToEnd() error {
+func (c *Consumer) SeekToEnd(ctx context.Context) error {
 	// Get the latest offset from the server
-	offset, err := c.GetEndOffset()
+	offset, err := c.GetEndOffset(ctx)
 	if err != nil {
 		return err
 	}
@@ -150,7 +160,7 @@ func (c *Consumer) SeekToEnd() error {
 }
 
 // GetEndOffset gets the end offset for the partition
-func (c *Consumer) GetEndOffset() (int64, error) {
+func (c *Consumer) GetEndOffset(ctx context.Context) (int64, error) {
 	if atomic.LoadInt32(&c.closed) == 1 {
 		return 0, ErrConsumerClosed
 	}
@@ -169,7 +179,7 @@ func (c *Consumer) GetEndOffset() (int64, error) {
 
 	// Send to first broker
 	broker := c.client.config.Brokers[0]
-	resp, err := c.client.sendRequestWithRetry(broker, req)
+	resp, err := c.client.sendRequestWithRetry(ctx, broker, req)
 	if err != nil {
 		return 0, err
 	}
@@ -199,7 +209,7 @@ func (c *Consumer) Partition() uint32 {
 }
 
 // Poll continuously polls for messages with a callback
-func (c *Consumer) Poll(interval time.Duration, handler func([]protocol.Message) error) error {
+func (c *Consumer) Poll(ctx context.Context, interval time.Duration, handler func([]protocol.Message) error) error {
 	if atomic.LoadInt32(&c.closed) == 1 {
 		return ErrConsumerClosed
 	}
@@ -212,7 +222,7 @@ func (c *Consumer) Poll(interval time.Duration, handler func([]protocol.Message)
 			return ErrConsumerClosed
 		}
 
-		messages, err := c.Fetch()
+		messages, err := c.Fetch(ctx)
 		if err != nil {
 			return fmt.Errorf("fetch error: %w", err)
 		}
@@ -223,7 +233,11 @@ func (c *Consumer) Poll(interval time.Duration, handler func([]protocol.Message)
 			}
 		}
 
-		<-ticker.C
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
 }
 

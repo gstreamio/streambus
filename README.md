@@ -481,8 +481,11 @@ fast with a clear error instead, so they don't cause silent data loss:
 - **`TransactionalProducer`** (exactly-once semantics): `CommitTransaction` and
   `SendOffsetsToTransaction` return `ErrTransactionCoordinationNotImplemented`.
   Use `Producer` instead.
-- **`Producer.Send`/`SendMessages`** take no `context.Context`, so in-flight
-  sends can't be cancelled the way consumer-side `Poll`/`Subscribe` can.
+- **`GroupConsumer`/`PartitionConsumer` default `StartOffset: -1` ("latest")
+  is never resolved to a concrete offset** before being sent to the broker -
+  a fresh consumer relying on this default gets `ErrOffsetOutOfRange` rather
+  than actually starting from the latest offset. Call `Seek`/`SeekToEnd`/
+  `SeekAll` explicitly until this is fixed.
 
 ---
 

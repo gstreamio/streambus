@@ -241,8 +241,10 @@ func (h *StreamHandler) getTopicsToReplicate() ([]string, error) {
 		return h.link.Topics, nil
 	}
 
-	// Otherwise, list all topics from source cluster
-	topics, err := h.sourceClient.ListTopics()
+	// Otherwise, list all topics from source cluster.
+	// Start() has no caller-supplied context to thread through here, so use
+	// a background context - consistent with Start() itself taking none.
+	topics, err := h.sourceClient.ListTopics(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to list topics: %w", err)
 	}

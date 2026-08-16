@@ -105,10 +105,9 @@ func createSecureClient() *client.Client {
 // produceWithTLS demonstrates producing messages with a secure client
 func produceWithTLS(c *client.Client) error {
 	ctx := context.Background()
-	_ = ctx // Suppress unused variable warning
 
 	// Create topic first
-	if err := c.CreateTopic("secure-topic", 1, 1); err != nil {
+	if err := c.CreateTopic(ctx, "secure-topic", 1, 1); err != nil {
 		// Topic may already exist, log but continue
 		log.Printf("Topic creation: %v (may already exist)", err)
 	}
@@ -132,7 +131,7 @@ func produceWithTLS(c *client.Client) error {
 	}
 
 	for _, msg := range messages {
-		err := producer.Send("secure-topic", msg.key, msg.value)
+		err := producer.Send(ctx, "secure-topic", msg.key, msg.value)
 		if err != nil {
 			return fmt.Errorf("failed to send message: %w", err)
 		}

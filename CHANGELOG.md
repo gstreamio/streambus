@@ -39,6 +39,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   committed messages to the broker, so a successful-looking commit previously
   discarded every message in the transaction. Use `Producer` instead until
   transaction coordination is implemented.
+- **BREAKING**: `Producer.Send`/`SendToPartition`/`SendMessages`/
+  `SendMessagesToPartition`/`Flush`/`FlushAll`, `Consumer.Fetch`/`FetchN`/
+  `FetchOne`/`SeekToEnd`/`GetEndOffset`/`Poll`, `PartitionConsumer.FetchFromPartition`/
+  `FetchAll`/`FetchRoundRobin`, and `Client.HealthCheck`/`CreateTopic`/
+  `DeleteTopic`/`ListTopics` now all take `context.Context` as their first
+  parameter. Previously only some consumer-side methods (`Client.Fetch`,
+  `GroupConsumer.Poll`/`Subscribe`, `PartitionConsumer.PollPartitions`) were
+  ctx-aware; the rest routed through `sendRequestWithRetry`, which ignored
+  the caller's context entirely and used the client's long-lived background
+  context instead - so passing a cancellable/timeout ctx to `Producer.Send`
+  had no effect on an in-flight send.
+- `Config.Validate` now rejects `RequestTimeout <= 0`. A zero value made
+  every request's internal timeout context already-expired, so every call
+  failed instantly with a confusing "request timeout" instead of a clear
+  config error - this could happen silently to anyone constructing a
+  `Config` literal directly instead of starting from `DefaultConfig()`.
+
+### Fixed
+- `Consumer.FetchN`'s `maxMessages` parameter was never actually used to
+  bound the response - the broker only limits by byte size (`MaxBytes`), so
+  a call like `FetchN(ctx, 20)` could return every message that fit in that
+  byte budget (up to 100 in one observed case), not just 20. Offset
+  bookkeeping now advances only past what's actually returned to the
+  caller.
+- The broker's fetch handler silently converted *any* storage read error -
+  including a genuinely invalid offset (e.g. an unresolved `-1` "latest"
+  sentinel sent literally) - into an empty-but-successful response,
+  making it indistinguishable from the normal "caught up, no new messages"
+  case. It now returns `ErrOffsetOutOfRange` for offsets before the log
+  start, while offsets at/beyond the high-water mark (the normal polling
+  case) still return an empty result with no error.
+- `pkg/storage` WAL segment truncation silently discarded `os.Remove`
+  errors when deleting old segments; now logged as a warning.
 
 ### In Progress
 - Web management UI

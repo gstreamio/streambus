@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -19,6 +20,8 @@ func main() {
 	fmt.Println("StreamBus Observability Example")
 	fmt.Println("================================")
 	fmt.Println()
+
+	ctx := context.Background()
 
 	// Create data directory
 	dataDir := filepath.Join(os.TempDir(), "streambus-observability-example")
@@ -103,7 +106,7 @@ func main() {
 	defer c.Close()
 
 	// Create topic
-	err = c.CreateTopic("metrics-demo", 3, 1) // 3 partitions, replication factor 1
+	err = c.CreateTopic(ctx, "metrics-demo", 3, 1) // 3 partitions, replication factor 1
 	if err != nil {
 		log.Printf("Topic may already exist: %v", err)
 	}
@@ -128,7 +131,7 @@ func main() {
 		key := []byte(fmt.Sprintf("key-%d", i))
 		value := []byte(fmt.Sprintf("message-%d: This is a test message for observability", i))
 
-		err := producer.Send("metrics-demo", key, value)
+		err := producer.Send(ctx, "metrics-demo", key, value)
 		if err != nil {
 			log.Printf("Failed to send message: %v", err)
 			continue

@@ -101,6 +101,8 @@ func TestPartitionConsumer_FetchFromPartition(t *testing.T) {
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
 
+	ctx := context.Background()
+
 	client, err := New(config)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
@@ -109,14 +111,14 @@ func TestPartitionConsumer_FetchFromPartition(t *testing.T) {
 
 	// Create topic first
 	topic := "test-topic-partition"
-	if err := client.CreateTopic(topic, 1, 1); err != nil {
+	if err := client.CreateTopic(ctx, topic, 1, 1); err != nil {
 		t.Fatalf("Failed to create topic: %v", err)
 	}
 
 	// Produce some messages
 	producer := NewProducer(client)
 	for i := 0; i < 5; i++ {
-		if err := producer.SendToPartition(topic, 0, []byte("key"), []byte("test message")); err != nil {
+		if err := producer.SendToPartition(ctx, topic, 0, []byte("key"), []byte("test message")); err != nil {
 			t.Fatalf("Failed to send message: %v", err)
 		}
 	}
@@ -127,8 +129,15 @@ func TestPartitionConsumer_FetchFromPartition(t *testing.T) {
 	pc := NewPartitionConsumer(client, topic, []uint32{0})
 	defer pc.Close()
 
+	// PartitionConsumer defaults to StartOffset -1 ("latest"), which is
+	// never resolved to a concrete offset before being sent to the broker,
+	// so an explicit seek to the beginning is required here.
+	if err := pc.SeekAll(0); err != nil {
+		t.Fatalf("Failed to seek: %v", err)
+	}
+
 	// Test fetching from partition
-	messages, err := pc.FetchFromPartition(0)
+	messages, err := pc.FetchFromPartition(ctx, 0)
 	if err != nil {
 		t.Errorf("Failed to fetch from partition: %v", err)
 	}
@@ -160,7 +169,7 @@ func TestPartitionConsumer_FetchFromPartition_InvalidPartition(t *testing.T) {
 	defer pc.Close()
 
 	// Try to fetch from unassigned partition
-	_, err = pc.FetchFromPartition(99)
+	_, err = pc.FetchFromPartition(context.Background(), 99)
 	if err == nil {
 		t.Error("Expected error for invalid partition")
 	}
@@ -183,7 +192,7 @@ func TestPartitionConsumer_FetchFromPartition_Closed(t *testing.T) {
 	pc.Close()
 
 	// Try to fetch after close
-	_, err = pc.FetchFromPartition(0)
+	_, err = pc.FetchFromPartition(context.Background(), 0)
 	if err != ErrConsumerClosed {
 		t.Errorf("Expected ErrConsumerClosed, got %v", err)
 	}
@@ -196,6 +205,8 @@ func TestPartitionConsumer_FetchAll(t *testing.T) {
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
 
+	ctx := context.Background()
+
 	client, err := New(config)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
@@ -204,14 +215,14 @@ func TestPartitionConsumer_FetchAll(t *testing.T) {
 
 	// Create topic with multiple partitions
 	topic := "test-topic-multi"
-	if err := client.CreateTopic(topic, 3, 1); err != nil {
+	if err := client.CreateTopic(ctx, topic, 3, 1); err != nil {
 		t.Fatalf("Failed to create topic: %v", err)
 	}
 
 	// Produce to multiple partitions
 	producer := NewProducer(client)
 	for pid := uint32(0); pid < 3; pid++ {
-		if err := producer.SendToPartition(topic, pid, []byte("key"), []byte("test message")); err != nil {
+		if err := producer.SendToPartition(ctx, topic, pid, []byte("key"), []byte("test message")); err != nil {
 			t.Logf("Failed to send to partition %d: %v", pid, err)
 		}
 	}
@@ -222,8 +233,15 @@ func TestPartitionConsumer_FetchAll(t *testing.T) {
 	pc := NewPartitionConsumer(client, topic, []uint32{0, 1, 2})
 	defer pc.Close()
 
+	// PartitionConsumer defaults to StartOffset -1 ("latest"), which is
+	// never resolved to a concrete offset before being sent to the broker,
+	// so an explicit seek to the beginning is required here.
+	if err := pc.SeekAll(0); err != nil {
+		t.Fatalf("Failed to seek: %v", err)
+	}
+
 	// Test FetchAll
-	results, err := pc.FetchAll()
+	results, err := pc.FetchAll(ctx)
 	if err != nil {
 		t.Errorf("Failed to fetch all: %v", err)
 	}
@@ -258,7 +276,7 @@ func TestPartitionConsumer_FetchAll_Closed(t *testing.T) {
 	pc.Close()
 
 	// Try to fetch all after close
-	_, err = pc.FetchAll()
+	_, err = pc.FetchAll(context.Background())
 	if err != ErrConsumerClosed {
 		t.Errorf("Expected ErrConsumerClosed, got %v", err)
 	}
@@ -271,6 +289,8 @@ func TestPartitionConsumer_FetchRoundRobin(t *testing.T) {
 	config := DefaultConfig()
 	config.Brokers = []string{addr}
 
+	ctx := context.Background()
+
 	client, err := New(config)
 	if err != nil {
 		t.Fatalf("Failed to create client: %v", err)
@@ -278,7 +298,7 @@ func TestPartitionConsumer_FetchRoundRobin(t *testing.T) {
 	defer client.Close()
 
 	topic := "test-topic-rr"
-	if err := client.CreateTopic(topic, 2, 1); err != nil {
+	if err := client.CreateTopic(ctx, topic, 2, 1); err != nil {
 		t.Fatalf("Failed to create topic: %v", err)
 	}
 
@@ -286,7 +306,7 @@ func TestPartitionConsumer_FetchRoundRobin(t *testing.T) {
 	producer := NewProducer(client)
 	for i := 0; i < 10; i++ {
 		pid := uint32(i % 2)
-		if err := producer.SendToPartition(topic, pid, []byte("key"), []byte("test message")); err != nil {
+		if err := producer.SendToPartition(ctx, topic, pid, []byte("key"), []byte("test message")); err != nil {
 			t.Logf("Failed to send message: %v", err)
 		}
 	}
@@ -298,7 +318,7 @@ func TestPartitionConsumer_FetchRoundRobin(t *testing.T) {
 	defer pc.Close()
 
 	// Test FetchRoundRobin
-	messages, err := pc.FetchRoundRobin()
+	messages, err := pc.FetchRoundRobin(ctx)
 	if err != nil {
 		t.Errorf("Failed to fetch round robin: %v", err)
 	}
@@ -324,7 +344,7 @@ func TestPartitionConsumer_FetchRoundRobin_NoPartitions(t *testing.T) {
 	defer pc.Close()
 
 	// Try to fetch with no partitions
-	_, err = pc.FetchRoundRobin()
+	_, err = pc.FetchRoundRobin(context.Background())
 	if err == nil {
 		t.Error("Expected error when fetching with no partitions")
 	}
@@ -347,7 +367,7 @@ func TestPartitionConsumer_FetchRoundRobin_Closed(t *testing.T) {
 	pc.Close()
 
 	// Try to fetch after close
-	_, err = pc.FetchRoundRobin()
+	_, err = pc.FetchRoundRobin(context.Background())
 	if err != ErrConsumerClosed {
 		t.Errorf("Expected ErrConsumerClosed, got %v", err)
 	}
@@ -662,15 +682,17 @@ func TestPartitionConsumer_PollPartitions(t *testing.T) {
 	}
 	defer client.Close()
 
+	setupCtx := context.Background()
+
 	topic := "test-topic-poll"
-	if err := client.CreateTopic(topic, 1, 1); err != nil {
+	if err := client.CreateTopic(setupCtx, topic, 1, 1); err != nil {
 		t.Fatalf("Failed to create topic: %v", err)
 	}
 
 	// Produce messages
 	producer := NewProducer(client)
 	for i := 0; i < 3; i++ {
-		if err := producer.SendToPartition(topic, 0, []byte("key"), []byte("test message")); err != nil {
+		if err := producer.SendToPartition(setupCtx, topic, 0, []byte("key"), []byte("test message")); err != nil {
 			t.Logf("Failed to send message: %v", err)
 		}
 	}
