@@ -237,8 +237,12 @@ func TestPeriodicChecker(t *testing.T) {
 	assert.Equal(t, StatusHealthy, check.Status)
 
 	// Call count shouldn't increase when getting cached result
+	mu.Lock()
 	previousCount := callCount
+	mu.Unlock()
 	periodic.Check(ctx)
+	mu.Lock()
+	defer mu.Unlock()
 	assert.Equal(t, previousCount, callCount)
 }
 
