@@ -95,7 +95,10 @@ func (rm *RetentionManager) UnregisterLog(partitionID string) {
 // Start begins the background retention enforcement loop.
 // It blocks until the context is cancelled or Stop is called.
 func (rm *RetentionManager) Start(ctx context.Context) {
-	ctx, rm.cancel = context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	rm.mu.Lock()
+	rm.cancel = cancel
+	rm.mu.Unlock()
 	defer close(rm.done)
 
 	ticker := time.NewTicker(rm.config.CheckInterval)
@@ -113,8 +116,12 @@ func (rm *RetentionManager) Start(ctx context.Context) {
 
 // Stop signals the background goroutine to stop and waits for it to finish.
 func (rm *RetentionManager) Stop() {
-	if rm.cancel != nil {
-		rm.cancel()
+	rm.mu.RLock()
+	cancel := rm.cancel
+	rm.mu.RUnlock()
+
+	if cancel != nil {
+		cancel()
 		<-rm.done
 	}
 }
