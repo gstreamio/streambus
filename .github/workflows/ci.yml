@@ -155,11 +155,15 @@ jobs:
 
       - name: Run integration tests
         run: |
-          # Start test cluster
-          docker compose up -d broker1
+          # Start the full 3-node cluster - broker1.yaml hardcodes all three
+          # brokers as Raft peers, so starting broker1 alone can never reach
+          # quorum (1 of 3) and never elects a leader, leaving every request
+          # that needs consensus (e.g. CreateTopic) to hang or reset the
+          # connection.
+          docker compose up -d
 
-          # Wait for broker to be ready
-          sleep 10
+          # Wait for the cluster to elect a leader
+          sleep 20
 
           # Run integration tests
           go test -v -tags=integration ./tests/integration/...

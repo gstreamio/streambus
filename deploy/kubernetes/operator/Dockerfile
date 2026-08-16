@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile for StreamBus Operator
 # Stage 1: Builder
-FROM golang:1.21-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git make ca-certificates tzdata
@@ -39,8 +39,10 @@ COPY --from=builder /build/manager /manager
 USER 65532:65532
 
 # Expose ports
-EXPOSE 8080  # Metrics
-EXPOSE 8081  # Health probes
+# 8080: Metrics
+# 8081: Health probes
+EXPOSE 8080
+EXPOSE 8081
 
 # Health check (distroless doesn't support HEALTHCHECK)
 # Health will be checked by Kubernetes probes
