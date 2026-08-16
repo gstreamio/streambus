@@ -35,7 +35,9 @@ func TestInit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			Init(tt.level)
+			if err := Init(tt.level); err != nil {
+				t.Fatalf("Init failed: %v", err)
+			}
 			if globalLogger == nil {
 				t.Error("Init() failed - globalLogger is nil")
 			}
@@ -89,7 +91,9 @@ func TestInitFromEnv(t *testing.T) {
 			if level == "" {
 				level = "info"
 			}
-			Init(LogLevel(level))
+			if err := Init(LogLevel(level)); err != nil {
+				t.Fatalf("Init failed: %v", err)
+			}
 
 			// Verify logger is initialized
 			if globalLogger == nil {
@@ -241,7 +245,9 @@ func TestLoggingFunctions(t *testing.T) {
 
 func TestWithFields(t *testing.T) {
 	// Initialize logger
-	Init(InfoLevel)
+	if err := Init(InfoLevel); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
 
 	// Create a child logger with fields
 	childLogger := WithFields(
@@ -256,7 +262,9 @@ func TestWithFields(t *testing.T) {
 
 func TestSync(t *testing.T) {
 	// Initialize logger
-	Init(InfoLevel)
+	if err := Init(InfoLevel); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
 
 	// Test sync
 	err := Sync()
@@ -290,7 +298,9 @@ func TestLoggerBeforeInit(t *testing.T) {
 
 func TestConcurrentLogging(t *testing.T) {
 	// Initialize logger
-	Init(InfoLevel)
+	if err := Init(InfoLevel); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
 
 	// Test concurrent logging (zap should be thread-safe)
 	done := make(chan bool)
@@ -329,7 +339,9 @@ func TestLogLevelEnvironmentVariable(t *testing.T) {
 			if level == "" {
 				level = "info"
 			}
-			Init(LogLevel(level))
+			if err := Init(LogLevel(level)); err != nil {
+				t.Fatalf("Init failed: %v", err)
+			}
 
 			if globalLogger == nil {
 				t.Errorf("Init() with %s failed - globalLogger is nil", tt.envValue)
@@ -339,7 +351,9 @@ func TestLogLevelEnvironmentVariable(t *testing.T) {
 }
 
 func TestLogger(t *testing.T) {
-	Init(InfoLevel)
+	if err := Init(InfoLevel); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
 	logger := Logger()
 	if logger == nil {
 		t.Error("Logger() returned nil")
@@ -347,7 +361,9 @@ func TestLogger(t *testing.T) {
 }
 
 func TestSugar(t *testing.T) {
-	Init(InfoLevel)
+	if err := Init(InfoLevel); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
 	sugar := Sugar()
 	if sugar == nil {
 		t.Error("Sugar() returned nil")
@@ -355,7 +371,9 @@ func TestSugar(t *testing.T) {
 }
 
 func BenchmarkDebugLogging(b *testing.B) {
-	Init(DebugLevel)
+	if err := Init(DebugLevel); err != nil {
+		b.Fatalf("Init failed: %v", err)
+	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		Debug("benchmark message", zap.Int("iteration", i))
@@ -363,7 +381,9 @@ func BenchmarkDebugLogging(b *testing.B) {
 }
 
 func BenchmarkInfoLogging(b *testing.B) {
-	Init(InfoLevel)
+	if err := Init(InfoLevel); err != nil {
+		b.Fatalf("Init failed: %v", err)
+	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		Info("benchmark message", zap.Int("iteration", i))
@@ -371,7 +391,9 @@ func BenchmarkInfoLogging(b *testing.B) {
 }
 
 func BenchmarkWithFields(b *testing.B) {
-	Init(InfoLevel)
+	if err := Init(InfoLevel); err != nil {
+		b.Fatalf("Init failed: %v", err)
+	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		logger := WithFields(
