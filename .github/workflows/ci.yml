@@ -23,14 +23,15 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v4
-        with:
-          # v1.x's "latest" resolution (e.g. v1.64.8) was built with an
-          # older Go toolchain than go.mod's `go 1.25.8` directive, and
-          # golangci-lint refuses to run in that case ("the Go language
-          # version used to build golangci-lint is lower than the targeted
-          # Go version"). Pin to a v2 release that supports it.
-          version: v2.12.2
+        run: |
+          # golangci-lint-action@v4 hardcodes v1-only CLI flags
+          # (--out-format=github-actions), which a v2 binary rejects
+          # outright - and v1's "latest" resolution (e.g. v1.64.8) was
+          # built with an older Go toolchain than go.mod's `go 1.25.8`
+          # directive, which v1 itself refuses to run against. Install and
+          # invoke v2 directly instead of going through the action.
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.12.2
+          "$(go env GOPATH)/bin/golangci-lint" run --timeout=5m ./...
           args: --timeout=5m
 
   test:

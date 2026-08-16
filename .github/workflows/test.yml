@@ -125,11 +125,11 @@ jobs:
           go-version: '1.25.8'
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v4
-        with:
-          # See ci.yml for why this is pinned rather than "latest".
-          version: v2.12.2
-          args: --timeout=10m
+        run: |
+          # See ci.yml for why this installs golangci-lint directly rather
+          # than going through golangci-lint-action.
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.12.2
+          "$(go env GOPATH)/bin/golangci-lint" run --timeout=10m ./...
 
   benchmarks:
     name: Performance Benchmarks
