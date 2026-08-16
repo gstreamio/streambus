@@ -222,6 +222,68 @@ func TestNode_Snapshot(t *testing.T) {
 	t.Logf("Snapshot index: %d", snap.Metadata.Index)
 }
 
+// TestRaftNode_StopUnblocksOnFullErrorChannel is a direct, deterministic
+// regression test for the deadlock originally uncovered by TestNode_Snapshot
+// hanging under `go test -race` until CI's 10-minute timeout: run()'s
+// unconditional `rn.errorCh <- err` blocked forever whenever errorCh's
+// buffer (size 1) was already full and nothing drained it (errorCh has no
+// consumer outside of tests), which meant run() never reached the top of its
+// loop to observe a closed stopCh, doneCh was never closed, and Stop()'s
+// `<-rn.doneCh` hung indefinitely.
+//
+// This test reproduces the exact channel handoff without spinning up a real
+// Raft cluster or relying on snapshot timing: it pre-fills errorCh, starts a
+// goroutine that repeatedly calls sendError exactly like run()'s error paths
+// do, then performs the same close(stopCh) + <-doneCh sequence Stop() uses
+// and asserts it completes promptly. Before the fix (sendError doing a plain
+// blocking send instead of selecting on stopCh), this test hangs until its
+// own 2s deadline and fails; with the fix it returns almost immediately.
+func TestRaftNode_StopUnblocksOnFullErrorChannel(t *testing.T) {
+	rn := &RaftNode{
+		errorCh: make(chan error, 1),
+		stopCh:  make(chan struct{}),
+		doneCh:  make(chan struct{}),
+	}
+
+	// Fill the buffered error channel so any further send would block
+	// unless it also selects on stopCh.
+	rn.errorCh <- errors.New("pre-existing error nobody drained")
+
+	// Simulate run()'s ready-processing loop hitting repeated error paths,
+	// exactly as node.go's run() does via sendError.
+	go func() {
+		defer close(rn.doneCh)
+		for {
+			select {
+			case <-rn.stopCh:
+				return
+			default:
+			}
+			if !rn.sendError(errors.New("another error")) {
+				return
+			}
+		}
+	}()
+
+	// Give the goroutine time to actually park on the blocking send.
+	time.Sleep(50 * time.Millisecond)
+
+	stopped := make(chan struct{})
+	go func() {
+		close(rn.stopCh)
+		<-rn.doneCh
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+		// Stop's shutdown sequence returned promptly.
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop()'s close(stopCh)+<-doneCh sequence did not return within 2s: " +
+			"run() is deadlocked sending on a full errorCh")
+	}
+}
+
 // TestNode_CreateSnapshot tests the createSnapshot method directly
 func TestNode_CreateSnapshot(t *testing.T) {
 	if testing.Short() {

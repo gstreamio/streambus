@@ -228,6 +228,22 @@ func (rn *RaftNode) Advance() {
 	rn.node.Advance()
 }
 
+// sendError delivers err on errorCh, but never blocks shutdown: if nothing
+// is draining errorCh (its buffer is full and no consumer exists), a plain
+// send here would block run() forever, which in turn would prevent doneCh
+// from ever closing and cause Stop() to hang indefinitely. By also selecting
+// on stopCh, a pending shutdown request always wins over a stalled error
+// send. It returns false if the node is stopping and the caller should
+// unwind immediately instead of continuing the ready-processing loop.
+func (rn *RaftNode) sendError(err error) bool {
+	select {
+	case rn.errorCh <- err:
+		return true
+	case <-rn.stopCh:
+		return false
+	}
+}
+
 // run is the main event loop that processes Raft ready events.
 func (rn *RaftNode) run() {
 	defer close(rn.doneCh)
@@ -246,14 +262,18 @@ func (rn *RaftNode) run() {
 			// Save entries and hard state to storage
 			if !raft.IsEmptyHardState(rd.HardState) {
 				if err := rn.storage.SaveState(rd.HardState); err != nil {
-					rn.errorCh <- fmt.Errorf("failed to save hard state: %w", err)
+					if !rn.sendError(fmt.Errorf("failed to save hard state: %w", err)) {
+						return
+					}
 					continue
 				}
 			}
 
 			if len(rd.Entries) > 0 {
 				if err := rn.storage.SaveEntries(rd.Entries); err != nil {
-					rn.errorCh <- fmt.Errorf("failed to save entries: %w", err)
+					if !rn.sendError(fmt.Errorf("failed to save entries: %w", err)) {
+						return
+					}
 					continue
 				}
 			}
@@ -261,7 +281,9 @@ func (rn *RaftNode) run() {
 			// Apply snapshot if present
 			if !raft.IsEmptySnap(rd.Snapshot) {
 				if err := rn.applySnapshot(rd.Snapshot); err != nil {
-					rn.errorCh <- fmt.Errorf("failed to apply snapshot: %w", err)
+					if !rn.sendError(fmt.Errorf("failed to apply snapshot: %w", err)) {
+						return
+					}
 					continue
 				}
 			}
@@ -283,7 +305,9 @@ func (rn *RaftNode) run() {
 			if len(rd.CommittedEntries) > 0 {
 				if err := rn.applyCommittedEntries(rd.CommittedEntries); err != nil {
 					log.Printf("[Node %d] Error applying committed entries: %v", rn.config.NodeID, err)
-					rn.errorCh <- fmt.Errorf("failed to apply entries: %w", err)
+					if !rn.sendError(fmt.Errorf("failed to apply entries: %w", err)) {
+						return
+					}
 					continue
 				}
 			} else if len(rd.Entries) > 0 {
@@ -294,7 +318,9 @@ func (rn *RaftNode) run() {
 			// Check if snapshot is needed
 			if rn.shouldSnapshot() {
 				if err := rn.createSnapshot(); err != nil {
-					rn.errorCh <- fmt.Errorf("failed to create snapshot: %w", err)
+					if !rn.sendError(fmt.Errorf("failed to create snapshot: %w", err)) {
+						return
+					}
 				}
 			}
 
