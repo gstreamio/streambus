@@ -67,19 +67,37 @@ func (hs *HeartbeatService) Stop() error {
 
 // SetInterval sets the heartbeat interval
 func (hs *HeartbeatService) SetInterval(interval time.Duration) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
 	hs.interval = interval
 }
 
 // SetTimeout sets the heartbeat timeout
 func (hs *HeartbeatService) SetTimeout(timeout time.Duration) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
 	hs.timeout = timeout
+}
+
+// getInterval returns the configured heartbeat interval
+func (hs *HeartbeatService) getInterval() time.Duration {
+	hs.mu.RLock()
+	defer hs.mu.RUnlock()
+	return hs.interval
+}
+
+// getTimeout returns the configured heartbeat timeout
+func (hs *HeartbeatService) getTimeout() time.Duration {
+	hs.mu.RLock()
+	defer hs.mu.RUnlock()
+	return hs.timeout
 }
 
 // heartbeatLoop periodically sends heartbeats
 func (hs *HeartbeatService) heartbeatLoop() {
 	defer hs.wg.Done()
 
-	ticker := time.NewTicker(hs.interval)
+	ticker := time.NewTicker(hs.getInterval())
 	defer ticker.Stop()
 
 	for {
@@ -96,7 +114,7 @@ func (hs *HeartbeatService) heartbeatLoop() {
 
 // sendHeartbeat sends a single heartbeat
 func (hs *HeartbeatService) sendHeartbeat() error {
-	ctx, cancel := context.WithTimeout(hs.ctx, hs.timeout)
+	ctx, cancel := context.WithTimeout(hs.ctx, hs.getTimeout())
 	defer cancel()
 
 	// Send heartbeat with timeout

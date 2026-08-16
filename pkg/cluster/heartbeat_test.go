@@ -245,6 +245,33 @@ func TestHeartbeatService_ConcurrentAccess(t *testing.T) {
 	// Should not panic or race
 }
 
+// TestHeartbeatService_ConcurrentSetTimeout confirms a real data race between
+// SetTimeout (called concurrently, e.g. from a config-reload path) and the
+// running heartbeatLoop goroutine, which reads hs.timeout on every tick via
+// sendHeartbeat. Before the fix, `go test -race` reported a race between the
+// unguarded read in sendHeartbeat and the unguarded write in SetTimeout.
+func TestHeartbeatService_ConcurrentSetTimeout(t *testing.T) {
+	registry := NewBrokerRegistry(newMockMetadataStore())
+	brokerID := int32(1)
+	_ = registry.RegisterBroker(context.Background(), &BrokerMetadata{ID: brokerID, Host: "localhost", Port: 9092})
+
+	hs := NewHeartbeatService(brokerID, registry)
+	hs.SetInterval(1 * time.Millisecond)
+	_ = hs.Start()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			hs.SetTimeout(time.Duration(i+1) * time.Millisecond)
+		}
+	}()
+	wg.Wait()
+	time.Sleep(20 * time.Millisecond)
+	_ = hs.Stop()
+}
+
 func TestNewBrokerHealthChecker(t *testing.T) {
 	registry := NewBrokerRegistry(newMockMetadataStore())
 
