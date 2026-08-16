@@ -294,8 +294,11 @@ func (p *Producer) Close() error {
 		return ErrProducerClosed
 	}
 
-	// Flush all pending batches before closing
-	_ = p.FlushAll(p.batchCtx)
+	// Flush all pending batches before closing. Surface the error instead of
+	// discarding it - a caller relying on batched Send() + Close() to
+	// eventually deliver messages otherwise has no way to learn the final
+	// flush failed and messages were dropped.
+	flushErr := p.FlushAll(p.batchCtx)
 
 	// Now mark as closed
 	atomic.StoreInt32(&p.closed, 1)
@@ -307,7 +310,7 @@ func (p *Producer) Close() error {
 		p.batchWg.Wait()
 	}
 
-	return nil
+	return flushErr
 }
 
 // Stats returns producer statistics

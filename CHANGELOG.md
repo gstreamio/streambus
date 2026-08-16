@@ -72,6 +72,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   case) still return an empty result with no error.
 - `pkg/storage` WAL segment truncation silently discarded `os.Remove`
   errors when deleting old segments; now logged as a warning.
+- `Producer.Close()` discarded the error from its final `FlushAll()` call
+  (`_ = p.FlushAll(...)`), so a batched message that failed to flush at
+  close time (e.g. broker unreachable) was silently dropped with `Close()`
+  still reporting success. Same "fail loudly instead of silently
+  succeeding" pattern as the fixes above - now returns that error.
 
 ### In Progress
 - Web management UI
