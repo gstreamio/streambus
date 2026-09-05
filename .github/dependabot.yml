@@ -1,0 +1,107 @@
+# Dependabot configuration.
+#
+# Security updates are enabled separately in the repository settings and fire
+# only when GitHub publishes an advisory. The version updates below are what
+# keep dependencies from drifting between advisories - without them a bump
+# sits unproposed until something is found to be vulnerable.
+#
+# Everything here is free on public and private repositories alike.
+version: 2
+
+updates:
+  # ---- Go modules -------------------------------------------------------
+  # Each module needs its own entry; Dependabot does not walk a repository
+  # looking for them.
+  #
+  # Patch and minor bumps are grouped per module so a routine week produces
+  # one reviewable pull request instead of a dozen. Majors are deliberately
+  # left ungrouped: they carry breaking changes and deserve to be read on
+  # their own.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      go-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: gomod
+    directory: /sdk
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      go-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: gomod
+    directory: /bench
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      go-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: gomod
+    directory: /ui/backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      go-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: gomod
+    directory: /deploy/kubernetes/operator
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      go-minor-and-patch:
+        update-types: [minor, patch]
+
+  # ---- Frontend ---------------------------------------------------------
+  # Dev dependencies are grouped separately from runtime ones: a bundler or
+  # test-runner bump cannot affect what ships to a browser, so the two
+  # deserve different levels of scrutiny.
+  - package-ecosystem: npm
+    directory: /ui/frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      npm-dev-minor-and-patch:
+        dependency-type: development
+        update-types: [minor, patch]
+      npm-prod-minor-and-patch:
+        dependency-type: production
+        update-types: [minor, patch]
+
+  # ---- CI ---------------------------------------------------------------
+  # Action bumps are almost always safe and almost always numerous, so they
+  # are grouped wholesale, majors included.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  # ---- Container --------------------------------------------------------
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 2
