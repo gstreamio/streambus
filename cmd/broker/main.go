@@ -9,6 +9,7 @@ import (
 
 	"github.com/gstreamio/streambus/pkg/broker"
 	"github.com/gstreamio/streambus/pkg/consensus"
+	"github.com/gstreamio/streambus/pkg/storage"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -102,6 +103,7 @@ func run(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Raft Data Directory: %s\n", config.RaftDataDir)
 	fmt.Printf("  HTTP Port: %d\n", config.HTTPPort)
 	fmt.Printf("  Raft Peers: %d\n", len(config.RaftPeers))
+	fmt.Printf("  Message Format Version: %s\n", describeMessageFormatVersion(config.MessageFormatVersion))
 	fmt.Println()
 
 	// Create broker
@@ -240,16 +242,50 @@ func parseConfig() (*broker.Config, error) {
 		return nil, err
 	}
 
+	messageFormatVersion, err := resolveMessageFormatVersion()
+	if err != nil {
+		return nil, err
+	}
+
 	return &broker.Config{
-		BrokerID:    brokerID,
-		Host:        host,
-		Port:        port,
-		GRPCPort:    grpcPort,
-		HTTPPort:    httpPort,
-		DataDir:     dataDir,
-		RaftDataDir: raftDataDir,
-		RaftPeers:   raftPeers,
-		LogLevel:    logLevel,
-		Security:    securityConfig,
+		BrokerID:             brokerID,
+		Host:                 host,
+		Port:                 port,
+		GRPCPort:             grpcPort,
+		HTTPPort:             httpPort,
+		DataDir:              dataDir,
+		RaftDataDir:          raftDataDir,
+		RaftPeers:            raftPeers,
+		LogLevel:             logLevel,
+		Security:             securityConfig,
+		MessageFormatVersion: messageFormatVersion,
 	}, nil
+}
+
+// resolveMessageFormatVersion reads and validates storage.message_format_version,
+// following the same nested-viper-key pattern as storage.data_dir above. An
+// unset value resolves to storage.MessageFormatUnset, which storage.Config
+// treats as "use the default" (currently v3); anything set that isn't a
+// version storage.NewLog can write ("v2" or "v3") is rejected here rather
+// than silently falling back to that default, so a typo'd version fails
+// broker startup instead of quietly writing whatever format the operator did
+// not ask for.
+func resolveMessageFormatVersion() (storage.MessageFormatVersion, error) {
+	raw := viper.GetString("storage.message_format_version")
+
+	version, err := storage.ParseMessageFormatVersion(raw)
+	if err != nil {
+		return storage.MessageFormatUnset, fmt.Errorf("storage.message_format_version: %w", err)
+	}
+	return version, nil
+}
+
+// describeMessageFormatVersion renders a resolved MessageFormatVersion for
+// the startup config summary, spelling out what MessageFormatUnset actually
+// resolves to rather than printing the ambiguous "unset".
+func describeMessageFormatVersion(version storage.MessageFormatVersion) string {
+	if version == storage.MessageFormatUnset {
+		return fmt.Sprintf("%s (default)", storage.MessageFormatV3)
+	}
+	return version.String()
 }

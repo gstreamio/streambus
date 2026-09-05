@@ -2,9 +2,27 @@ package storage
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 	"time"
 )
+
+// newFormatTestLog creates a log in a temp directory with the given write
+// format version pinned via Config.MessageFormatVersion.
+func newFormatTestLog(t *testing.T, version MessageFormatVersion) Log {
+	t.Helper()
+
+	config := *DefaultConfig()
+	config.MessageFormatVersion = version
+
+	log, err := NewLog(t.TempDir(), config)
+	if err != nil {
+		t.Fatalf("NewLog failed: %v", err)
+	}
+	t.Cleanup(func() { _ = log.Close() })
+
+	return log
+}
 
 // TestLog_Append_StampsProducerIdentityFromBatch verifies the fix at the
 // heart of this feature: MessageBatch.ProducerID/ProducerEpoch used to be
@@ -195,5 +213,187 @@ func TestLog_Append_ProducerIdentitySurvivesReopen(t *testing.T) {
 	if messages[0].ProducerID != 777 || messages[0].ProducerEpoch != 2 {
 		t.Errorf("ProducerID/Epoch after reopen = %d/%d, want 777/2",
 			messages[0].ProducerID, messages[0].ProducerEpoch)
+	}
+}
+
+// TestLogImpl_SerializeMessage_DefaultIsV3 pins the default write format:
+// with Config.MessageFormatVersion left at its zero value (MessageFormatUnset,
+// the only state a caller who never heard of this setting can be in), Append
+// must keep writing v3. Regressing the default to v2 would silently reopen
+// the transactional-isolation gap v3 was built to close, for every existing
+// caller that never opts in to anything.
+func TestLogImpl_SerializeMessage_DefaultIsV3(t *testing.T) {
+	l := &logImpl{} // zero-value config: MessageFormatVersion == MessageFormatUnset
+	if l.config.MessageFormatVersion != MessageFormatUnset {
+		t.Fatalf("precondition failed: zero-value Config.MessageFormatVersion = %v, want MessageFormatUnset", l.config.MessageFormatVersion)
+	}
+
+	data := l.serializeMessage(&Message{Value: []byte("v"), Timestamp: time.Now()})
+
+	if got := newFormatVersion(data); got != recordVersionV3 {
+		t.Errorf("newFormatVersion(default-written record) = %d, want %d (v3)", got, recordVersionV3)
+	}
+}
+
+// TestLogImpl_SerializeMessage_V2ConfiguredWritesV2ReadableFormat verifies
+// the rolling-upgrade path this setting exists for: pinning
+// Config.MessageFormatVersion to MessageFormatV2 makes Append write records
+// an old broker - one that has never heard of v3 - can still decode, using
+// exactly the v2 decoder (not merely "some format v3 also happens to read").
+func TestLogImpl_SerializeMessage_V2ConfiguredWritesV2ReadableFormat(t *testing.T) {
+	l := &logImpl{config: Config{MessageFormatVersion: MessageFormatV2}}
+
+	msg := &Message{
+		Key:       []byte("k"),
+		Value:     []byte("v"),
+		Headers:   map[string][]byte{"h": []byte("1")},
+		Timestamp: time.Now().Truncate(time.Nanosecond),
+	}
+	data := l.serializeMessage(msg)
+
+	if got := newFormatVersion(data); got != recordVersionV2 {
+		t.Fatalf("newFormatVersion(v2-configured record) = %d, want %d (v2)", got, recordVersionV2)
+	}
+
+	// An old-reader decode, not the version-dispatched deserializeMessage -
+	// this is what actually stands in for a pre-v3 broker reading the file.
+	got := deserializeMessageV2(data)
+	if !bytes.Equal(got.Key, msg.Key) || !bytes.Equal(got.Value, msg.Value) {
+		t.Errorf("Key/Value = %q/%q, want %q/%q", got.Key, got.Value, msg.Key, msg.Value)
+	}
+	if len(got.Headers) != 1 || !bytes.Equal(got.Headers["h"], []byte("1")) {
+		t.Errorf("Headers = %v, want {h: 1}", got.Headers)
+	}
+
+	// The full round trip through the log's own (version-dispatched) reader
+	// must also come back clean, with the sentinel zero producer identity -
+	// v2 has nowhere to have stored anything else.
+	roundTripped := l.deserializeMessage(data)
+	if roundTripped.ProducerID != 0 || roundTripped.ProducerEpoch != 0 {
+		t.Errorf("ProducerID/Epoch = %d/%d, want 0/0 for a v2-written record", roundTripped.ProducerID, roundTripped.ProducerEpoch)
+	}
+}
+
+// TestLog_Append_TransactionalRecordRejectedUnderV2 is the correctness trap
+// this setting creates and must not paper over: v2 has no field for producer
+// identity, so a transactional batch (nonzero ProducerID) cannot be written
+// under v2 without silently losing what read_committed needs to keep hiding
+// that transaction's records if it is later aborted. Append must refuse
+// rather than write the record with its producer identity quietly dropped.
+func TestLog_Append_TransactionalRecordRejectedUnderV2(t *testing.T) {
+	log := newFormatTestLog(t, MessageFormatV2)
+
+	_, err := log.Append(&MessageBatch{
+		Messages:      []Message{{Value: []byte("v")}},
+		Timestamp:     time.Now(),
+		ProducerID:    555,
+		ProducerEpoch: 1,
+	})
+
+	if !errors.Is(err, ErrTransactionalRecordNeedsV3) {
+		t.Fatalf("Append error = %v, want ErrTransactionalRecordNeedsV3", err)
+	}
+
+	// Confirm the rejection is atomic: nothing from the rejected batch was
+	// written, so the log is still empty at offset 0.
+	messages, err := log.ReadRange(0, 1)
+	if err != nil {
+		t.Fatalf("ReadRange failed: %v", err)
+	}
+	if len(messages) != 0 {
+		t.Errorf("read %d messages after a rejected Append, want 0", len(messages))
+	}
+}
+
+// TestLog_Append_NonTransactionalBatchAllowedUnderV2 confirms the v2 gate is
+// scoped to transactional records specifically: an ordinary batch (the
+// ProducerID-0 sentinel) has no producer identity to lose, so it must still
+// be writable while the log is pinned to v2.
+func TestLog_Append_NonTransactionalBatchAllowedUnderV2(t *testing.T) {
+	log := newFormatTestLog(t, MessageFormatV2)
+
+	if _, err := log.Append(&MessageBatch{
+		Messages:  []Message{{Value: []byte("v")}},
+		Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatalf("Append of a non-transactional batch under v2 failed: %v", err)
+	}
+
+	messages, err := log.ReadRange(0, 1)
+	if err != nil {
+		t.Fatalf("ReadRange failed: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("read %d messages, want 1", len(messages))
+	}
+	if messages[0].ProducerID != 0 || messages[0].ProducerEpoch != 0 {
+		t.Errorf("ProducerID/Epoch = %d/%d, want 0/0", messages[0].ProducerID, messages[0].ProducerEpoch)
+	}
+}
+
+// TestLog_Append_V3ConfiguredRoundTripsProducerIdentity mirrors the v2 tests
+// above for the explicit (not merely default) v3 case: a log configured for
+// MessageFormatV3 must round-trip producer identity exactly like the default.
+func TestLog_Append_V3ConfiguredRoundTripsProducerIdentity(t *testing.T) {
+	log := newFormatTestLog(t, MessageFormatV3)
+
+	if _, err := log.Append(&MessageBatch{
+		Messages:      []Message{{Value: []byte("v")}},
+		Timestamp:     time.Now(),
+		ProducerID:    9001,
+		ProducerEpoch: 4,
+	}); err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+
+	messages, err := log.ReadRange(0, 1)
+	if err != nil {
+		t.Fatalf("ReadRange failed: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("read %d messages, want 1", len(messages))
+	}
+	if messages[0].ProducerID != 9001 || messages[0].ProducerEpoch != 4 {
+		t.Errorf("ProducerID/Epoch = %d/%d, want 9001/4", messages[0].ProducerID, messages[0].ProducerEpoch)
+	}
+}
+
+// TestParseMessageFormatVersion covers the config-string parsing cmd/broker
+// uses to validate storage.message_format_version at startup: valid spellings
+// map to their version, an empty string means "unset" (use the default), and
+// anything else - in particular a typo - is rejected rather than silently
+// falling back to the default.
+func TestParseMessageFormatVersion(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    MessageFormatVersion
+		wantErr bool
+	}{
+		{"", MessageFormatUnset, false},
+		{"v2", MessageFormatV2, false},
+		{"V2", MessageFormatV2, false},
+		{" v2 ", MessageFormatV2, false},
+		{"v3", MessageFormatV3, false},
+		{"V3", MessageFormatV3, false},
+		{"v4", MessageFormatUnset, true},
+		{"3", MessageFormatUnset, true},
+		{"vv3", MessageFormatUnset, true},
+	}
+
+	for _, tt := range tests {
+		got, err := ParseMessageFormatVersion(tt.in)
+		if tt.wantErr {
+			if !errors.Is(err, ErrInvalidMessageFormatVersion) {
+				t.Errorf("ParseMessageFormatVersion(%q) error = %v, want ErrInvalidMessageFormatVersion", tt.in, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("ParseMessageFormatVersion(%q) unexpected error: %v", tt.in, err)
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("ParseMessageFormatVersion(%q) = %v, want %v", tt.in, got, tt.want)
+		}
 	}
 }
