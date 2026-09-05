@@ -4,9 +4,9 @@
 
 **A next-generation distributed streaming platform built for performance, reliability, and operational simplicity**
 
-[![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat&logo=go)](https://golang.org)
 [![Go Reference](https://pkg.go.dev/badge/github.com/gstreamio/streambus.svg)](https://pkg.go.dev/github.com/gstreamio/streambus)
-[![Go Report Card](https://goreportcard.com/badge/github.com/gstreamio/streambus)](https://goreportcard.com/report/github.com/gstreamio/streambus)
+[![CI](https://github.com/gstreamio/streambus/actions/workflows/ci.yml/badge.svg)](https://github.com/gstreamio/streambus/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Test Coverage](https://img.shields.io/badge/Coverage-81%25%20(target%2085%25)-green)](docs/TESTING.md)
 [![Production Ready](https://img.shields.io/badge/Status-Beta-blue)](docs/PRODUCTION_READINESS.md)
