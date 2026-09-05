@@ -14,6 +14,10 @@ type Client struct {
 	config *Config
 	pool   *ConnectionPool
 
+	// coordCache remembers, per group ID or transactional ID, which broker
+	// FindCoordinator last named as the coordinator. See coordination.go.
+	coordCache *coordinatorCache
+
 	// Lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -43,11 +47,12 @@ func New(config *Config) (*Client, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	client := &Client{
-		config:    config,
-		pool:      NewConnectionPool(config),
-		ctx:       ctx,
-		cancel:    cancel,
-		startTime: time.Now(),
+		config:     config,
+		pool:       NewConnectionPool(config),
+		coordCache: newCoordinatorCache(),
+		ctx:        ctx,
+		cancel:     cancel,
+		startTime:  time.Now(),
 	}
 
 	return client, nil

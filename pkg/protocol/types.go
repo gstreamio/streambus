@@ -45,6 +45,7 @@ const (
 	RequestTypeAddOffsetsToTxn    RequestType = 0x10
 	RequestTypeEndTxn             RequestType = 0x11
 	RequestTypeTxnOffsetCommit    RequestType = 0x12
+	RequestTypeFindCoordinator    RequestType = 0x13
 )
 
 // String returns the string representation of RequestType
@@ -86,6 +87,8 @@ func (t RequestType) String() string {
 		return "EndTxn"
 	case RequestTypeTxnOffsetCommit:
 		return "TxnOffsetCommit"
+	case RequestTypeFindCoordinator:
+		return "FindCoordinator"
 	default:
 		return fmt.Sprintf("Unknown(%d)", t)
 	}

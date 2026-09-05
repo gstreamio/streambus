@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"net"
+	"strconv"
 	"testing"
 	"time"
 
@@ -63,7 +64,7 @@ func startTestBroker(t *testing.T) *testBroker {
 	t.Cleanup(txnCoordinator.Stop)
 
 	var handler server.RequestHandler = server.NewHandlerWithTopicManager(topicManager)
-	handler = server.NewCoordinationHandler(handler, groupCoordinator)
+	handler = server.NewCoordinationHandler(handler, groupCoordinator, newSingleBrokerLocator(addr))
 	handler = server.NewTransactionHandler(handler, txnCoordinator)
 
 	config := server.DefaultConfig()
@@ -85,6 +86,33 @@ func startTestBroker(t *testing.T) *testBroker {
 		Markers:          markers,
 		TopicManager:     topicManager,
 	}
+}
+
+// singleBrokerLocator answers every FindCoordinator request with the one
+// broker this harness runs, mirroring a real single-node cluster where every
+// key is necessarily coordinated by that same broker.
+type singleBrokerLocator struct {
+	host string
+	port int32
+}
+
+// newSingleBrokerLocator builds a locator over a "host:port" address.
+func newSingleBrokerLocator(addr string) *singleBrokerLocator {
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		// addr comes from a net.Listener this file just created, so a
+		// malformed address means the harness itself is broken.
+		panic("testbroker: invalid broker address " + addr + ": " + err.Error())
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		panic("testbroker: invalid broker port in " + addr + ": " + err.Error())
+	}
+	return &singleBrokerLocator{host: host, port: int32(port)} //nolint:gosec // port comes from a real listener, within int32
+}
+
+func (l *singleBrokerLocator) FindCoordinator(_ protocol.CoordinatorKeyType, _ string) (int32, string, int32, protocol.ErrorCode) {
+	return 0, l.host, l.port, protocol.ErrNone
 }
 
 // recordingLogMarkerWriter writes transaction markers to real partition logs

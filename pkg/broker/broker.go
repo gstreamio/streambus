@@ -717,7 +717,7 @@ func (b *Broker) initServer() error {
 	// These sit closest to the base handler so the tenancy, schema and
 	// security wrappers below still see every request.
 	var handler server.RequestHandler = baseHandler
-	handler = server.NewCoordinationHandler(handler, b.groupCoordinator)
+	handler = server.NewCoordinationHandler(handler, b.groupCoordinator, newRegistryCoordinatorLocator(b.registry))
 	handler = server.NewTransactionHandler(handler, b.txnCoordinator)
 
 	// Wrap with tenancy handler if enabled
