@@ -292,3 +292,82 @@ func TestIsControlRecord(t *testing.T) {
 		})
 	}
 }
+
+// TestParseTransactionMarker_RoundTrip verifies ParseTransactionMarker
+// inverts TransactionMarkerHeaders for both outcomes: partition transaction
+// recovery (pkg/server) depends on this round trip to tell an aborted
+// marker from a committed one when replaying a partition's log at startup.
+func TestParseTransactionMarker_RoundTrip(t *testing.T) {
+	tests := []struct {
+		name          string
+		producerID    int64
+		producerEpoch int16
+		commit        bool
+	}{
+		{"commit", 1000, 0, true},
+		{"abort", 1000, 0, false},
+		{"negative epoch", 42, -1, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			headers := TransactionMarkerHeaders(tt.producerID, tt.producerEpoch, tt.commit)
+
+			gotID, gotEpoch, gotCommit, ok := ParseTransactionMarker(headers)
+			if !ok {
+				t.Fatalf("ParseTransactionMarker(%v) ok = false, want true", headers)
+			}
+			if gotID != tt.producerID {
+				t.Errorf("producerID = %d, want %d", gotID, tt.producerID)
+			}
+			if gotEpoch != tt.producerEpoch {
+				t.Errorf("producerEpoch = %d, want %d", gotEpoch, tt.producerEpoch)
+			}
+			if gotCommit != tt.commit {
+				t.Errorf("commit = %v, want %v", gotCommit, tt.commit)
+			}
+		})
+	}
+}
+
+// TestParseTransactionMarker_RejectsNonMarkersAndCorruptHeaders verifies ok
+// is false - never a panic or a zero-value marker mistaken for a real one -
+// whenever headers isn't an actual, well-formed transaction marker. Recovery
+// (pkg/server's rebuildTransactionState) replays whatever is on disk, so a
+// corrupt record must be recognized as unparseable rather than silently
+// producing a plausible-looking (0, 0, false) marker.
+func TestParseTransactionMarker_RejectsNonMarkersAndCorruptHeaders(t *testing.T) {
+	tests := []struct {
+		name    string
+		headers map[string][]byte
+	}{
+		{"nil headers", nil},
+		{"ordinary data record", map[string][]byte{"tenant_id": []byte("acme")}},
+		{
+			"unparseable producer id",
+			map[string][]byte{
+				ControlHeaderKey:          []byte(ControlTypeTxnMarker),
+				TxnProducerIDHeaderKey:    []byte("not-a-number"),
+				TxnProducerEpochHeaderKey: []byte("0"),
+				TxnCommitHeaderKey:        []byte("true"),
+			},
+		},
+		{
+			"unparseable commit flag",
+			map[string][]byte{
+				ControlHeaderKey:          []byte(ControlTypeTxnMarker),
+				TxnProducerIDHeaderKey:    []byte("1000"),
+				TxnProducerEpochHeaderKey: []byte("0"),
+				TxnCommitHeaderKey:        []byte("not-a-bool"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, _, _, ok := ParseTransactionMarker(tt.headers); ok {
+				t.Errorf("ParseTransactionMarker(%v) ok = true, want false", tt.headers)
+			}
+		})
+	}
+}
