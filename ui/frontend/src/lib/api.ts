@@ -9,11 +9,42 @@ const client = axios.create({
   },
 })
 
+// Cluster/broker response shapes, mirrored field-for-field from the Go
+// structs in ui/backend/services/broker_service.go (see their `json` tags).
+// GET /cluster serves ClusterInfo directly; GET /cluster/brokers serves
+// []BrokerInfo directly; GET /cluster/health wraps the health string in an
+// object rather than returning it bare, so ClusterHealth mirrors that
+// wrapper rather than the bare string.
+export interface ClusterInfo {
+  cluster_id: string
+  controller_id: number
+  version: string
+  total_brokers: number
+  active_brokers: number
+  total_topics: number
+  total_partitions: number
+  uptime: string
+}
+
+export interface BrokerInfo {
+  id: number
+  host: string
+  port: number
+  status: string
+  leader: boolean
+  version: string
+  uptime: string
+}
+
+export interface ClusterHealth {
+  status: string
+}
+
 export const api = {
   // Cluster
-  getClusterInfo: () => client.get('/cluster').then(res => res.data),
-  getClusterHealth: () => client.get('/cluster/health').then(res => res.data),
-  listBrokers: () => client.get('/cluster/brokers').then(res => res.data),
+  getClusterInfo: (): Promise<ClusterInfo> => client.get('/cluster').then(res => res.data),
+  getClusterHealth: (): Promise<ClusterHealth> => client.get('/cluster/health').then(res => res.data),
+  listBrokers: (): Promise<BrokerInfo[]> => client.get('/cluster/brokers').then(res => res.data),
   getBroker: (id: number) => client.get(`/cluster/brokers/${id}`).then(res => res.data),
 
   // Topics

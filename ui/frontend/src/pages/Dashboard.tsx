@@ -3,25 +3,30 @@ import { api } from '../lib/api'
 import { Activity, Database, Users, TrendingUp } from 'lucide-react'
 import { formatNumber } from '../lib/utils'
 
-// Shape this page reads from the cluster endpoint.
-//
-// The API client is untyped, so without this the callback parameters below
-// are implicitly any and fail strict mode. It is deliberately local and
-// minimal: the broker's /api/v1/cluster response does not currently carry a
-// brokers array at all, so a shared type here would describe a contract that
-// does not exist. See the frontend notes in the pull request.
-interface DashboardBroker {
-  id: number
-  host: string
-  status: string
-  leader: boolean
-  uptime: string
-}
-
 export default function Dashboard() {
-  const { data: cluster } = useQuery({
+  const {
+    data: cluster,
+    isLoading: clusterLoading,
+    isError: clusterError,
+  } = useQuery({
     queryKey: ['cluster'],
     queryFn: () => api.getClusterInfo(),
+    refetchInterval: 5000,
+  })
+
+  const { data: health } = useQuery({
+    queryKey: ['cluster-health'],
+    queryFn: () => api.getClusterHealth(),
+    refetchInterval: 5000,
+  })
+
+  const {
+    data: brokers,
+    isLoading: brokersLoading,
+    isError: brokersError,
+  } = useQuery({
+    queryKey: ['brokers'],
+    queryFn: () => api.listBrokers(),
     refetchInterval: 5000,
   })
 
@@ -35,20 +40,28 @@ export default function Dashboard() {
     queryFn: () => api.listConsumerGroups(),
   })
 
+  if (clusterLoading || brokersLoading) {
+    return <div>Loading...</div>
+  }
+
+  if (clusterError || brokersError) {
+    return <div>Failed to load cluster status.</div>
+  }
+
   const stats = [
     {
       name: 'Brokers',
-      value: cluster?.brokers.length || 0,
+      value: brokers?.length || 0,
       icon: Activity,
       color: 'text-blue-600 bg-blue-100',
-      change: cluster?.status === 'healthy' ? 'All Online' : 'Degraded',
+      change: health?.status === 'healthy' ? 'All Online' : 'Degraded',
     },
     {
       name: 'Topics',
       value: topics?.length || 0,
       icon: Database,
       color: 'text-green-600 bg-green-100',
-      change: `${cluster?.partitionCount || 0} partitions`,
+      change: `${cluster?.total_partitions || 0} partitions`,
     },
     {
       name: 'Consumer Groups',
@@ -103,21 +116,21 @@ export default function Dashboard() {
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-600">Status</span>
               <span className={`badge ${
-                cluster?.status === 'healthy'
+                health?.status === 'healthy'
                   ? 'badge-success'
                   : 'badge-warning'
               }`}>
-                {cluster?.status || 'Unknown'}
+                {health?.status || 'Unknown'}
               </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-600">Cluster ID</span>
-              <span className="text-sm font-mono">{cluster?.clusterId}</span>
+              <span className="text-sm font-mono">{cluster?.cluster_id}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-600">Online Brokers</span>
               <span className="text-sm font-semibold">
-                {cluster?.brokers.filter((b: DashboardBroker) => b.status === 'online').length} / {cluster?.brokers.length}
+                {brokers?.filter((b) => b.status === 'online').length} / {brokers?.length}
               </span>
             </div>
           </div>
@@ -177,7 +190,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {cluster?.brokers.map((broker: DashboardBroker) => (
+                {brokers?.map((broker) => (
                   <tr key={broker.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">
                       {broker.id}
