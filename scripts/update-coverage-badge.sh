@@ -33,64 +33,49 @@ fi
 
 echo "🎨 Badge Color: $COLOR"
 
-# Target coverage
+# Coverage level at which the badge turns brightgreen. This is a badge-colour
+# threshold only - it is deliberately not printed anywhere as a "target", since
+# publishing a coverage goal next to the number invites treating the goal as
+# the point rather than the coverage itself.
 TARGET="85"
 
 # URL encode the badge text
-BADGE_TEXT="${COVERAGE_ROUNDED}%25%20(target%20${TARGET}%25)"
+BADGE_TEXT="${COVERAGE_ROUNDED}%25"
 
 # Update README.md badge
 echo "📝 Updating README.md..."
 if [[ "$OSTYPE" == "darwin"* ]]; then
     # macOS
-    sed -i '' "s|Coverage-[0-9.]*%25%20(target%20[0-9]*%25)-[a-z]*|Coverage-${BADGE_TEXT}-${COLOR}|g" README.md
+    sed -i '' "s|Coverage-[0-9.]*%25\(%20(target%20[0-9]*%25)\)\{0,1\}-[a-z]*|Coverage-${BADGE_TEXT}-${COLOR}|g" README.md
 else
     # Linux
-    sed -i "s|Coverage-[0-9.]*%25%20(target%20[0-9]*%25)-[a-z]*|Coverage-${BADGE_TEXT}-${COLOR}|g" README.md
+    sed -i "s|Coverage-[0-9.]*%25\(%20(target%20[0-9]*%25)\)\{0,1\}-[a-z]*|Coverage-${BADGE_TEXT}-${COLOR}|g" README.md
 fi
 
 # Update docs/TESTING.md - Current Status line
 echo "📝 Updating docs/TESTING.md..."
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    sed -i '' "s|Current Status\*\*: [0-9.]*% core library coverage|\*\*Current Status\*\*: ${COVERAGE_ROUNDED}% core library coverage|g" docs/TESTING.md
+    sed -i '' "s|\**Current Status\*\*: [0-9.]*% core library coverage|\*\*Current Status\*\*: ${COVERAGE_ROUNDED}% core library coverage|g" docs/TESTING.md
     sed -i '' "s|ships with \*\*[0-9.]*% core library coverage|\ships with \*\*${COVERAGE_ROUNDED}% core library coverage|g" docs/TESTING.md
     sed -i '' "s|\*\*[0-9.]*% current coverage\*\* (core library)|\*\*${COVERAGE_ROUNDED}% current coverage\*\* (core library)|g" docs/TESTING.md
     sed -i '' "s|solid test coverage ([0-9.]*% core library)|solid test coverage (${COVERAGE_ROUNDED}% core library)|g" docs/TESTING.md
 else
-    sed -i "s|Current Status\*\*: [0-9.]*% core library coverage|\*\*Current Status\*\*: ${COVERAGE_ROUNDED}% core library coverage|g" docs/TESTING.md
+    sed -i "s|\**Current Status\*\*: [0-9.]*% core library coverage|\*\*Current Status\*\*: ${COVERAGE_ROUNDED}% core library coverage|g" docs/TESTING.md
     sed -i "s|ships with \*\*[0-9.]*% core library coverage|\ships with \*\*${COVERAGE_ROUNDED}% core library coverage|g" docs/TESTING.md
     sed -i "s|\*\*[0-9.]*% current coverage\*\* (core library)|\*\*${COVERAGE_ROUNDED}% current coverage\*\* (core library)|g" docs/TESTING.md
     sed -i "s|solid test coverage ([0-9.]*% core library)|solid test coverage (${COVERAGE_ROUNDED}% core library)|g" docs/TESTING.md
 fi
 
-# Update docs/README.md
-echo "📝 Updating docs/README.md..."
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    sed -i '' "s|current: [0-9.]*%, target: ${TARGET}%+|current: ${COVERAGE_ROUNDED}%, target: ${TARGET}%+|g" docs/README.md
-else
-    sed -i "s|current: [0-9.]*%, target: ${TARGET}%+|current: ${COVERAGE_ROUNDED}%, target: ${TARGET}%+|g" docs/README.md
-fi
-
-# Update main README.md text references
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    sed -i '' "s|([0-9.]*% current, ${TARGET}%+ target)|(${COVERAGE_ROUNDED}% current, ${TARGET}%+ target)|g" README.md
-    sed -i '' "s|(current: [0-9.]*%, target: ${TARGET}%+)|(current: ${COVERAGE_ROUNDED}%, target: ${TARGET}%+)|g" README.md
-else
-    sed -i "s|([0-9.]*% current, ${TARGET}%+ target)|(${COVERAGE_ROUNDED}% current, ${TARGET}%+ target)|g" README.md
-    sed -i "s|(current: [0-9.]*%, target: ${TARGET}%+)|(current: ${COVERAGE_ROUNDED}%, target: ${TARGET}%+)|g" README.md
-fi
 
 echo ""
 echo "✅ Coverage badge and documentation updated!"
 echo ""
 echo "📋 Summary:"
 echo "   Coverage: ${COVERAGE_ROUNDED}%"
-echo "   Target:   ${TARGET}%"
 echo "   Color:    ${COLOR}"
 echo ""
 echo "📁 Updated files:"
 echo "   - README.md"
-echo "   - docs/README.md"
 echo "   - docs/TESTING.md"
 echo ""
 

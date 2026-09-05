@@ -8,7 +8,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/gstreamio/streambus.svg)](https://pkg.go.dev/github.com/gstreamio/streambus)
 [![CI](https://github.com/gstreamio/streambus/actions/workflows/ci.yml/badge.svg)](https://github.com/gstreamio/streambus/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Test Coverage](https://img.shields.io/badge/Coverage-86.8%25%20(target%2085%25)-brightgreen)](docs/TESTING.md)
+[![Test Coverage](https://img.shields.io/badge/Coverage-87.1%25-brightgreen)](docs/TESTING.md)
 [![Production Ready](https://img.shields.io/badge/Status-Beta-blue)](docs/PRODUCTION_READINESS.md)
 
 [Features](#key-capabilities) • [Performance](#performance) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Community](#community)
@@ -427,7 +427,7 @@ docker-compose up -d
 ### Development
 - [Contributing Guide](CONTRIBUTING.md) - How to contribute
 - [Development Setup](docs/development.md) - Local development environment
-- [Testing Guide](docs/TESTING.md) - Test strategy and coverage (86.8% current, 85%+ target)
+- [Testing Guide](docs/TESTING.md) - Test strategy and coverage
 - [Benchmarking](docs/BENCHMARKS.md) - Performance benchmarks and methodology
 
 ---
@@ -452,10 +452,13 @@ StreamBus is currently in **active development** with production-ready core comp
   restarts)
 - Transactional producers with commit/abort markers written durably to every
   participating partition, and consumer offsets committed inside a transaction
-- read_committed consumer isolation, so a fetch never returns a record from a
-  transaction still in flight
-- Cross-datacenter replication links (create, start/stop/pause/resume,
-  failover, metrics and health via the admin API), persisted across restarts
+- read_committed consumer isolation: a fetch never returns a record from a
+  transaction still in flight, and an aborted transaction's records stay
+  hidden after its marker resolves
+- Cross-datacenter replication: links (create, start/stop/pause/resume,
+  failover, metrics and health via the admin API) persisted across restarts,
+  and a data plane that fetches, filters, transforms and produces records to
+  the target cluster, resuming from checkpoints after a restart
 
 **Enterprise Security**
 - TLS encryption and SASL authentication
@@ -472,7 +475,6 @@ StreamBus is currently in **active development** with production-ready core comp
 
 - Kubernetes operator
 - Additional admin tooling
-- Extended test coverage (current: 86.8%, target: 85%+)
 
 ### Known Limitations ⚠️
 
@@ -489,6 +491,13 @@ StreamBus is currently in **active development** with production-ready core comp
   restart. Target offsets are inferred rather than reported: the target
   partition is assumed to have no other writer, which is the standard mirror
   topology but is an assumption, not something the code can verify.
+- **A replication link cannot use TLS.** Setting `EnableTLS` on a link's
+  cluster config is rejected outright rather than silently ignored, so
+  cross-cluster traffic is plaintext until this is implemented.
+- **The Kubernetes operator does not implement `spec.security`.** Its TLS and
+  SASL fields are accepted and have no effect, so a cluster deployed with
+  security enabled in the CR is still fully open. `spec.image.pullSecrets`,
+  `spec.version` and `spec.observability.metrics` are likewise inert.
 
 ---
 
@@ -583,17 +592,16 @@ StreamBus has completed core distributed system features, advanced streaming cap
 
 - Core distributed streaming platform with Raft consensus
 - Multi-broker replication and automatic failover
-- Consumer groups, transactions, and exactly-once semantics
+- Consumer groups, transactions, and exactly-once semantics within a cluster
 - TLS/SASL authentication and ACL authorization
 - Prometheus metrics and OpenTelemetry tracing
 - Circuit breakers, health checks, and structured logging
 - Multi-tenancy with resource isolation
+- Cross-datacenter replication with a working data plane
 
 ### What's Next
 
-- Cross-datacenter replication
 - Kubernetes operator and tooling
-- Extended test coverage and validation
 - Production hardening and documentation
 
 **Interested in contributing or testing?** Check out our [Contributing Guide](CONTRIBUTING.md).
