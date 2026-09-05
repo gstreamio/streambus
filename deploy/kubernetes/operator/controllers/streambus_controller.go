@@ -12,7 +12,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -117,6 +119,13 @@ func (r *StreamBusClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	// Reconcile StatefulSet
 	if err := r.reconcileStatefulSet(ctx, cluster); err != nil {
 		logger.Error(err, "Failed to reconcile StatefulSet")
+		return ctrl.Result{}, err
+	}
+
+	// Reconcile ServiceMonitor (only created when spec.observability.metrics
+	// asks for one; see reconcileServiceMonitor for why this can fail).
+	if err := r.reconcileServiceMonitor(ctx, cluster); err != nil {
+		logger.Error(err, "Failed to reconcile ServiceMonitor")
 		return ctrl.Result{}, err
 	}
 
@@ -349,6 +358,10 @@ func statefulSetNeedsUpdate(found, desired *appsv1.StatefulSet) bool {
 		return true
 	}
 
+	if !equality.Semantic.DeepEqual(found.Spec.Template.Spec.ImagePullSecrets, desired.Spec.Template.Spec.ImagePullSecrets) {
+		return true
+	}
+
 	foundContainer := found.Spec.Template.Spec.Containers[0]
 	desiredContainer := desired.Spec.Template.Spec.Containers[0]
 	if foundContainer.Image != desiredContainer.Image {
@@ -369,6 +382,7 @@ func applyStatefulSetUpdate(found, desired *appsv1.StatefulSet) {
 	found.Spec.Replicas = desired.Spec.Replicas
 	found.Spec.Template.Annotations = desired.Spec.Template.Annotations
 	found.Spec.Template.Labels = desired.Spec.Template.Labels
+	found.Spec.Template.Spec.ImagePullSecrets = desired.Spec.Template.Spec.ImagePullSecrets
 	found.Spec.Template.Spec.Containers[0].Image = desired.Spec.Template.Spec.Containers[0].Image
 	found.Spec.Template.Spec.Containers[0].Resources = desired.Spec.Template.Spec.Containers[0].Resources
 	found.Spec.Template.Spec.Containers[0].Ports = desired.Spec.Template.Spec.Containers[0].Ports
@@ -403,6 +417,7 @@ func (r *StreamBusClusterReconciler) buildStatefulSet(cluster *streambusv1alpha1
 					Annotations: cluster.Spec.PodAnnotations,
 				},
 				Spec: corev1.PodSpec{
+					ImagePullSecrets: buildImagePullSecrets(cluster),
 					Containers: []corev1.Container{
 						{
 							Name:            "streambus",
@@ -502,6 +517,107 @@ func (r *StreamBusClusterReconciler) buildStatefulSet(cluster *streambusv1alpha1
 			},
 		},
 	}
+}
+
+// serviceMonitorGVK identifies the Prometheus Operator's ServiceMonitor CRD
+// (monitoring.coreos.com/v1). This operator does not import the
+// prometheus-operator Go module - it is not a dependency in go.mod, and
+// adding one just for this type would introduce a hard dependency on a CRD
+// that may not even be installed in the target cluster. ServiceMonitor
+// objects are therefore built and read as unstructured.Unstructured,
+// addressed purely by GVK, rather than as a typed struct.
+var serviceMonitorGVK = schema.GroupVersionKind{
+	Group:   "monitoring.coreos.com",
+	Version: "v1",
+	Kind:    "ServiceMonitor",
+}
+
+// reconcileServiceMonitor creates or updates the Prometheus ServiceMonitor for
+// the cluster's client Service when spec.observability.metrics asks for one.
+// Before this existed, spec.observability.metrics.serviceMonitor was accepted
+// by the API server, validated, and then read by nothing - no ServiceMonitor
+// was ever created no matter what a user requested.
+//
+// If the ServiceMonitor CRD is not installed, the API server's RESTMapper
+// cannot resolve the GVK and Get/Create return a meta.NoKindMatchError
+// ("no matches for kind"). That error is deliberately propagated rather than
+// swallowed: silently ignoring it would let Reconcile report success while a
+// user who asked for monitoring got none, with no indication why - the same
+// silent-failure shape the pullSecrets and version fixes exist to avoid.
+func (r *StreamBusClusterReconciler) reconcileServiceMonitor(ctx context.Context, cluster *streambusv1alpha1.StreamBusCluster) error {
+	metrics := cluster.Spec.Observability.Metrics
+	if !metrics.Enabled || !metrics.ServiceMonitor {
+		return nil
+	}
+
+	desired := r.buildServiceMonitor(cluster)
+	if err := controllerutil.SetControllerReference(cluster, desired, r.Scheme); err != nil {
+		return fmt.Errorf("setting owner reference on ServiceMonitor %s/%s: %w", desired.GetNamespace(), desired.GetName(), err)
+	}
+
+	found := &unstructured.Unstructured{}
+	found.SetGroupVersionKind(serviceMonitorGVK)
+	err := r.Get(ctx, types.NamespacedName{Name: desired.GetName(), Namespace: desired.GetNamespace()}, found)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			if err := r.Create(ctx, desired); err != nil {
+				return fmt.Errorf("creating ServiceMonitor %s/%s (is the Prometheus Operator CRD installed?): %w",
+					desired.GetNamespace(), desired.GetName(), err)
+			}
+			return nil
+		}
+		return fmt.Errorf("getting ServiceMonitor %s/%s (is the Prometheus Operator CRD installed?): %w",
+			desired.GetNamespace(), desired.GetName(), err)
+	}
+
+	if serviceMonitorNeedsUpdate(found, desired) {
+		found.Object["spec"] = desired.Object["spec"]
+		found.SetLabels(desired.GetLabels())
+		if err := r.Update(ctx, found); err != nil {
+			return fmt.Errorf("updating ServiceMonitor %s/%s: %w", desired.GetNamespace(), desired.GetName(), err)
+		}
+	}
+
+	return nil
+}
+
+// serviceMonitorNeedsUpdate reports whether the fields reconcileServiceMonitor
+// owns (labels, spec) have drifted between the live and desired object.
+func serviceMonitorNeedsUpdate(found, desired *unstructured.Unstructured) bool {
+	return !equality.Semantic.DeepEqual(found.GetLabels(), desired.GetLabels()) ||
+		!equality.Semantic.DeepEqual(found.Object["spec"], desired.Object["spec"])
+}
+
+// buildServiceMonitor builds the desired ServiceMonitor, scraping the client
+// Service's "http" port (the same port the broker serves /metrics on - see
+// updateStatus's Endpoints.Metrics) at the conventional /metrics path.
+func (r *StreamBusClusterReconciler) buildServiceMonitor(cluster *streambusv1alpha1.StreamBusCluster) *unstructured.Unstructured {
+	labels := r.labelsForCluster(cluster)
+
+	sm := &unstructured.Unstructured{}
+	sm.SetGroupVersionKind(serviceMonitorGVK)
+	sm.SetName(cluster.Name)
+	sm.SetNamespace(cluster.Namespace)
+	sm.SetLabels(labels)
+
+	matchLabels := make(map[string]interface{}, len(labels))
+	for k, v := range labels {
+		matchLabels[k] = v
+	}
+
+	sm.Object["spec"] = map[string]interface{}{
+		"selector": map[string]interface{}{
+			"matchLabels": matchLabels,
+		},
+		"endpoints": []interface{}{
+			map[string]interface{}{
+				"port": "http",
+				"path": "/metrics",
+			},
+		},
+	}
+
+	return sm
 }
 
 // buildEnv builds environment variables for the container
@@ -662,6 +778,22 @@ func buildCommand() []string {
 	}
 }
 
+// buildImagePullSecrets converts spec.image.pullSecrets - bare Secret names -
+// into the LocalObjectReferences PodSpec.ImagePullSecrets expects. Before
+// this, the field was accepted by the API server, validated, and then read
+// by nothing: a cluster pointed at a private registry pulled unauthenticated
+// and failed with ImagePullBackOff, with nothing in the spec explaining why.
+func buildImagePullSecrets(cluster *streambusv1alpha1.StreamBusCluster) []corev1.LocalObjectReference {
+	if len(cluster.Spec.Image.PullSecrets) == 0 {
+		return nil
+	}
+	secrets := make([]corev1.LocalObjectReference, 0, len(cluster.Spec.Image.PullSecrets))
+	for _, name := range cluster.Spec.Image.PullSecrets {
+		secrets = append(secrets, corev1.LocalObjectReference{Name: name})
+	}
+	return secrets
+}
+
 // buildVolumeMounts returns the container's mounts, adding the TLS and SASL
 // Secret mounts only when spec.security actually asks for them.
 func buildVolumeMounts(cluster *streambusv1alpha1.StreamBusCluster) []corev1.VolumeMount {
@@ -740,7 +872,19 @@ func saslSecretName(cluster *streambusv1alpha1.StreamBusCluster) string {
 	return sec.Authentication.SASL.SecretName
 }
 
-// getImage returns the full image name
+// getImage returns the full image name. Precedence is spec.image.tag, then
+// spec.version, then "latest": spec.version names the StreamBus release to
+// deploy, while spec.image.tag is the escape hatch that overrides it with a
+// custom build (a fork, a locally built image) without having to invent a
+// fake version string. Before this, spec.version was accepted by the API
+// server, validated, and then read by nothing - getImage looked at
+// spec.image.tag exclusively.
+//
+// Note: this precedence only means something because ImageSpec.Tag carries
+// no CRD default. The CRD previously defaulted both spec.version and
+// spec.image.tag to "latest", which would have made image.tag structurally
+// non-empty on every real submission and permanently shadowed spec.version -
+// exactly the bug this change fixes. See config/crd/streambus.io_streambusclusters.yaml.
 func (r *StreamBusClusterReconciler) getImage(cluster *streambusv1alpha1.StreamBusCluster) string {
 	repo := cluster.Spec.Image.Repository
 	if repo == "" {
@@ -748,6 +892,9 @@ func (r *StreamBusClusterReconciler) getImage(cluster *streambusv1alpha1.StreamB
 	}
 
 	tag := cluster.Spec.Image.Tag
+	if tag == "" {
+		tag = cluster.Spec.Version
+	}
 	if tag == "" {
 		tag = "latest"
 	}
