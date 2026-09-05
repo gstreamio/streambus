@@ -1,9 +1,13 @@
 package link
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/gstreamio/streambus/pkg/client"
+	"github.com/gstreamio/streambus/pkg/protocol"
 )
 
 func TestNewStreamHandler(t *testing.T) {
@@ -146,6 +150,8 @@ func TestStreamHandler_GetTopicsToReplicate_SpecificTopics(t *testing.T) {
 
 func TestStreamHandler_StartTopicReplication(t *testing.T) {
 	link := createTestLink("start-repl-test", "Start Replication Test")
+	link.SourceCluster.Brokers = []string{startTestStreamBusBroker(t)}
+	link.TargetCluster.Brokers = []string{startTestStreamBusBroker(t)}
 	storage := NewMemoryStorage()
 
 	handler, err := NewStreamHandler(link, storage)
@@ -154,10 +160,11 @@ func TestStreamHandler_StartTopicReplication(t *testing.T) {
 	}
 	defer func() { _ = handler.Stop() }()
 
-	// Start replication for a topic
-	err = handler.startTopicReplication("test-topic")
-	if err != nil {
-		t.Fatalf("startTopicReplication failed: %v", err)
+	// startTopicReplication now needs real source/target connections to
+	// discover partition counts and create the target topic, so drive it
+	// through Start rather than calling it directly.
+	if err := handler.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
 	}
 
 	// Verify worker was created
@@ -181,6 +188,8 @@ func TestStreamHandler_StartTopicReplication(t *testing.T) {
 
 func TestStreamHandler_StartTopicReplication_WithCheckpoint(t *testing.T) {
 	link := createTestLink("checkpoint-test", "Checkpoint Test")
+	link.SourceCluster.Brokers = []string{startTestStreamBusBroker(t)}
+	link.TargetCluster.Brokers = []string{startTestStreamBusBroker(t)}
 	storage := NewMemoryStorage()
 
 	handler, err := NewStreamHandler(link, storage)
@@ -204,10 +213,11 @@ func TestStreamHandler_StartTopicReplication_WithCheckpoint(t *testing.T) {
 		t.Fatalf("SaveCheckpoint failed: %v", err)
 	}
 
-	// Start replication
-	err = handler.startTopicReplication("test-topic")
-	if err != nil {
-		t.Fatalf("startTopicReplication failed: %v", err)
+	// Start replication (see TestStreamHandler_StartTopicReplication for why
+	// this goes through Start rather than calling startTopicReplication
+	// directly)
+	if err := handler.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
 	}
 
 	// Verify worker loaded checkpoint
@@ -219,8 +229,6 @@ func TestStreamHandler_StartTopicReplication_WithCheckpoint(t *testing.T) {
 	if worker.targetOffset != 95 {
 		t.Errorf("Expected target offset 95, got %d", worker.targetOffset)
 	}
-
-	worker.cancel()
 }
 
 func TestPartitionWorker_SaveCheckpoint(t *testing.T) {
@@ -233,14 +241,12 @@ func TestPartitionWorker_SaveCheckpoint(t *testing.T) {
 	}
 	defer func() { _ = handler.Stop() }()
 
-	// Start replication to create a worker
-	err = handler.startTopicReplication("test-topic")
-	if err != nil {
-		t.Fatalf("startTopicReplication failed: %v", err)
-	}
-
-	workerKey := "test-topic-0"
-	worker := handler.partitionWorkers[workerKey]
+	// Constructed directly rather than through startTopicReplication/Start:
+	// this test is about saveCheckpoint's own persistence logic, not the
+	// (now network-dependent) worker startup path, and no goroutine is
+	// running here to race the offset assignments below against.
+	worker := &partitionWorker{topic: "test-topic", targetTopic: "test-topic", partition: 0, handler: handler}
+	worker.ctx, worker.cancel = context.WithCancel(context.Background())
 	defer worker.cancel()
 
 	// Update worker offsets
@@ -274,14 +280,10 @@ func TestPartitionWorker_SaveCheckpoint_NoStorage(t *testing.T) {
 	}
 	defer func() { _ = handler.Stop() }()
 
-	// Start replication to create a worker
-	err = handler.startTopicReplication("test-topic")
-	if err != nil {
-		t.Fatalf("startTopicReplication failed: %v", err)
-	}
-
-	workerKey := "test-topic-0"
-	worker := handler.partitionWorkers[workerKey]
+	// See TestPartitionWorker_SaveCheckpoint for why this is constructed
+	// directly instead of via startTopicReplication/Start.
+	worker := &partitionWorker{topic: "test-topic", targetTopic: "test-topic", partition: 0, handler: handler}
+	worker.ctx, worker.cancel = context.WithCancel(context.Background())
 	defer worker.cancel()
 
 	// saveCheckpoint should not panic when no storage
@@ -290,6 +292,10 @@ func TestPartitionWorker_SaveCheckpoint_NoStorage(t *testing.T) {
 
 func TestStreamHandler_PerformHealthCheck(t *testing.T) {
 	link := createTestLink("health-check-test", "Health Check Test")
+	// Reachability is now checked against real client connections (it used
+	// to report true unconditionally), so this needs real brokers.
+	link.SourceCluster.Brokers = []string{startTestStreamBusBroker(t)}
+	link.TargetCluster.Brokers = []string{startTestStreamBusBroker(t)}
 	storage := NewMemoryStorage()
 
 	handler, err := NewStreamHandler(link, storage)
@@ -297,6 +303,10 @@ func TestStreamHandler_PerformHealthCheck(t *testing.T) {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
 	defer func() { _ = handler.Stop() }()
+
+	if err := handler.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 
 	// Perform health check
 	handler.performHealthCheck()
@@ -665,8 +675,8 @@ func TestStreamHandler_ShouldFilterMessage_HeaderFilter(t *testing.T) {
 	}
 }
 
-func TestPartitionWorker_ReplicateBatch(t *testing.T) {
-	link := createTestLink("replicate-batch-test", "Replicate Batch Test")
+func TestStreamHandler_ApplyTransform_NoTransform(t *testing.T) {
+	link := createTestLink("no-transform-test", "No Transform Test")
 	storage := NewMemoryStorage()
 
 	handler, err := NewStreamHandler(link, storage)
@@ -675,20 +685,165 @@ func TestPartitionWorker_ReplicateBatch(t *testing.T) {
 	}
 	defer func() { _ = handler.Stop() }()
 
-	// Start replication to create a worker
-	err = handler.startTopicReplication("test-topic")
+	msg := protocol.Message{Key: []byte("k"), Value: []byte("v"), Headers: map[string][]byte{"a": []byte("1")}}
+	got := handler.applyTransform(msg)
+
+	if len(got.Headers) != 1 || string(got.Headers["a"]) != "1" {
+		t.Errorf("expected headers unchanged with no transform configured, got %v", got.Headers)
+	}
+}
+
+func TestStreamHandler_ApplyTransform_Headers(t *testing.T) {
+	link := createTestLink("transform-test", "Transform Test")
+	link.Transform = &TransformConfig{
+		Enabled:          true,
+		HeaderTransforms: map[string]string{"trace-id": "uuid"},
+		AddHeaders:       map[string]string{"replicated-by": "streambus"},
+		RemoveHeaders:    []string{"internal-only"},
+	}
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
 	if err != nil {
-		t.Fatalf("startTopicReplication failed: %v", err)
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+	defer func() { _ = handler.Stop() }()
+
+	msg := protocol.Message{
+		Key:   []byte("k"),
+		Value: []byte("v"),
+		Headers: map[string][]byte{
+			"trace-id":      []byte("abc"),
+			"internal-only": []byte("secret"),
+			"keep-me":       []byte("yes"),
+		},
+	}
+	got := handler.applyTransform(msg)
+
+	if v, ok := got.Headers["uuid"]; !ok || string(v) != "abc" {
+		t.Errorf("expected trace-id renamed to uuid, got %v", got.Headers)
+	}
+	if _, ok := got.Headers["trace-id"]; ok {
+		t.Error("expected original trace-id header to be gone after rename")
+	}
+	if _, ok := got.Headers["internal-only"]; ok {
+		t.Error("expected internal-only header to be removed")
+	}
+	if string(got.Headers["keep-me"]) != "yes" {
+		t.Errorf("expected untouched header to survive, got %v", got.Headers["keep-me"])
+	}
+	if string(got.Headers["replicated-by"]) != "streambus" {
+		t.Errorf("expected replicated-by header to be added, got %v", got.Headers)
+	}
+}
+
+func TestStreamHandler_TargetTopicName(t *testing.T) {
+	link := createTestLink("target-topic-name-test", "Target Topic Name Test")
+	link.TopicPrefix = "mirror."
+	link.TopicConfig = map[string]*TopicReplicationConfig{
+		"renamed-topic": {TargetTopic: "custom-target"},
+	}
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+	defer func() { _ = handler.Stop() }()
+
+	if got := handler.targetTopicName("plain-topic"); got != "mirror.plain-topic" {
+		t.Errorf("expected TopicPrefix applied, got %q", got)
+	}
+	if got := handler.targetTopicName("renamed-topic"); got != "custom-target" {
+		t.Errorf("expected explicit TargetTopic to win over TopicPrefix, got %q", got)
+	}
+}
+
+func TestStreamHandler_EnsureTargetTopic_PartitionMismatch(t *testing.T) {
+	sourceAddr := startTestStreamBusBroker(t)
+	targetAddr := startTestStreamBusBroker(t)
+
+	link := createTestLink("ensure-target-mismatch-test", "Ensure Target Mismatch Test")
+	link.SourceCluster.Brokers = []string{sourceAddr}
+	link.TargetCluster.Brokers = []string{targetAddr}
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
 
-	workerKey := "test-topic-0"
-	worker := handler.partitionWorkers[workerKey]
+	var connErr error
+	handler.sourceClient, connErr = handler.connectToCluster(&link.SourceCluster)
+	if connErr != nil {
+		t.Fatalf("connect source failed: %v", connErr)
+	}
+	handler.targetClient, connErr = handler.connectToCluster(&link.TargetCluster)
+	if connErr != nil {
+		t.Fatalf("connect target failed: %v", connErr)
+	}
+	defer func() {
+		_ = handler.sourceClient.Close()
+		_ = handler.targetClient.Close()
+	}()
+
+	// Pre-create the target topic with fewer partitions than the source
+	// claims to have, so CreateTopic (idempotent only on a matching count)
+	// fails and ensureTargetTopic has to fall back to what the target
+	// actually has.
+	if err := handler.targetClient.CreateTopic(context.Background(), "test-topic", 1, 1); err != nil {
+		t.Fatalf("pre-create target topic failed: %v", err)
+	}
+
+	got := handler.ensureTargetTopic("test-topic", "test-topic", 3)
+	if got != 1 {
+		t.Errorf("expected ensureTargetTopic to clamp to the target's 1 partition, got %d", got)
+	}
+	if len(handler.startupIssues) == 0 {
+		t.Error("expected a startup issue recording the partition mismatch")
+	}
+}
+func TestPartitionWorker_ReplicateBatch(t *testing.T) {
+	link := createTestLink("replicate-batch-test", "Replicate Batch Test")
+	link.SourceCluster.Brokers = []string{startTestStreamBusBroker(t)}
+	link.TargetCluster.Brokers = []string{startTestStreamBusBroker(t)}
+	storage := NewMemoryStorage()
+
+	handler, err := NewStreamHandler(link, storage)
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+
+	// Wired up directly rather than via Start/startTopicReplication: Start
+	// would spawn worker.run() in the background, which would then race
+	// this test's own direct call to replicateBatch() below over the same
+	// worker. Constructing everything but the goroutine keeps this a
+	// single-goroutine call into real fetch/produce logic against real
+	// brokers.
+	handler.sourceClient, err = handler.connectToCluster(&link.SourceCluster)
+	if err != nil {
+		t.Fatalf("connect source failed: %v", err)
+	}
+	handler.targetClient, err = handler.connectToCluster(&link.TargetCluster)
+	if err != nil {
+		t.Fatalf("connect target failed: %v", err)
+	}
+	handler.targetProducer = client.NewProducerWithConfig(handler.targetClient, client.ProducerConfig{RequireAck: true})
+	defer func() {
+		_ = handler.targetProducer.Close()
+		_ = handler.sourceClient.Close()
+		_ = handler.targetClient.Close()
+	}()
+
+	worker := &partitionWorker{topic: "test-topic", targetTopic: "test-topic", partition: 0, handler: handler}
+	worker.ctx, worker.cancel = context.WithCancel(context.Background())
 	defer worker.cancel()
 
-	// Test replicateBatch - currently just a placeholder that sleeps
-	err = worker.replicateBatch()
-	if err != nil {
-		t.Errorf("replicateBatch failed: %v", err)
+	// The source topic is empty (auto-created on first fetch), so this
+	// exercises the "caught up" path: a zero-message fetch is success, not
+	// an error.
+	if err := worker.replicateBatch(); err != nil {
+		t.Errorf("replicateBatch on an empty topic should not error, got: %v", err)
 	}
 }
 
@@ -811,12 +966,28 @@ func TestStreamHandler_Start_TargetConnectionFailure(t *testing.T) {
 // TestStreamHandler_Stop_WithRunningWorkers tests stopping with active workers
 func TestStreamHandler_Stop_WithRunningWorkers(t *testing.T) {
 	link := createTestLink("stop-workers-test", "Stop Workers Test")
+	link.SourceCluster.Brokers = []string{startTestStreamBusBroker(t)}
+	link.TargetCluster.Brokers = []string{startTestStreamBusBroker(t)}
 	storage := NewMemoryStorage()
 
 	handler, err := NewStreamHandler(link, storage)
 	if err != nil {
 		t.Fatalf("NewStreamHandler failed: %v", err)
 	}
+
+	// Wire up real connections directly (short of the full Start, which
+	// would also spin up the health/metrics loops this test isn't about),
+	// since startTopicReplication now needs them to discover partition
+	// counts and create the target topic.
+	handler.sourceClient, err = handler.connectToCluster(&link.SourceCluster)
+	if err != nil {
+		t.Fatalf("connect source failed: %v", err)
+	}
+	handler.targetClient, err = handler.connectToCluster(&link.TargetCluster)
+	if err != nil {
+		t.Fatalf("connect target failed: %v", err)
+	}
+	handler.targetProducer = client.NewProducerWithConfig(handler.targetClient, client.ProducerConfig{RequireAck: true})
 
 	// Create a partition worker manually
 	err = handler.startTopicReplication("test-topic")

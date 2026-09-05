@@ -470,9 +470,6 @@ StreamBus is currently in **active development** with production-ready core comp
 
 ### In Development 🚧
 
-- Cross-datacenter replication data plane (link management, lifecycle and
-  persistence are implemented; the replication stream itself is still
-  maturing)
 - Kubernetes operator
 - Additional admin tooling
 - Extended test coverage (current: 86.8%, target: 85%+)
@@ -485,6 +482,13 @@ StreamBus is currently in **active development** with production-ready core comp
   and nothing gates the write version. The first append on an upgraded broker
   puts a v3 record on that partition, so a rolling deploy cannot cleanly roll
   back past that point for partitions the upgraded broker has written to.
+- **Cross-cluster replication is at-least-once, not exactly-once.** A source
+  offset advances only after a confirmed produce to the target, but
+  checkpoints persist on a timer rather than per message, so a crash between a
+  successful produce and the next checkpoint replays those messages on
+  restart. Target offsets are inferred rather than reported: the target
+  partition is assumed to have no other writer, which is the standard mirror
+  topology but is an assumption, not something the code can verify.
 
 ---
 
