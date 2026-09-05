@@ -447,6 +447,12 @@ StreamBus is currently in **active development** with production-ready core comp
 **Advanced Streaming**
 - Schema registry (Avro/Protobuf/JSON Schema)
 - Idempotent producers
+- Consumer groups with broker-side coordination (join/sync/heartbeat,
+  range/round-robin/sticky assignment, committed offsets)
+- Transactional producers with commit/abort markers written durably to every
+  participating partition, and consumer offsets committed inside a transaction
+- Cross-datacenter replication links (create, start/stop/pause/resume,
+  failover, metrics and health via the admin API)
 
 **Enterprise Security**
 - TLS encryption and SASL authentication
@@ -461,60 +467,34 @@ StreamBus is currently in **active development** with production-ready core comp
 
 ### In Development 🚧
 
-- Cross-datacenter replication
+- Cross-datacenter replication data plane (link management and lifecycle are
+  implemented; the replication stream itself is still maturing)
 - Kubernetes operator
 - Additional admin tooling
 - Extended test coverage (current: 81%, target: 85%+)
-- **Consumer group coordination**: `GroupConsumer` join/sync/heartbeat/offset-commit
-  against a broker-side coordinator (multi-partition consumer groups)
-- **Transaction coordination**: `TransactionalProducer` commit/abort against a
-  transaction coordinator (exactly-once semantics)
+- Read-committed consumer isolation: transaction markers are written to
+  partitions, but consumers do not yet filter records by transaction outcome
 
 ### Known Limitations ⚠️
 
-These previously looked functional (silently simulated success) but now fail
-fast with a clear error instead, so they don't cause silent data loss:
-
-- **`GroupConsumer`** (multi-partition consumer groups): `Subscribe` and
-  `CommitSync` return `ErrGroupCoordinationNotImplemented`. Use `Consumer` /
-  `PartitionConsumer` for single-partition consumption instead.
-- **`TransactionalProducer`** (exactly-once semantics): `CommitTransaction` and
-  `SendOffsetsToTransaction` return `ErrTransactionCoordinationNotImplemented`.
-  Use `Producer` instead.
-
-The following are known, deliberately-documented gaps (not silent-failure
-bugs) rather than something that needs fixing here - they intentionally
-return an empty/no-op result instead of an error, are not reachable from a
-real network client, or accept a parameter that isn't enforced yet:
-
-- **`pkg/broker` admin HTTP API**: `GET /api/v1/topics/:name/messages` always
-  returns an empty message array - it never reads from the storage engine and
-  ignores the `partition`/`offset`/`limit` query parameters. `GET
-  /api/v1/replication/links` always returns an empty list because no
-  replication manager is wired into the broker yet (all mutating operations
-  on replication links correctly return `501 Not Implemented`, so only this
-  read/list endpoint's empty response should not be mistaken for "no links
-  configured").
-- **`pkg/transaction.TransactionCoordinator`** (broker-side transaction
-  coordination): `EndTxn` drives the in-memory transaction state machine and
-  logs transitions, but never writes transaction marker records to affected
-  partitions or waits for replica acknowledgment - "committed" here doesn't
-  yet carry real durability guarantees. This is the broker-side counterpart
-  of the already-documented `TransactionalProducer` gap above. It is not
-  reachable from a real network client today (the wire-protocol dispatcher in
-  `pkg/server` does not route transaction requests to it), only from Go code
-  that imports `pkg/transaction` directly.
-- **`pkg/cluster.AssignmentConstraints.MaxPartitionsPerBroker`**: accepted by
-  `RoundRobinStrategy` but never enforced (and not referenced at all by the
-  range/sticky assignors in `pkg/consumer/group`). Setting a non-zero value
-  has no effect on the resulting assignment.
-- **`Broker.storage`** (`pkg/broker`) is declared but never assigned -
-  `initStorage` logs as if it initialized a storage engine and unconditionally
-  returns success. This is harmless for request serving today (the
-  wire-protocol path owns its own independent storage), but as a direct
-  consequence `updateTenantStorageUsage` can never report real per-tenant
-  storage usage, so multi-tenancy storage quota tracking never reflects
-  actual bytes written.
+- **Consumer group coordination is single-coordinator.** There is no
+  `FindCoordinator` request yet, so the first configured broker acts as
+  coordinator for every group and every transactional ID. Group and offset
+  state lives in memory and does not survive a broker restart.
+- **Transactional reads are not isolated.** `EndTxn` writes commit and abort
+  markers durably to every participating partition, but `Consumer`,
+  `PartitionConsumer` and `GroupConsumer` all read uncommitted records: a
+  consumer sees records from a transaction that later aborted, and sees the
+  marker records themselves. `TransactionalProducer` buffers a transaction's
+  messages until commit, so an aborted transaction writes no user records —
+  but a consumer reading a partition mid-commit can still observe a partial
+  transaction.
+- **Replication link definitions are not persistent.** The broker's link
+  manager keeps them in memory, so links must be recreated after a restart.
+- **`MaxPartitionsPerBroker` counts only what the assignment pass knows.**
+  The limit is enforced across a single `Assign`/`Rebalance` call and against
+  any counts the caller supplies through `AssignmentConstraints.ExistingLoad`;
+  the package does not itself track partitions assigned by earlier calls.
 
 ---
 

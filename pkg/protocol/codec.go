@@ -234,6 +234,15 @@ func (c *Codec) DecodeResponsePayload(resp *Response, reqType RequestType) error
 		return nil
 	}
 
+	if IsCoordinationRequest(reqType) {
+		payload, err := decodeCoordinationResponse(data, reqType)
+		if err != nil {
+			return err
+		}
+		resp.Payload = payload
+		return nil
+	}
+
 	offset := 0
 	switch reqType {
 	case RequestTypeProduce:
@@ -334,6 +343,12 @@ func (c *Codec) DecodeResponsePayload(resp *Response, reqType RequestType) error
 // Helper methods for calculating sizes
 
 func (c *Codec) calculateRequestPayloadSize(req *Request) (uint32, error) {
+	// Coordination and transaction payloads measure themselves, using the
+	// same encodePayload that writes them.
+	if payload, ok := req.Payload.(payloadEncoder); ok && IsCoordinationRequest(req.Header.Type) {
+		return measurePayload(payload), nil
+	}
+
 	switch req.Header.Type {
 	case RequestTypeProduce:
 		payload := req.Payload.(*ProduceRequest)
@@ -378,6 +393,11 @@ func (c *Codec) calculateResponsePayloadSize(resp *Response) (uint32, error) {
 		return uint32(4 + len(errorResp.Message)), nil // MsgLen + Message
 	}
 
+	// Coordination and transaction responses measure themselves.
+	if payload, ok := resp.Payload.(payloadEncoder); ok {
+		return measurePayload(payload), nil
+	}
+
 	// For success responses, size depends on response type
 	switch payload := resp.Payload.(type) {
 	case *ProduceResponse:
@@ -419,6 +439,10 @@ func (c *Codec) calculateResponsePayloadSize(resp *Response) (uint32, error) {
 
 // encodeRequestPayload encodes the request payload
 func (c *Codec) encodeRequestPayload(buf []byte, offset int, req *Request) (int, error) {
+	if payload, ok := req.Payload.(payloadEncoder); ok && IsCoordinationRequest(req.Header.Type) {
+		return encodeSelfDescribing(buf, offset, payload), nil
+	}
+
 	switch req.Header.Type {
 	case RequestTypeProduce:
 		payload := req.Payload.(*ProduceRequest)
@@ -504,6 +528,10 @@ func (c *Codec) encodeRequestPayload(buf []byte, offset int, req *Request) (int,
 
 // decodeRequestPayload decodes the request payload
 func (c *Codec) decodeRequestPayload(buf []byte, reqType RequestType) (interface{}, error) {
+	if IsCoordinationRequest(reqType) {
+		return decodeCoordinationRequest(buf, reqType)
+	}
+
 	offset := 0
 
 	switch reqType {
@@ -612,6 +640,10 @@ func (c *Codec) encodeResponsePayload(buf []byte, offset int, resp *Response) (i
 		copy(buf[offset:], errorResp.Message)
 		offset += len(errorResp.Message)
 		return offset, nil
+	}
+
+	if payload, ok := resp.Payload.(payloadEncoder); ok {
+		return encodeSelfDescribing(buf, offset, payload), nil
 	}
 
 	// For success responses, encode based on type

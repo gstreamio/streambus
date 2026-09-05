@@ -1,11 +1,11 @@
 # StreamBus Transactions Example
 
-> **⚠️ Not currently functional**: `TransactionalProducer.CommitTransaction` and
-> `SendOffsetsToTransaction` have no transaction-coordinator wiring yet and return
-> `ErrTransactionCoordinationNotImplemented`. Earlier versions silently reported
-> a successful commit without ever writing the transaction's messages to the
-> broker - a silent data-loss bug. This example will now fail fast instead.
-> Use the plain `Producer`/`Consumer` for now.
+> **Note on read isolation**: committing writes a durable transaction marker to
+> every participating partition, and an aborted transaction writes no user
+> records at all (messages are buffered until commit). Consumers do not yet
+> filter by transaction outcome, though, so a consumer reading a partition
+> while a commit is in flight can observe part of a transaction, and it will
+> see the marker records themselves.
 
 This example demonstrates **exactly-once semantics** using StreamBus transactions. It shows how to implement a transactional message processor that consumes from one topic, processes messages, and produces to another topic - all within atomic transactions.
 

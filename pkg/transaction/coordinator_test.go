@@ -23,6 +23,8 @@ func TestTransactionCoordinator_InitProducerID(t *testing.T) {
 	config := DefaultCoordinatorConfig()
 	logger := testLogger()
 	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	coordinator.SetMarkerWriter(NewMemoryMarkerWriter())
+	coordinator.SetOffsetCommitter(NewMemoryOffsetCommitter())
 	defer coordinator.Stop()
 
 	// Test first producer ID assignment
@@ -68,6 +70,8 @@ func TestTransactionCoordinator_InvalidTimeout(t *testing.T) {
 	config.MaxTransactionTimeout = 5 * time.Minute
 	logger := testLogger()
 	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	coordinator.SetMarkerWriter(NewMemoryMarkerWriter())
+	coordinator.SetOffsetCommitter(NewMemoryOffsetCommitter())
 	defer coordinator.Stop()
 
 	// Test timeout too large
@@ -86,6 +90,8 @@ func TestTransactionCoordinator_AddPartitionsToTxn(t *testing.T) {
 	config := DefaultCoordinatorConfig()
 	logger := testLogger()
 	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	coordinator.SetMarkerWriter(NewMemoryMarkerWriter())
+	coordinator.SetOffsetCommitter(NewMemoryOffsetCommitter())
 	defer coordinator.Stop()
 
 	// Initialize producer
@@ -139,6 +145,8 @@ func TestTransactionCoordinator_CommitTransaction(t *testing.T) {
 	config := DefaultCoordinatorConfig()
 	logger := testLogger()
 	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	coordinator.SetMarkerWriter(NewMemoryMarkerWriter())
+	coordinator.SetOffsetCommitter(NewMemoryOffsetCommitter())
 	defer coordinator.Stop()
 
 	// Initialize producer
@@ -184,6 +192,8 @@ func TestTransactionCoordinator_AbortTransaction(t *testing.T) {
 	config := DefaultCoordinatorConfig()
 	logger := testLogger()
 	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	coordinator.SetMarkerWriter(NewMemoryMarkerWriter())
+	coordinator.SetOffsetCommitter(NewMemoryOffsetCommitter())
 	defer coordinator.Stop()
 
 	// Initialize producer
@@ -229,6 +239,8 @@ func TestTransactionCoordinator_ProducerFencing(t *testing.T) {
 	config := DefaultCoordinatorConfig()
 	logger := testLogger()
 	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	coordinator.SetMarkerWriter(NewMemoryMarkerWriter())
+	coordinator.SetOffsetCommitter(NewMemoryOffsetCommitter())
 	defer coordinator.Stop()
 
 	// Initialize producer (epoch 0)
@@ -269,6 +281,8 @@ func TestTransactionCoordinator_ExpiredTransactions(t *testing.T) {
 	config.ExpirationCheckInterval = 100 * time.Millisecond
 	logger := testLogger()
 	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	coordinator.SetMarkerWriter(NewMemoryMarkerWriter())
+	coordinator.SetOffsetCommitter(NewMemoryOffsetCommitter())
 	defer coordinator.Stop()
 
 	// Initialize producer with short timeout
@@ -310,6 +324,8 @@ func TestTransactionCoordinator_AddOffsetsToTxn(t *testing.T) {
 	config := DefaultCoordinatorConfig()
 	logger := testLogger()
 	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	coordinator.SetMarkerWriter(NewMemoryMarkerWriter())
+	coordinator.SetOffsetCommitter(NewMemoryOffsetCommitter())
 	defer coordinator.Stop()
 
 	// Initialize producer
@@ -350,6 +366,8 @@ func TestTransactionCoordinator_Stats(t *testing.T) {
 	config := DefaultCoordinatorConfig()
 	logger := testLogger()
 	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	coordinator.SetMarkerWriter(NewMemoryMarkerWriter())
+	coordinator.SetOffsetCommitter(NewMemoryOffsetCommitter())
 	defer coordinator.Stop()
 
 	// Initial stats
@@ -559,6 +577,8 @@ func TestTransactionCoordinator_BuildPartitionErrors(t *testing.T) {
 	config := DefaultCoordinatorConfig()
 	logger := testLogger()
 	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	coordinator.SetMarkerWriter(NewMemoryMarkerWriter())
+	coordinator.SetOffsetCommitter(NewMemoryOffsetCommitter())
 	defer coordinator.Stop()
 
 	partitions := []PartitionMetadata{
@@ -621,6 +641,8 @@ func TestTransactionCoordinator_LogTransactionError(t *testing.T) {
 	config := DefaultCoordinatorConfig()
 	logger := testLogger()
 	coordinator := NewTransactionCoordinator(mockLog, config, logger)
+	coordinator.SetMarkerWriter(NewMemoryMarkerWriter())
+	coordinator.SetOffsetCommitter(NewMemoryOffsetCommitter())
 	defer coordinator.Stop()
 
 	// Initialize producer
@@ -653,6 +675,8 @@ func TestTransactionCoordinator_ScheduleTransactionCleanup(t *testing.T) {
 	config.TransactionRetentionTime = 100 * time.Millisecond
 	logger := testLogger()
 	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	coordinator.SetMarkerWriter(NewMemoryMarkerWriter())
+	coordinator.SetOffsetCommitter(NewMemoryOffsetCommitter())
 	defer coordinator.Stop()
 
 	// Initialize producer
@@ -709,6 +733,8 @@ func TestTransactionCoordinator_ScheduleTransactionCleanupWithLogError(t *testin
 	config.TransactionRetentionTime = 100 * time.Millisecond
 	logger := testLogger()
 	coordinator := NewTransactionCoordinator(mockLog, config, logger)
+	coordinator.SetMarkerWriter(NewMemoryMarkerWriter())
+	coordinator.SetOffsetCommitter(NewMemoryOffsetCommitter())
 	defer coordinator.Stop()
 
 	// Initialize producer
@@ -754,6 +780,8 @@ func TestTransactionCoordinator_AddOffsetsToTxn_ProducerFenced(t *testing.T) {
 	config := DefaultCoordinatorConfig()
 	logger := testLogger()
 	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	coordinator.SetMarkerWriter(NewMemoryMarkerWriter())
+	coordinator.SetOffsetCommitter(NewMemoryOffsetCommitter())
 	defer coordinator.Stop()
 
 	// Initialize producer (epoch 0)
@@ -802,6 +830,8 @@ func TestTransactionCoordinator_AddOffsetsToTxn_NoTransaction(t *testing.T) {
 	config := DefaultCoordinatorConfig()
 	logger := testLogger()
 	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	coordinator.SetMarkerWriter(NewMemoryMarkerWriter())
+	coordinator.SetOffsetCommitter(NewMemoryOffsetCommitter())
 	defer coordinator.Stop()
 
 	// Initialize producer
@@ -830,6 +860,8 @@ func TestTransactionCoordinator_AddOffsetsToTxn_InvalidState(t *testing.T) {
 	config := DefaultCoordinatorConfig()
 	logger := testLogger()
 	coordinator := NewTransactionCoordinator(txnLog, config, logger)
+	coordinator.SetMarkerWriter(NewMemoryMarkerWriter())
+	coordinator.SetOffsetCommitter(NewMemoryOffsetCommitter())
 	defer coordinator.Stop()
 
 	// Initialize producer

@@ -503,6 +503,12 @@ func (b *Broker) initTransactions() error {
 	// Create transaction coordinator
 	b.txnCoordinator = transaction.NewTransactionCoordinator(txnLog, coordinatorConfig, b.logger)
 
+	// Give the coordinator somewhere real to write transaction markers and
+	// publish transactional offsets. Without these it cannot honour a commit
+	// and EndTxn refuses rather than reporting a commit it did not perform.
+	b.txnCoordinator.SetMarkerWriter(newLogMarkerWriter(b.topicManager))
+	b.txnCoordinator.SetOffsetCommitter(newGroupOffsetCommitter(b.groupCoordinator))
+
 	b.logger.Info("Transaction coordinator initialized")
 
 	return nil
@@ -683,14 +689,17 @@ func (b *Broker) initServer() error {
 	}
 	baseHandler := server.NewHandlerWithTopicManager(b.topicManager)
 
+	// Route consumer group and transaction requests to their coordinators.
+	// These sit closest to the base handler so the tenancy, schema and
+	// security wrappers below still see every request.
+	var handler server.RequestHandler = baseHandler
+	handler = server.NewCoordinationHandler(handler, b.groupCoordinator)
+	handler = server.NewTransactionHandler(handler, b.txnCoordinator)
+
 	// Wrap with tenancy handler if enabled
-	var handler server.RequestHandler
 	if b.config.EnableMultiTenancy && b.tenancyManager != nil {
-		tenancyHandler := server.NewTenancyHandler(baseHandler, b.tenancyManager, true)
-		handler = tenancyHandler
+		handler = server.NewTenancyHandler(handler, b.tenancyManager, true)
 		b.logger.Info("Multi-tenancy enabled for request handling")
-	} else {
-		handler = baseHandler
 	}
 
 	// Wrap with schema validation handler if schema registry is available

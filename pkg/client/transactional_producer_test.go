@@ -2,420 +2,373 @@ package client
 
 import (
 	"context"
-	"errors"
 	"testing"
+	"time"
 
 	"github.com/gstreamio/streambus/pkg/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestTransactionalProducer_Create(t *testing.T) {
-	client := &Client{
-		config: DefaultConfig(),
-	}
+// newTestTransactionalProducer builds a transactional producer against a
+// running broker.
+func newTestTransactionalProducer(t *testing.T, c *Client, txnID string) *TransactionalProducer {
+	t.Helper()
 
 	config := DefaultTransactionalProducerConfig()
-	config.TransactionID = "test-txn-1"
+	config.TransactionID = txnID
+	config.RequestTimeout = 5 * time.Second
 
-	producer, err := NewTransactionalProducer(client, config)
+	tp, err := NewTransactionalProducer(c, config)
 	require.NoError(t, err)
-	assert.NotNil(t, producer)
-	assert.Equal(t, ProducerStateReady, producer.state)
-	assert.NotZero(t, producer.producerID)
-	assert.Equal(t, int16(0), int16(producer.producerEpoch))
+	t.Cleanup(func() { _ = tp.Close() })
+
+	return tp
+}
+
+// readPartition reads every message currently in a partition.
+func readPartition(t *testing.T, c *Client, topic string, partition int32) []protocol.Message {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := c.Fetch(ctx, &FetchRequest{
+		Topic:     topic,
+		Partition: partition,
+		Offset:    0,
+		MaxBytes:  1024 * 1024,
+	})
+	require.NoError(t, err)
+	return resp.Messages
+}
+
+func TestTransactionalProducer_Create(t *testing.T) {
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
+
+	tp := newTestTransactionalProducer(t, client, "txn-1")
+
+	assert.Equal(t, ProducerStateReady, tp.state)
+	assert.NotZero(t, tp.producerID, "coordinator should have assigned a producer ID")
 }
 
 func TestTransactionalProducer_CreateValidation(t *testing.T) {
-	client := &Client{
-		config: DefaultConfig(),
-	}
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
 
-	// Test missing transaction ID
-	config := DefaultTransactionalProducerConfig()
-	_, err := NewTransactionalProducer(client, config)
-	assert.Error(t, err)
+	_, err := NewTransactionalProducer(client, DefaultTransactionalProducerConfig())
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "transaction_id")
 }
 
+func TestTransactionalProducer_ReinitializationFencesOlderEpoch(t *testing.T) {
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
+
+	first := newTestTransactionalProducer(t, client, "txn-1")
+	firstEpoch := first.producerEpoch
+
+	// Reclaiming the same transactional ID must bump the epoch so the older
+	// instance can be fenced.
+	second := newTestTransactionalProducer(t, client, "txn-1")
+
+	assert.Equal(t, first.producerID, second.producerID,
+		"the same transactional ID keeps its producer ID")
+	assert.Greater(t, second.producerEpoch, firstEpoch,
+		"reinitializing must bump the epoch")
+}
+
 func TestTransactionalProducer_BeginTransaction(t *testing.T) {
-	client := &Client{
-		config: DefaultConfig(),
-	}
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
 
-	config := DefaultTransactionalProducerConfig()
-	config.TransactionID = "test-txn-1"
+	tp := newTestTransactionalProducer(t, client, "txn-1")
 
-	producer, err := NewTransactionalProducer(client, config)
-	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	ctx := context.Background()
+	require.NoError(t, tp.BeginTransaction(ctx))
+	assert.Equal(t, ProducerStateInTransaction, tp.state)
 
-	// Begin transaction
-	err = producer.BeginTransaction(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, ProducerStateInTransaction, producer.state)
-	assert.NotNil(t, producer.currentTransaction)
-
-	// Try to begin another transaction (should fail)
-	err = producer.BeginTransaction(ctx)
-	assert.Error(t, err)
+	// A second begin without ending the first must be rejected.
+	err := tp.BeginTransaction(ctx)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already in progress")
 }
 
-func TestTransactionalProducer_SendMessages(t *testing.T) {
-	client := &Client{
-		config: DefaultConfig(),
+func TestTransactionalProducer_CommitWritesMessagesAndMarkers(t *testing.T) {
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
+	createTestTopic(t, client, "orders", 2)
+
+	tp := newTestTransactionalProducer(t, client, "txn-1")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	require.NoError(t, tp.BeginTransaction(ctx))
+	require.NoError(t, tp.Send(ctx, "orders", 0, protocol.Message{Value: []byte("first")}))
+	require.NoError(t, tp.Send(ctx, "orders", 0, protocol.Message{Value: []byte("second")}))
+	require.NoError(t, tp.Send(ctx, "orders", 1, protocol.Message{Value: []byte("third")}))
+
+	// Nothing is written before the commit.
+	assert.Empty(t, readPartition(t, client, "orders", 0),
+		"uncommitted messages must not be on the partition")
+
+	require.NoError(t, tp.CommitTransaction(ctx))
+
+	assert.Equal(t, ProducerStateReady, tp.state)
+	assert.Equal(t, int64(1), tp.Stats().TransactionsCommitted)
+
+	// Both partitions carry their records plus the commit marker.
+	partition0 := readPartition(t, client, "orders", 0)
+	require.GreaterOrEqual(t, len(partition0), 2)
+	assert.Equal(t, []byte("first"), partition0[0].Value)
+	assert.Equal(t, []byte("second"), partition0[1].Value)
+
+	partition1 := readPartition(t, client, "orders", 1)
+	require.GreaterOrEqual(t, len(partition1), 1)
+	assert.Equal(t, []byte("third"), partition1[0].Value)
+
+	// A commit marker must exist for every participating partition.
+	markers := broker.Markers.Markers()
+	require.Len(t, markers, 2, "one marker per participating partition")
+	for _, marker := range markers {
+		assert.True(t, marker.Marker.Commit, "%s-%d should have a commit marker",
+			marker.Topic, marker.Partition)
+		assert.Equal(t, int64(tp.producerID), int64(marker.Marker.ProducerID))
 	}
-
-	config := DefaultTransactionalProducerConfig()
-	config.TransactionID = "test-txn-1"
-
-	producer, err := NewTransactionalProducer(client, config)
-	require.NoError(t, err)
-
-	ctx := context.Background()
-
-	// Begin transaction
-	err = producer.BeginTransaction(ctx)
-	require.NoError(t, err)
-
-	// Send messages
-	msg1 := protocol.Message{
-		Key:   []byte("key-1"),
-		Value: []byte("value-1"),
-	}
-
-	err = producer.Send(ctx, "test-topic", 0, msg1)
-	require.NoError(t, err)
-
-	msg2 := protocol.Message{
-		Key:   []byte("key-2"),
-		Value: []byte("value-2"),
-	}
-
-	err = producer.Send(ctx, "test-topic", 1, msg2)
-	require.NoError(t, err)
-
-	// Verify messages are tracked
-	assert.Len(t, producer.currentTransaction.Messages, 2)
-	assert.Contains(t, producer.currentTransaction.Partitions, "test-topic")
-	assert.Len(t, producer.currentTransaction.Partitions["test-topic"], 2)
 }
 
-func TestTransactionalProducer_CommitTransaction(t *testing.T) {
-	client := &Client{
-		config: DefaultConfig(),
+func TestTransactionalProducer_AbortDiscardsMessages(t *testing.T) {
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
+	createTestTopic(t, client, "orders", 1)
+
+	tp := newTestTransactionalProducer(t, client, "txn-1")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	require.NoError(t, tp.BeginTransaction(ctx))
+	require.NoError(t, tp.Send(ctx, "orders", 0, protocol.Message{Value: []byte("never")}))
+
+	require.NoError(t, tp.AbortTransaction(ctx))
+
+	assert.Equal(t, ProducerStateReady, tp.state)
+	assert.Equal(t, int64(1), tp.Stats().TransactionsAborted)
+
+	// Aborted messages must never reach the partition.
+	for _, msg := range readPartition(t, client, "orders", 0) {
+		assert.NotEqual(t, []byte("never"), msg.Value,
+			"an aborted transaction's messages must not be written")
 	}
 
-	config := DefaultTransactionalProducerConfig()
-	config.TransactionID = "test-txn-1"
-
-	producer, err := NewTransactionalProducer(client, config)
-	require.NoError(t, err)
-
-	ctx := context.Background()
-
-	// Begin transaction
-	err = producer.BeginTransaction(ctx)
-	require.NoError(t, err)
-
-	// Send message
-	msg := protocol.Message{
-		Key:   []byte("key-1"),
-		Value: []byte("value-1"),
-	}
-
-	err = producer.Send(ctx, "test-topic", 0, msg)
-	require.NoError(t, err)
-
-	// Commit transaction: must fail rather than silently discarding the
-	// message, since there's no coordinator to durably flush it to.
-	err = producer.CommitTransaction(ctx)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrTransactionCoordinationNotImplemented))
-
-	// A failed commit aborts the transaction rather than leaving it stuck.
-	assert.Equal(t, ProducerStateReady, producer.state)
-	assert.Nil(t, producer.currentTransaction)
-
-	// Verify stats: commit did not happen, but the abort triggered by the
-	// failed flush is tracked.
-	stats := producer.Stats()
-	assert.Equal(t, int64(0), stats.TransactionsCommitted)
-	assert.Equal(t, int64(1), stats.TransactionsAborted)
-	assert.Equal(t, int64(1), stats.MessagesProduced)
-}
-
-func TestTransactionalProducer_AbortTransaction(t *testing.T) {
-	client := &Client{
-		config: DefaultConfig(),
-	}
-
-	config := DefaultTransactionalProducerConfig()
-	config.TransactionID = "test-txn-1"
-
-	producer, err := NewTransactionalProducer(client, config)
-	require.NoError(t, err)
-
-	ctx := context.Background()
-
-	// Begin transaction
-	err = producer.BeginTransaction(ctx)
-	require.NoError(t, err)
-
-	// Send message
-	msg := protocol.Message{
-		Key:   []byte("key-1"),
-		Value: []byte("value-1"),
-	}
-
-	err = producer.Send(ctx, "test-topic", 0, msg)
-	require.NoError(t, err)
-
-	// Abort transaction
-	err = producer.AbortTransaction(ctx)
-	require.NoError(t, err)
-
-	// Verify state
-	assert.Equal(t, ProducerStateReady, producer.state)
-	assert.Nil(t, producer.currentTransaction)
-
-	// Verify stats
-	stats := producer.Stats()
-	assert.Equal(t, int64(0), stats.TransactionsCommitted)
-	assert.Equal(t, int64(1), stats.TransactionsAborted)
-	assert.Equal(t, int64(1), stats.MessagesProduced)
+	// The coordinator still wrote an abort marker.
+	markers := broker.Markers.Markers()
+	require.Len(t, markers, 1)
+	assert.False(t, markers[0].Marker.Commit, "expected an abort marker")
 }
 
 func TestTransactionalProducer_MultipleTransactions(t *testing.T) {
-	client := &Client{
-		config: DefaultConfig(),
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
+	createTestTopic(t, client, "orders", 1)
+
+	tp := newTestTransactionalProducer(t, client, "txn-1")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// Commit, then abort, then commit again on the same producer.
+	require.NoError(t, tp.BeginTransaction(ctx))
+	require.NoError(t, tp.Send(ctx, "orders", 0, protocol.Message{Value: []byte("kept-1")}))
+	require.NoError(t, tp.CommitTransaction(ctx))
+
+	require.NoError(t, tp.BeginTransaction(ctx))
+	require.NoError(t, tp.Send(ctx, "orders", 0, protocol.Message{Value: []byte("dropped")}))
+	require.NoError(t, tp.AbortTransaction(ctx))
+
+	require.NoError(t, tp.BeginTransaction(ctx))
+	require.NoError(t, tp.Send(ctx, "orders", 0, protocol.Message{Value: []byte("kept-2")}))
+	require.NoError(t, tp.CommitTransaction(ctx))
+
+	stats := tp.Stats()
+	assert.Equal(t, int64(2), stats.TransactionsCommitted)
+	assert.Equal(t, int64(1), stats.TransactionsAborted)
+
+	var values []string
+	for _, msg := range readPartition(t, client, "orders", 0) {
+		if len(msg.Value) > 0 {
+			values = append(values, string(msg.Value))
+		}
 	}
-
-	config := DefaultTransactionalProducerConfig()
-	config.TransactionID = "test-txn-1"
-
-	producer, err := NewTransactionalProducer(client, config)
-	require.NoError(t, err)
-
-	ctx := context.Background()
-
-	// Transaction 1 - attempted commit (fails: not implemented, auto-aborts)
-	err = producer.BeginTransaction(ctx)
-	require.NoError(t, err)
-
-	msg1 := protocol.Message{
-		Key:   []byte("key-1"),
-		Value: []byte("value-1"),
-	}
-
-	err = producer.Send(ctx, "test-topic", 0, msg1)
-	require.NoError(t, err)
-
-	err = producer.CommitTransaction(ctx)
-	require.Error(t, err)
-
-	// Transaction 2 - Abort
-	err = producer.BeginTransaction(ctx)
-	require.NoError(t, err)
-
-	msg2 := protocol.Message{
-		Key:   []byte("key-2"),
-		Value: []byte("value-2"),
-	}
-
-	err = producer.Send(ctx, "test-topic", 0, msg2)
-	require.NoError(t, err)
-
-	err = producer.AbortTransaction(ctx)
-	require.NoError(t, err)
-
-	// Transaction 3 - attempted commit (fails: not implemented, auto-aborts)
-	err = producer.BeginTransaction(ctx)
-	require.NoError(t, err)
-
-	msg3 := protocol.Message{
-		Key:   []byte("key-3"),
-		Value: []byte("value-3"),
-	}
-
-	err = producer.Send(ctx, "test-topic", 0, msg3)
-	require.NoError(t, err)
-
-	err = producer.CommitTransaction(ctx)
-	require.Error(t, err)
-
-	// Verify stats: no transaction can actually commit yet, so all three
-	// end up counted as aborts (the failed-commit auto-abort included).
-	stats := producer.Stats()
-	assert.Equal(t, int64(0), stats.TransactionsCommitted)
-	assert.Equal(t, int64(3), stats.TransactionsAborted)
-	assert.Equal(t, int64(3), stats.MessagesProduced)
+	assert.Contains(t, values, "kept-1")
+	assert.Contains(t, values, "kept-2")
+	assert.NotContains(t, values, "dropped")
 }
 
 func TestTransactionalProducer_SendWithoutTransaction(t *testing.T) {
-	client := &Client{
-		config: DefaultConfig(),
-	}
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
+	createTestTopic(t, client, "orders", 1)
 
-	config := DefaultTransactionalProducerConfig()
-	config.TransactionID = "test-txn-1"
+	tp := newTestTransactionalProducer(t, client, "txn-1")
 
-	producer, err := NewTransactionalProducer(client, config)
-	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	ctx := context.Background()
+	err := tp.Send(ctx, "orders", 0, protocol.Message{Value: []byte("x")})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no transaction in progress")
 
-	// Try to send without beginning transaction
-	msg := protocol.Message{
-		Key:   []byte("key-1"),
-		Value: []byte("value-1"),
-	}
-
-	err = producer.Send(ctx, "test-topic", 0, msg)
-	assert.Error(t, err)
+	err = tp.CommitTransaction(ctx)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no transaction in progress")
 }
 
-func TestTransactionalProducer_SendOffsetsToTransaction(t *testing.T) {
-	client := &Client{
-		config: DefaultConfig(),
-	}
+func TestTransactionalProducer_SendOffsetsCommitAtomically(t *testing.T) {
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
+	createTestTopic(t, client, "orders", 1)
 
-	config := DefaultTransactionalProducerConfig()
-	config.TransactionID = "test-txn-1"
+	tp := newTestTransactionalProducer(t, client, "txn-1")
 
-	producer, err := NewTransactionalProducer(client, config)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	require.NoError(t, tp.BeginTransaction(ctx))
+	require.NoError(t, tp.Send(ctx, "orders", 0, protocol.Message{Value: []byte("out")}))
+	require.NoError(t, tp.SendOffsetsToTransaction(ctx, "analytics",
+		map[string]map[int32]int64{"source": {0: 42}}))
+
+	// The offsets must not be visible to the group before the commit.
+	before, err := client.FetchOffsets(ctx, &protocol.OffsetFetchRequest{GroupID: "analytics"})
 	require.NoError(t, err)
+	assert.Empty(t, before.Topics, "offsets became visible before the transaction committed")
 
-	ctx := context.Background()
+	require.NoError(t, tp.CommitTransaction(ctx))
 
-	// Begin transaction
-	err = producer.BeginTransaction(ctx)
+	after, err := client.FetchOffsets(ctx, &protocol.OffsetFetchRequest{
+		GroupID: "analytics",
+		Topics:  []protocol.OffsetFetchTopic{{Topic: "source", Partitions: []int32{0}}},
+	})
 	require.NoError(t, err)
+	require.Len(t, after.Topics, 1)
+	require.Len(t, after.Topics[0].Partitions, 1)
+	assert.Equal(t, int64(42), after.Topics[0].Partitions[0].Offset)
+}
 
-	// Send some messages
-	msg := protocol.Message{
-		Key:   []byte("key-1"),
-		Value: []byte("value-1"),
-	}
+func TestTransactionalProducer_SendOffsetsDiscardedOnAbort(t *testing.T) {
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
+	createTestTopic(t, client, "orders", 1)
 
-	err = producer.Send(ctx, "test-topic", 0, msg)
+	tp := newTestTransactionalProducer(t, client, "txn-1")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	require.NoError(t, tp.BeginTransaction(ctx))
+	require.NoError(t, tp.Send(ctx, "orders", 0, protocol.Message{Value: []byte("out")}))
+	require.NoError(t, tp.SendOffsetsToTransaction(ctx, "analytics",
+		map[string]map[int32]int64{"source": {0: 42}}))
+
+	require.NoError(t, tp.AbortTransaction(ctx))
+
+	after, err := client.FetchOffsets(ctx, &protocol.OffsetFetchRequest{GroupID: "analytics"})
 	require.NoError(t, err)
+	assert.Empty(t, after.Topics, "an aborted transaction's offsets must not be published")
+}
 
-	// Send offsets
-	offsets := map[string]map[int32]int64{
-		"input-topic": {
-			0: 100,
-			1: 200,
-		},
-	}
+func TestTransactionalProducer_SendOffsetsWithoutTransaction(t *testing.T) {
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
 
-	err = producer.SendOffsetsToTransaction(ctx, "consumer-group-1", offsets)
+	tp := newTestTransactionalProducer(t, client, "txn-1")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := tp.SendOffsetsToTransaction(ctx, "analytics",
+		map[string]map[int32]int64{"source": {0: 42}})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrTransactionCoordinationNotImplemented))
+	assert.Contains(t, err.Error(), "no transaction in progress")
+}
 
-	// Commit also fails: not implemented yet.
-	err = producer.CommitTransaction(ctx)
+func TestTransactionalProducer_SendOffsetsRejectsSecondGroup(t *testing.T) {
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
+	createTestTopic(t, client, "orders", 1)
+
+	tp := newTestTransactionalProducer(t, client, "txn-1")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	require.NoError(t, tp.BeginTransaction(ctx))
+	require.NoError(t, tp.Send(ctx, "orders", 0, protocol.Message{Value: []byte("out")}))
+	require.NoError(t, tp.SendOffsetsToTransaction(ctx, "analytics",
+		map[string]map[int32]int64{"source": {0: 42}}))
+
+	err := tp.SendOffsetsToTransaction(ctx, "other-group",
+		map[string]map[int32]int64{"source": {0: 43}})
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "analytics")
 }
 
 func TestTransactionalProducer_Close(t *testing.T) {
-	client := &Client{
-		config: DefaultConfig(),
-	}
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
+	createTestTopic(t, client, "orders", 1)
 
 	config := DefaultTransactionalProducerConfig()
-	config.TransactionID = "test-txn-1"
+	config.TransactionID = "txn-1"
+	config.RequestTimeout = 5 * time.Second
 
-	producer, err := NewTransactionalProducer(client, config)
+	tp, err := NewTransactionalProducer(client, config)
 	require.NoError(t, err)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	// Begin transaction
-	err = producer.BeginTransaction(ctx)
-	require.NoError(t, err)
+	require.NoError(t, tp.BeginTransaction(ctx))
+	require.NoError(t, tp.Send(ctx, "orders", 0, protocol.Message{Value: []byte("never")}))
 
-	// Send message
-	msg := protocol.Message{
-		Key:   []byte("key-1"),
-		Value: []byte("value-1"),
-	}
+	// Closing mid-transaction aborts it rather than leaving it open until it
+	// times out.
+	require.NoError(t, tp.Close())
+	assert.Equal(t, ProducerStateClosed, tp.state)
+	assert.Equal(t, int64(1), tp.Stats().TransactionsAborted)
 
-	err = producer.Send(ctx, "test-topic", 0, msg)
-	require.NoError(t, err)
+	markers := broker.Markers.Markers()
+	require.Len(t, markers, 1)
+	assert.False(t, markers[0].Marker.Commit, "closing should abort, not commit")
 
-	// Close (should abort in-progress transaction)
-	err = producer.Close()
-	require.NoError(t, err)
-
-	// Verify state
-	assert.Equal(t, ProducerStateClosed, producer.state)
-
-	// Try operations after close
-	err = producer.BeginTransaction(ctx)
-	assert.Error(t, err)
-
-	err = producer.Send(ctx, "test-topic", 0, msg)
-	assert.Error(t, err)
-
-	// Second close should return error
-	err = producer.Close()
-	assert.Equal(t, ErrProducerClosed, err)
+	// Second close reports the producer is already closed.
+	assert.Equal(t, ErrProducerClosed, tp.Close())
 }
 
 func TestTransactionalProducer_Stats(t *testing.T) {
-	client := &Client{
-		config: DefaultConfig(),
-	}
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
+	createTestTopic(t, client, "orders", 1)
 
-	config := DefaultTransactionalProducerConfig()
-	config.TransactionID = "test-txn-1"
+	tp := newTestTransactionalProducer(t, client, "txn-1")
 
-	producer, err := NewTransactionalProducer(client, config)
-	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	// Initial stats
-	stats := producer.Stats()
-	assert.NotZero(t, stats.ProducerID)
-	assert.Equal(t, int16(0), int16(stats.ProducerEpoch))
+	require.NoError(t, tp.BeginTransaction(ctx))
+	require.NoError(t, tp.Send(ctx, "orders", 0, protocol.Message{Value: []byte("a")}))
+	require.NoError(t, tp.Send(ctx, "orders", 0, protocol.Message{Value: []byte("b")}))
+	require.NoError(t, tp.CommitTransaction(ctx))
+
+	stats := tp.Stats()
+	assert.Equal(t, tp.producerID, stats.ProducerID)
 	assert.Equal(t, ProducerStateReady, stats.State)
-	assert.Equal(t, int64(0), stats.TransactionsCommitted)
+	assert.Equal(t, int64(1), stats.TransactionsCommitted)
 	assert.Equal(t, int64(0), stats.TransactionsAborted)
-	assert.Equal(t, int64(0), stats.MessagesProduced)
-
-	ctx := context.Background()
-
-	// Do some transactions. Commit isn't implemented yet, so a "commit"
-	// attempt fails and auto-aborts; only the explicit abort path succeeds
-	// directly.
-	for i := range 3 {
-		err = producer.BeginTransaction(ctx)
-		require.NoError(t, err)
-
-		msg := protocol.Message{
-			Key:   []byte("key"),
-			Value: []byte("value"),
-		}
-
-		err = producer.Send(ctx, "test-topic", 0, msg)
-		require.NoError(t, err)
-
-		if i%2 == 0 {
-			err = producer.CommitTransaction(ctx)
-			require.Error(t, err)
-		} else {
-			err = producer.AbortTransaction(ctx)
-			require.NoError(t, err)
-		}
-	}
-
-	// Final stats: every transaction ends up aborted (two failed commits
-	// that auto-abort, plus one explicit abort).
-	stats = producer.Stats()
-	assert.Equal(t, int64(0), stats.TransactionsCommitted)
-	assert.Equal(t, int64(3), stats.TransactionsAborted)
-	assert.Equal(t, int64(3), stats.MessagesProduced)
+	assert.Equal(t, int64(2), stats.MessagesProduced)
 }

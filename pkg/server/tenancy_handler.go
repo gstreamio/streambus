@@ -9,7 +9,7 @@ import (
 
 // TenancyHandler wraps a handler with multi-tenancy and quota enforcement
 type TenancyHandler struct {
-	baseHandler     *Handler
+	baseHandler     RequestHandler
 	tenancyManager  *tenancy.Manager
 	enabled         bool
 	quotaViolations int64
@@ -17,7 +17,7 @@ type TenancyHandler struct {
 }
 
 // NewTenancyHandler creates a new tenancy-aware handler
-func NewTenancyHandler(baseHandler *Handler, tenancyManager *tenancy.Manager, enabled bool) *TenancyHandler {
+func NewTenancyHandler(baseHandler RequestHandler, tenancyManager *tenancy.Manager, enabled bool) *TenancyHandler {
 	return &TenancyHandler{
 		baseHandler:    baseHandler,
 		tenancyManager: tenancyManager,
