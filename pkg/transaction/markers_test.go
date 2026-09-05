@@ -410,3 +410,107 @@ func TestSortedPartitions(t *testing.T) {
 		}
 	}
 }
+
+func TestExpiredTransaction_WritesAbortMarkers(t *testing.T) {
+	markers := NewMemoryMarkerWriter()
+
+	config := DefaultCoordinatorConfig()
+	config.DefaultTransactionTimeout = 50 * time.Millisecond
+	config.MaxTransactionTimeout = time.Second
+	config.ExpirationCheckInterval = 20 * time.Millisecond
+
+	tc := NewTransactionCoordinator(NewMemoryTransactionLog(), config, testLogger())
+	tc.SetMarkerWriter(markers)
+	tc.SetOffsetCommitter(NewMemoryOffsetCommitter())
+	defer tc.Stop()
+
+	initResp, err := tc.InitProducerID(&InitProducerIDRequest{
+		TransactionID:      "txn-expiring",
+		TransactionTimeout: 50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("InitProducerID failed: %v", err)
+	}
+
+	if _, err := tc.AddPartitionsToTxn(&AddPartitionsToTxnRequest{
+		TransactionID: "txn-expiring",
+		ProducerID:    initResp.ProducerID,
+		ProducerEpoch: initResp.ProducerEpoch,
+		Partitions:    []PartitionMetadata{{Topic: "orders", Partition: 0}},
+	}); err != nil {
+		t.Fatalf("AddPartitionsToTxn failed: %v", err)
+	}
+
+	// A transaction abandoned by its producer must still be resolved on the
+	// partition: without an abort marker the partition never learns the
+	// transaction ended, which pins its last stable offset forever and
+	// stalls every read-committed consumer on it.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(markers.Markers()) > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	written := markers.Markers()
+	if len(written) != 1 {
+		t.Fatalf("expired transaction wrote %d markers, want 1", len(written))
+	}
+	if written[0].Marker.Commit {
+		t.Error("expired transaction wrote a commit marker, want abort")
+	}
+	if written[0].Topic != "orders" || written[0].Partition != 0 {
+		t.Errorf("marker went to %s-%d, want orders-0", written[0].Topic, written[0].Partition)
+	}
+
+	state, err := tc.GetTransactionState("txn-expiring")
+	if err != nil {
+		t.Fatalf("GetTransactionState failed: %v", err)
+	}
+	if state != StateCompleteAbort {
+		t.Errorf("state = %v, want StateCompleteAbort", state)
+	}
+}
+
+func TestExpiredTransaction_MarkerFailureLeavesItRetryable(t *testing.T) {
+	writer := &failingMarkerWriter{failTopic: "orders", failPartition: 0}
+
+	config := DefaultCoordinatorConfig()
+	config.DefaultTransactionTimeout = 50 * time.Millisecond
+	config.MaxTransactionTimeout = time.Second
+	config.ExpirationCheckInterval = 20 * time.Millisecond
+
+	tc := NewTransactionCoordinator(NewMemoryTransactionLog(), config, testLogger())
+	tc.SetMarkerWriter(writer)
+	defer tc.Stop()
+
+	initResp, err := tc.InitProducerID(&InitProducerIDRequest{
+		TransactionID:      "txn-stuck",
+		TransactionTimeout: 50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("InitProducerID failed: %v", err)
+	}
+	if _, err := tc.AddPartitionsToTxn(&AddPartitionsToTxnRequest{
+		TransactionID: "txn-stuck",
+		ProducerID:    initResp.ProducerID,
+		ProducerEpoch: initResp.ProducerEpoch,
+		Partitions:    []PartitionMetadata{{Topic: "orders", Partition: 0}},
+	}); err != nil {
+		t.Fatalf("AddPartitionsToTxn failed: %v", err)
+	}
+
+	// Give the expiry sweep several chances to run and fail.
+	time.Sleep(300 * time.Millisecond)
+
+	// It must not be reported as aborted when no marker was written: that
+	// would abandon the partition with nothing left to drive a retry.
+	state, err := tc.GetTransactionState("txn-stuck")
+	if err != nil {
+		t.Fatalf("GetTransactionState failed: %v", err)
+	}
+	if state == StateCompleteAbort {
+		t.Error("transaction reported CompleteAbort despite its abort marker failing to write")
+	}
+}
