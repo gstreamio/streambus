@@ -936,10 +936,12 @@ func TestStreamHandler_MetricsUpdateLoop_UptimeCalculation(t *testing.T) {
 		t.Errorf("Stop failed: %v", err)
 	}
 
-	// Check that uptime was calculated (should be at least 60 seconds)
-	handler.mu.RLock()
-	uptime := handler.metrics.UptimeSeconds
-	handler.mu.RUnlock()
+	// Check that uptime was calculated (should be at least 60 seconds).
+	// Metrics are guarded by the handler's stats lock, not mu.
+	var uptime int64
+	handler.WithStats(func(metrics *ReplicationMetrics, _ *ReplicationHealth) {
+		uptime = metrics.UptimeSeconds
+	})
 
 	if uptime < 60 {
 		t.Logf("Uptime: %d seconds (expected at least 60)", uptime)

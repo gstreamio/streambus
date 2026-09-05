@@ -52,6 +52,18 @@ type StreamHandler struct {
 	// mu protects mutable state
 	mu sync.RWMutex
 
+	// statsMu guards metrics and health.
+	//
+	// These are deliberately not covered by mu: Stop holds mu while waiting
+	// for the worker, health-check and metrics goroutines to exit, so any of
+	// those taking mu would deadlock against a concurrent Stop. They are also
+	// the same objects the link manager exposes through GetMetrics/GetHealth,
+	// which runs under the manager's own lock - so a single lock dedicated to
+	// this state is what keeps the two sides from racing.
+	//
+	// Lock order is always mu then statsMu; never the reverse.
+	statsMu sync.Mutex
+
 	// started indicates if the stream has been started
 	started bool
 
@@ -91,28 +103,19 @@ func NewStreamHandler(link *ReplicationLink, checkpointStore Storage) (*StreamHa
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// The handler takes its own copies of metrics and health rather than
+	// aliasing the link's. Sharing them made the link struct mutable from the
+	// handler's worker goroutines, so anything the manager did with the link -
+	// Clone, SaveLink, ListLinks - raced with replication. The manager reads
+	// live values back through WithStats instead.
 	handler := &StreamHandler{
 		link:             link,
 		partitionWorkers: make(map[string]*partitionWorker),
-		metrics:          link.Metrics,
-		health:           link.Health,
+		metrics:          cloneMetrics(link.Metrics),
+		health:           initialHealth(link.Health),
 		checkpointStore:  checkpointStore,
 		ctx:              ctx,
 		cancel:           cancel,
-	}
-
-	// Initialize metrics if not present
-	if handler.metrics == nil {
-		handler.metrics = &ReplicationMetrics{
-			PartitionMetrics: make(map[string]*PartitionReplicationMetrics),
-		}
-	}
-
-	// Initialize health if not present
-	if handler.health == nil {
-		handler.health = &ReplicationHealth{
-			Status: "initializing",
-		}
 	}
 
 	// Compile filter patterns if filtering is enabled
@@ -175,7 +178,7 @@ func (h *StreamHandler) Start() error {
 	go h.metricsUpdateLoop()
 
 	h.started = true
-	h.health.Status = "healthy"
+	h.setHealthStatus("healthy")
 
 	return nil
 }
@@ -204,7 +207,7 @@ func (h *StreamHandler) Stop() error {
 	}
 
 	h.started = false
-	h.health.Status = "stopped"
+	h.setHealthStatus("stopped")
 
 	return nil
 }
@@ -369,23 +372,14 @@ func (w *partitionWorker) run() {
 			// Fetch and replicate messages
 			if err := w.replicateBatch(); err != nil {
 				w.errors++
-				w.handler.metrics.TotalErrors++
-				w.handler.metrics.ConsecutiveFailures++
-
-				// Check if we should mark as failed
-				if w.handler.metrics.ConsecutiveFailures > int(w.handler.link.FailoverConfig.MaxConsecutiveFailures) {
-					w.handler.health.Status = "unhealthy"
-					w.handler.health.Issues = append(w.handler.health.Issues,
-						fmt.Sprintf("Too many consecutive failures: %d", w.handler.metrics.ConsecutiveFailures))
-				}
+				w.handler.recordReplicationFailure()
 
 				// Backoff on error
 				time.Sleep(time.Duration(w.handler.link.Config.FetchWaitMaxMs) * time.Millisecond)
 				continue
 			}
 
-			// Reset consecutive failures on success
-			w.handler.metrics.ConsecutiveFailures = 0
+			w.handler.recordReplicationSuccess()
 		}
 	}
 }
@@ -443,8 +437,8 @@ func (h *StreamHandler) healthCheckLoop() {
 
 // performHealthCheck checks the health of the replication stream
 func (h *StreamHandler) performHealthCheck() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	h.statsMu.Lock()
+	defer h.statsMu.Unlock()
 
 	h.health.LastHealthCheck = time.Now()
 	h.health.Issues = nil
@@ -500,9 +494,12 @@ func (h *StreamHandler) metricsUpdateLoop() {
 	defer ticker.Stop()
 
 	lastUpdate := time.Now()
+
+	h.statsMu.Lock()
 	lastMessages := h.metrics.TotalMessagesReplicated
 	lastBytes := h.metrics.TotalBytesReplicated
 	lastErrors := h.metrics.TotalErrors
+	h.statsMu.Unlock()
 
 	for {
 		select {
@@ -512,7 +509,7 @@ func (h *StreamHandler) metricsUpdateLoop() {
 			now := time.Now()
 			elapsed := now.Sub(lastUpdate).Seconds()
 
-			h.mu.Lock()
+			h.statsMu.Lock()
 
 			// Calculate rates
 			messagesDelta := h.metrics.TotalMessagesReplicated - lastMessages
@@ -534,9 +531,76 @@ func (h *StreamHandler) metricsUpdateLoop() {
 				h.metrics.UptimeSeconds = int64(time.Since(h.link.StartedAt).Seconds())
 			}
 
-			h.mu.Unlock()
+			h.statsMu.Unlock()
 		}
 	}
+}
+
+// initialHealth returns the handler's starting health. A link that has never
+// run carries no health of its own, and a handler that has been constructed
+// but not started is initializing rather than of unknown health.
+func initialHealth(source *ReplicationHealth) *ReplicationHealth {
+	if source == nil {
+		return &ReplicationHealth{Status: "initializing"}
+	}
+	return cloneHealth(source)
+}
+
+// setHealthStatus records the stream's overall health status.
+func (h *StreamHandler) setHealthStatus(status string) {
+	h.statsMu.Lock()
+	defer h.statsMu.Unlock()
+	h.health.Status = status
+}
+
+// recordReplicationFailure counts a failed replication batch and marks the
+// stream unhealthy once failures pass the link's tolerance.
+func (h *StreamHandler) recordReplicationFailure() {
+	h.statsMu.Lock()
+	defer h.statsMu.Unlock()
+
+	h.metrics.TotalErrors++
+	h.metrics.ConsecutiveFailures++
+
+	maxFailures := 0
+	if h.link.FailoverConfig != nil {
+		maxFailures = int(h.link.FailoverConfig.MaxConsecutiveFailures)
+	}
+	if maxFailures > 0 && h.metrics.ConsecutiveFailures > maxFailures {
+		h.health.Status = "unhealthy"
+		h.health.Issues = append(h.health.Issues,
+			fmt.Sprintf("Too many consecutive failures: %d", h.metrics.ConsecutiveFailures))
+	}
+}
+
+// recordReplicationSuccess clears the consecutive-failure counter.
+func (h *StreamHandler) recordReplicationSuccess() {
+	h.statsMu.Lock()
+	defer h.statsMu.Unlock()
+	h.metrics.ConsecutiveFailures = 0
+}
+
+// ResetFailureStats clears failure counters and health issues, used when a
+// link is (re)started.
+func (h *StreamHandler) ResetFailureStats() {
+	h.statsMu.Lock()
+	defer h.statsMu.Unlock()
+
+	h.metrics.ConsecutiveFailures = 0
+	h.health.Status = "healthy"
+	h.health.Issues = nil
+	h.health.Warnings = nil
+}
+
+// WithStats runs fn with exclusive access to the stream's metrics and health.
+//
+// The link manager holds the same pointers and must read them under this lock
+// while the stream is running, otherwise a snapshot races with the worker and
+// health-check goroutines updating them.
+func (h *StreamHandler) WithStats(fn func(metrics *ReplicationMetrics, health *ReplicationHealth)) {
+	h.statsMu.Lock()
+	defer h.statsMu.Unlock()
+	fn(h.metrics, h.health)
 }
 
 // compileFilterPatterns compiles regex patterns for message filtering

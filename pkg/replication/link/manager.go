@@ -279,17 +279,10 @@ func (m *manager) StartLink(linkID string) error {
 	link.StartedAt = time.Now()
 	link.UpdatedAt = time.Now()
 
-	// Reset consecutive failures
-	if link.Metrics != nil {
-		link.Metrics.ConsecutiveFailures = 0
-	}
-
-	// Update health
-	if link.Health != nil {
-		link.Health.Status = "healthy"
-		link.Health.Issues = nil
-		link.Health.Warnings = nil
-	}
+	// Clear failure counters and health issues through the handler: it shares
+	// these pointers with its worker and health-check goroutines, so writing
+	// them here directly would race with those.
+	handler.ResetFailureStats()
 
 	// Persist status change
 	if m.storage != nil {
@@ -413,25 +406,46 @@ func (m *manager) GetMetrics(linkID string) (*ReplicationMetrics, error) {
 		}, nil
 	}
 
-	// Clone metrics to prevent modification
-	metrics := &ReplicationMetrics{
-		TotalMessagesReplicated:   link.Metrics.TotalMessagesReplicated,
-		TotalBytesReplicated:      link.Metrics.TotalBytesReplicated,
-		MessagesPerSecond:         link.Metrics.MessagesPerSecond,
-		BytesPerSecond:            link.Metrics.BytesPerSecond,
-		ReplicationLag:            link.Metrics.ReplicationLag,
-		AverageReplicationLag:     link.Metrics.AverageReplicationLag,
-		MaxReplicationLag:         link.Metrics.MaxReplicationLag,
-		TotalErrors:               link.Metrics.TotalErrors,
-		ErrorsPerSecond:           link.Metrics.ErrorsPerSecond,
-		LastCheckpoint:            link.Metrics.LastCheckpoint,
-		LastSuccessfulReplication: link.Metrics.LastSuccessfulReplication,
-		PartitionMetrics:          make(map[string]*PartitionReplicationMetrics),
-		ConsecutiveFailures:       link.Metrics.ConsecutiveFailures,
-		UptimeSeconds:             link.Metrics.UptimeSeconds,
+	// A running stream mutates these fields from its own goroutines, so take
+	// its stats lock for the duration of the copy.
+	if handler, running := m.streamHandlers[linkID]; running {
+		var snapshot *ReplicationMetrics
+		handler.WithStats(func(metrics *ReplicationMetrics, _ *ReplicationHealth) {
+			snapshot = cloneMetrics(metrics)
+		})
+		return snapshot, nil
 	}
 
-	for k, v := range link.Metrics.PartitionMetrics {
+	return cloneMetrics(link.Metrics), nil
+}
+
+// cloneMetrics deep-copies replication metrics so callers cannot mutate live
+// stream state through the returned value.
+func cloneMetrics(source *ReplicationMetrics) *ReplicationMetrics {
+	if source == nil {
+		return &ReplicationMetrics{
+			PartitionMetrics: make(map[string]*PartitionReplicationMetrics),
+		}
+	}
+
+	metrics := &ReplicationMetrics{
+		TotalMessagesReplicated:   source.TotalMessagesReplicated,
+		TotalBytesReplicated:      source.TotalBytesReplicated,
+		MessagesPerSecond:         source.MessagesPerSecond,
+		BytesPerSecond:            source.BytesPerSecond,
+		ReplicationLag:            source.ReplicationLag,
+		AverageReplicationLag:     source.AverageReplicationLag,
+		MaxReplicationLag:         source.MaxReplicationLag,
+		TotalErrors:               source.TotalErrors,
+		ErrorsPerSecond:           source.ErrorsPerSecond,
+		LastCheckpoint:            source.LastCheckpoint,
+		LastSuccessfulReplication: source.LastSuccessfulReplication,
+		PartitionMetrics:          make(map[string]*PartitionReplicationMetrics, len(source.PartitionMetrics)),
+		ConsecutiveFailures:       source.ConsecutiveFailures,
+		UptimeSeconds:             source.UptimeSeconds,
+	}
+
+	for k, v := range source.PartitionMetrics {
 		metrics.PartitionMetrics[k] = &PartitionReplicationMetrics{
 			Topic:              v.Topic,
 			Partition:          v.Partition,
@@ -445,7 +459,7 @@ func (m *manager) GetMetrics(linkID string) (*ReplicationMetrics, error) {
 		}
 	}
 
-	return metrics, nil
+	return metrics
 }
 
 // GetHealth retrieves health status for a replication link
@@ -464,20 +478,37 @@ func (m *manager) GetHealth(linkID string) (*ReplicationHealth, error) {
 		}, nil
 	}
 
-	// Clone health to prevent modification
-	health := &ReplicationHealth{
-		Status:                 link.Health.Status,
-		LastHealthCheck:        link.Health.LastHealthCheck,
-		SourceClusterReachable: link.Health.SourceClusterReachable,
-		TargetClusterReachable: link.Health.TargetClusterReachable,
-		ReplicationLagHealthy:  link.Health.ReplicationLagHealthy,
-		ErrorRateHealthy:       link.Health.ErrorRateHealthy,
-		CheckpointHealthy:      link.Health.CheckpointHealthy,
-		Issues:                 append([]string{}, link.Health.Issues...),
-		Warnings:               append([]string{}, link.Health.Warnings...),
+	// A running stream mutates health from its health-check goroutine, so
+	// take its stats lock for the duration of the copy.
+	if handler, running := m.streamHandlers[linkID]; running {
+		var snapshot *ReplicationHealth
+		handler.WithStats(func(_ *ReplicationMetrics, health *ReplicationHealth) {
+			snapshot = cloneHealth(health)
+		})
+		return snapshot, nil
 	}
 
-	return health, nil
+	return cloneHealth(link.Health), nil
+}
+
+// cloneHealth deep-copies replication health so callers cannot mutate live
+// stream state through the returned value.
+func cloneHealth(source *ReplicationHealth) *ReplicationHealth {
+	if source == nil {
+		return &ReplicationHealth{Status: "unknown"}
+	}
+
+	return &ReplicationHealth{
+		Status:                 source.Status,
+		LastHealthCheck:        source.LastHealthCheck,
+		SourceClusterReachable: source.SourceClusterReachable,
+		TargetClusterReachable: source.TargetClusterReachable,
+		ReplicationLagHealthy:  source.ReplicationLagHealthy,
+		ErrorRateHealthy:       source.ErrorRateHealthy,
+		CheckpointHealthy:      source.CheckpointHealthy,
+		Issues:                 append([]string{}, source.Issues...),
+		Warnings:               append([]string{}, source.Warnings...),
+	}
 }
 
 // Failover triggers a manual failover
