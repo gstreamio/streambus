@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -56,6 +57,28 @@ func (a *adminClient) getJSON(ctx context.Context, path string, out interface{})
 
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 		return fmt.Errorf("decoding admin API response: %w", err)
+	}
+	return nil
+}
+
+// deleteJSON issues a DELETE to path. The admin API's delete endpoints
+// respond with 204 No Content and no JSON body on success, so there is
+// nothing to decode - only the status matters.
+func (a *adminClient) deleteJSON(ctx context.Context, path string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, a.baseURL+path, nil)
+	if err != nil {
+		return fmt.Errorf("building request: %w", err)
+	}
+
+	resp, err := a.httpClient.Do(req) //nolint:gosec // baseURL comes from the operator's own --admin-addr flag, not untrusted input
+	if err != nil {
+		return fmt.Errorf("calling admin API at %s: %w", a.baseURL, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("admin API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return nil
 }
@@ -131,4 +154,76 @@ func (a *adminClient) ConsumerGroups(ctx context.Context) ([]ConsumerGroupInfo, 
 		return nil, err
 	}
 	return groups, nil
+}
+
+// ConsumerGroup fetches a single consumer group's detail, including its
+// members, from GET /api/v1/consumer-groups/:id.
+func (a *adminClient) ConsumerGroup(ctx context.Context, groupID string) (*ConsumerGroupInfo, error) {
+	var group ConsumerGroupInfo
+	path := "/api/v1/consumer-groups/" + url.PathEscape(groupID)
+	if err := a.getJSON(ctx, path, &group); err != nil {
+		return nil, err
+	}
+	return &group, nil
+}
+
+// DeleteConsumerGroup deletes a consumer group via
+// DELETE /api/v1/consumer-groups/:id. The admin API rejects a group that
+// still has active members (409) and reports an unknown group as 404;
+// deleteJSON surfaces both as an error whose text names which happened.
+func (a *adminClient) DeleteConsumerGroup(ctx context.Context, groupID string) error {
+	return a.deleteJSON(ctx, "/api/v1/consumer-groups/"+url.PathEscape(groupID))
+}
+
+// TopicInfo mirrors the JSON shape of broker.TopicResponse, as returned by
+// GET /api/v1/topics/:name. Its Partitions field now carries real
+// leader/replicas/ISR/offsets - pkg/broker/admin_api.go's getTopic and
+// handleTopicPartitions both build it through the same buildPartitionInfos
+// helper - so a single call here carries everything topic describe needs.
+type TopicInfo struct {
+	Name              string          `json:"name"`
+	NumPartitions     int             `json:"num_partitions"`
+	ReplicationFactor int             `json:"replication_factor"`
+	Partitions        []PartitionInfo `json:"partitions,omitempty"`
+}
+
+// PartitionInfo mirrors the JSON shape of broker.PartitionInfo, as returned
+// by GET /api/v1/topics/:name and GET /api/v1/topics/:name/partitions.
+type PartitionInfo struct {
+	ID              int32   `json:"id"`
+	Leader          int32   `json:"leader"`
+	Replicas        []int32 `json:"replicas"`
+	ISR             []int32 `json:"isr"`
+	BeginningOffset int64   `json:"beginning_offset"`
+	EndOffset       int64   `json:"end_offset"`
+	MessageCount    int64   `json:"message_count"`
+}
+
+// Topic fetches a single topic's metadata, including per-partition detail,
+// from GET /api/v1/topics/:name.
+func (a *adminClient) Topic(ctx context.Context, name string) (*TopicInfo, error) {
+	var topic TopicInfo
+	if err := a.getJSON(ctx, "/api/v1/topics/"+url.PathEscape(name), &topic); err != nil {
+		return nil, err
+	}
+	return &topic, nil
+}
+
+// TopicPartitions fetches per-partition detail directly from
+// GET /api/v1/topics/:name/partitions, without the rest of the topic's
+// metadata. Topic above now returns the same partition detail alongside
+// name/replication-factor, so this exists for callers that only want the
+// partitions - it is not used by "topic describe" any more.
+func (a *adminClient) TopicPartitions(ctx context.Context, name string) ([]PartitionInfo, error) {
+	var partitions []PartitionInfo
+	path := "/api/v1/topics/" + url.PathEscape(name) + "/partitions"
+	if err := a.getJSON(ctx, path, &partitions); err != nil {
+		return nil, err
+	}
+	return partitions, nil
+}
+
+// DeleteTopic deletes a topic via DELETE /api/v1/topics/:name.
+func (a *adminClient) DeleteTopic(ctx context.Context, name string) error {
+	return a.deleteJSON(ctx, "/api/v1/topics/"+url.PathEscape(name))
 }

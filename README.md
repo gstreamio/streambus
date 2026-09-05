@@ -473,10 +473,6 @@ docker-compose up -d
 - Structured logging
 - Grafana dashboards
 
-### In Development 🚧
-
-- Additional admin tooling
-
 ### Known Limitations ⚠️
 
 - **Pinning the record format to v2 disables transactions.** A rolling upgrade
