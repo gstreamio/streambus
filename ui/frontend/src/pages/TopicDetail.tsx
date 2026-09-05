@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useParams, Link } from 'react-router-dom'
 import { api } from '../lib/api'
-import { ArrowLeft, Database, HardDrive } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { formatBytes, formatNumber } from '../lib/utils'
 
 export default function TopicDetail() {
