@@ -23,6 +23,17 @@ BENCHMEM="${BENCHMEM:-true}"
 # Create results directory
 mkdir -p "$RESULTS_DIR"
 
+# bench/ is its own Go module, so the benchmarks have to be run from inside it
+# (see the subshell further down). Profile and trace paths come from the caller
+# and are relative to where they invoked us, so anchor them here - before the
+# cd - or they would silently land in bench/ instead.
+abspath() {
+    case "$1" in
+        /*) printf '%s\n' "$1" ;;
+        *)  printf '%s/%s\n' "$PWD" "$1" ;;
+    esac
+}
+
 # Print colored message
 print_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -125,15 +136,15 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --cpu-profile)
-            CPU_PROFILE="-cpuprofile=$2"
+            CPU_PROFILE="-cpuprofile=$(abspath "$2")"
             shift 2
             ;;
         --mem-profile)
-            MEM_PROFILE="-memprofile=$2"
+            MEM_PROFILE="-memprofile=$(abspath "$2")"
             shift 2
             ;;
         --trace)
-            TRACE_FILE="-trace=$2"
+            TRACE_FILE="-trace=$(abspath "$2")"
             shift 2
             ;;
         all|throughput|latency|concurrent|storage)
@@ -221,7 +232,12 @@ fi
 print_info "Running benchmarks..."
 echo ""
 
-if go test -bench="$BENCH_PATTERN" $BENCH_FLAGS ./"$BENCHMARK_DIR" > "$CURRENT_FILE" 2>&1; then
+# Run from inside bench/ rather than as ./bench from the repo root: bench has
+# its own go.mod, so it is not a package of the main module and `go test
+# ./bench` fails outright with "main module does not contain package". The
+# redirect stays outside the subshell so CURRENT_FILE is still resolved from
+# the repo root.
+if (cd "$BENCHMARK_DIR" && go test -bench="$BENCH_PATTERN" $BENCH_FLAGS .) > "$CURRENT_FILE" 2>&1; then
     print_success "Benchmarks completed successfully"
 else
     print_error "Benchmarks failed"
