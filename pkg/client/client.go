@@ -14,6 +14,10 @@ type Client struct {
 	config *Config
 	pool   *ConnectionPool
 
+	// coordCache remembers, per group ID or transactional ID, which broker
+	// FindCoordinator last named as the coordinator. See coordination.go.
+	coordCache *coordinatorCache
+
 	// Lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -43,11 +47,12 @@ func New(config *Config) (*Client, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	client := &Client{
-		config:    config,
-		pool:      NewConnectionPool(config),
-		ctx:       ctx,
-		cancel:    cancel,
-		startTime: time.Now(),
+		config:     config,
+		pool:       NewConnectionPool(config),
+		coordCache: newCoordinatorCache(),
+		ctx:        ctx,
+		cancel:     cancel,
+		startTime:  time.Now(),
 	}
 
 	return client, nil
@@ -361,10 +366,11 @@ func (c *Client) Fetch(ctx context.Context, req *FetchRequest) (*FetchResponse, 
 			Flags:   protocol.FlagNone,
 		},
 		Payload: &protocol.FetchRequest{
-			Topic:       req.Topic,
-			PartitionID: uint32(req.Partition),
-			Offset:      req.Offset,
-			MaxBytes:    uint32(req.MaxBytes),
+			Topic:          req.Topic,
+			PartitionID:    uint32(req.Partition),
+			Offset:         req.Offset,
+			MaxBytes:       uint32(req.MaxBytes),
+			IsolationLevel: req.IsolationLevel,
 		},
 	}
 
@@ -378,10 +384,12 @@ func (c *Client) Fetch(ctx context.Context, req *FetchRequest) (*FetchResponse, 
 	// Parse response
 	if fetchResp, ok := resp.Payload.(*protocol.FetchResponse); ok {
 		return &FetchResponse{
-			Topic:         fetchResp.Topic,
-			Partition:     int32(fetchResp.PartitionID),
-			Messages:      fetchResp.Messages,
-			HighWaterMark: fetchResp.HighWaterMark,
+			Topic:            fetchResp.Topic,
+			Partition:        int32(fetchResp.PartitionID),
+			Messages:         fetchResp.Messages,
+			HighWaterMark:    fetchResp.HighWaterMark,
+			LastStableOffset: fetchResp.LastStableOffset,
+			NextOffset:       fetchResp.NextOffset,
 		}, nil
 	}
 
@@ -419,6 +427,11 @@ type FetchRequest struct {
 	Partition int32
 	Offset    int64
 	MaxBytes  int32
+	// IsolationLevel selects whether the fetch can see records from
+	// transactions that have not committed or aborted yet. It defaults to
+	// protocol.IsolationReadUncommitted (the zero value), so an existing
+	// caller that never sets it keeps its current behavior.
+	IsolationLevel protocol.IsolationLevel
 }
 
 // FetchResponse represents a fetch response
@@ -427,4 +440,12 @@ type FetchResponse struct {
 	Partition     int32
 	Messages      []protocol.Message
 	HighWaterMark int64
+	// LastStableOffset is the offset a read-committed fetch is clamped to;
+	// see protocol.FetchResponse.
+	LastStableOffset int64
+	// NextOffset is the offset to resume from, accounting for any control
+	// records the broker filtered out of Messages; see
+	// protocol.FetchResponse. A caller managing its own offset should prefer
+	// this over Messages[len-1].Offset+1 for exactly that reason.
+	NextOffset int64
 }

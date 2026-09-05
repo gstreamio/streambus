@@ -26,6 +26,16 @@ type ProduceRequest struct {
 	// If set (> 0) and doesn't match current leader epoch, request is rejected
 	// with ErrFencedLeaderEpoch. This prevents split-brain scenarios.
 	LeaderEpoch int64
+	// ProducerID and ProducerEpoch identify the transactional producer this
+	// batch belongs to, mirroring storage.MessageBatch. Zero means the batch
+	// is not part of a transaction: that is both the default for a caller
+	// who never sets these fields and the value an idempotent-only producer
+	// sends, so the broker cannot mistake plain writes for transactional
+	// ones. A non-zero ProducerID lets the broker track the offset a
+	// transaction started at (see Partition.BeginTransaction) so
+	// read-committed fetches know where to stop until its marker lands.
+	ProducerID    int64
+	ProducerEpoch int16
 }
 
 // FetchRequest represents a fetch request
@@ -34,6 +44,11 @@ type FetchRequest struct {
 	PartitionID uint32
 	Offset      int64
 	MaxBytes    uint32
+	// IsolationLevel selects whether the fetch can see records from
+	// transactions that have not yet committed or aborted. It defaults to
+	// IsolationReadUncommitted (the zero value), which is also what an older
+	// client that predates isolation levels effectively sends.
+	IsolationLevel IsolationLevel
 }
 
 // GetOffsetRequest represents a get offset request

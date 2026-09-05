@@ -1,6 +1,7 @@
 package server
 
 import (
+	"slices"
 	"sort"
 
 	"github.com/gstreamio/streambus/pkg/consumer/group"
@@ -16,15 +17,31 @@ import (
 type CoordinationHandler struct {
 	baseHandler RequestHandler
 	coordinator *group.GroupCoordinator
+	locator     CoordinatorLocator
+}
+
+// CoordinatorLocator resolves a coordination key (a group ID or a
+// transactional ID) to the broker that coordinates it. It is defined here
+// rather than imported from pkg/cluster so pkg/server does not need to depend
+// on cluster membership internals - the broker package supplies the
+// implementation that does.
+type CoordinatorLocator interface {
+	// FindCoordinator returns the coordinating broker's ID, host and port for
+	// key. A non-zero ErrorCode (e.g. protocol.ErrNotCoordinator) means the
+	// other return values carry no meaning.
+	FindCoordinator(keyType protocol.CoordinatorKeyType, key string) (nodeID int32, host string, port int32, errCode protocol.ErrorCode)
 }
 
 // NewCoordinationHandler wraps baseHandler so consumer group requests are
-// served by coordinator. A nil coordinator makes group requests fail with
-// ErrNotCoordinator rather than being silently ignored.
-func NewCoordinationHandler(baseHandler RequestHandler, coordinator *group.GroupCoordinator) *CoordinationHandler {
+// served by coordinator and FindCoordinator requests are served by locator. A
+// nil coordinator makes group requests fail with ErrNotCoordinator rather
+// than being silently ignored; a nil locator does the same for
+// FindCoordinator.
+func NewCoordinationHandler(baseHandler RequestHandler, coordinator *group.GroupCoordinator, locator CoordinatorLocator) *CoordinationHandler {
 	return &CoordinationHandler{
 		baseHandler: baseHandler,
 		coordinator: coordinator,
+		locator:     locator,
 	}
 }
 
@@ -43,6 +60,8 @@ func (h *CoordinationHandler) Handle(req *protocol.Request) *protocol.Response {
 		return h.handleOffsetCommit(req)
 	case protocol.RequestTypeOffsetFetch:
 		return h.handleOffsetFetch(req)
+	case protocol.RequestTypeFindCoordinator:
+		return h.handleFindCoordinator(req)
 	default:
 		return h.baseHandler.Handle(req)
 	}
@@ -59,7 +78,7 @@ func (h *CoordinationHandler) available(req *protocol.Request) *protocol.Respons
 }
 
 // okResponse builds a successful response carrying a coordination payload.
-func okResponse(requestID uint64, payload interface{}) *protocol.Response {
+func okResponse(requestID uint64, payload any) *protocol.Response {
 	return &protocol.Response{
 		Header: protocol.ResponseHeader{
 			RequestID: requestID,
@@ -285,6 +304,29 @@ func (h *CoordinationHandler) handleOffsetFetch(req *protocol.Request) *protocol
 	})
 }
 
+func (h *CoordinationHandler) handleFindCoordinator(req *protocol.Request) *protocol.Response {
+	payload, ok := req.Payload.(*protocol.FindCoordinatorRequest)
+	if !ok {
+		return badRequest(req.Header.RequestID, "FindCoordinatorRequest")
+	}
+
+	// Unlike the group requests above, there is no coordinator-unavailable
+	// transport error here: an unresolvable key is a normal outcome (e.g. no
+	// live brokers) that the caller distinguishes via the response's
+	// ErrorCode, not by the request failing outright.
+	if h.locator == nil {
+		return okResponse(req.Header.RequestID, &protocol.FindCoordinatorResponse{ErrorCode: protocol.ErrNotCoordinator})
+	}
+
+	nodeID, host, port, errCode := h.locator.FindCoordinator(payload.KeyType, payload.Key)
+	return okResponse(req.Header.RequestID, &protocol.FindCoordinatorResponse{
+		ErrorCode: errCode,
+		NodeID:    nodeID,
+		Host:      host,
+		Port:      port,
+	})
+}
+
 // buildOffsetFetchTopics converts coordinator offsets into wire form. When the
 // request named topics, the response follows that order; when it asked for
 // everything, topics are sorted so the response is deterministic.
@@ -377,6 +419,6 @@ func sortedPartitionIDs(partitions map[int32]group.OffsetFetchData) []int32 {
 	for id := range partitions {
 		ids = append(ids, id)
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	slices.Sort(ids)
 	return ids
 }

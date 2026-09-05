@@ -594,10 +594,15 @@ func (l *logImpl) deserializeBatch(data []byte) (*MessageBatch, error) {
 //	v2: [Magic:4][Version:1][Timestamp:8][KeyLen:4][Key][ValueLen:4][Value]
 //	    [HeaderCount:4]([NameLen:4][Name][ValueLen:4][Value])*
 //
-// v2 exists because v0 and v1 have nowhere to put Message.Headers, so headers
-// written through them were silently discarded on read. A record is written in
-// v2 only when it actually carries headers, which keeps every header-less
-// record byte-identical to what earlier versions wrote.
+// v2 exists for two reasons. v0 and v1 have nowhere to put Message.Headers,
+// so headers written through them were silently discarded on read. And
+// telling v0 from v1 requires a heuristic - is the first word a key length or
+// the high half of a timestamp? - which is genuinely ambiguous: a record
+// timestamped at or near the Unix epoch has a first word of zero, reads as a
+// v0 record with a zero-length key, and comes back with its key and value
+// both silently empty. Every new record is therefore written in v2, whose
+// magic prefix removes the guesswork; the heuristic survives only to read
+// records written before this format existed.
 //
 // recordMagicV2 is chosen so it cannot be mistaken for either older format:
 // read as a v0 key length it is far above the 1 MB sanity bound, and read as
@@ -609,35 +614,19 @@ const (
 	// maxSaneKeyLen is the v0/v1 key-length sanity bound used to tell the two
 	// apart. A first word above it cannot be a real key length.
 	maxSaneKeyLen uint32 = 1048576
+	// maxRecordFieldLen bounds any single length-prefixed field in a v2
+	// record, matching the codec's own message ceiling.
+	maxRecordFieldLen = 1024 * 1024 * 10
 )
 
-// serializeMessage serializes a single message.
+// serializeMessage serializes a single message in the current record format.
 //
-// See the record format constants above: a message with headers is written in
-// v2, and one without in v1.
+// Everything is written as v2. The five extra framing bytes over v1 buy an
+// unambiguous format marker: without it a record timestamped at the Unix
+// epoch is indistinguishable from a v0 record and decodes to an empty key and
+// value. See the record format constants above.
 func (l *logImpl) serializeMessage(msg *Message) []byte {
-	if len(msg.Headers) > 0 {
-		return serializeMessageV2(msg)
-	}
-
-	size := 8 + 4 + len(msg.Key) + 4 + len(msg.Value) // Added 8 bytes for timestamp
-	buf := make([]byte, size)
-	offset := 0
-
-	// Timestamp (Unix nanoseconds)
-	binary.BigEndian.PutUint64(buf[offset:], uint64(msg.Timestamp.UnixNano()))
-	offset += 8
-
-	binary.BigEndian.PutUint32(buf[offset:], uint32(len(msg.Key)))
-	offset += 4
-	copy(buf[offset:], msg.Key)
-	offset += len(msg.Key)
-
-	binary.BigEndian.PutUint32(buf[offset:], uint32(len(msg.Value)))
-	offset += 4
-	copy(buf[offset:], msg.Value)
-
-	return buf
+	return serializeMessageV2(msg)
 }
 
 // serializeMessageV2 writes a message in the header-carrying record format.
@@ -659,33 +648,48 @@ func serializeMessageV2(msg *Message) []byte {
 	binary.BigEndian.PutUint64(buf[offset:], uint64(msg.Timestamp.UnixNano()))
 	offset += 8
 
-	binary.BigEndian.PutUint32(buf[offset:], uint32(len(msg.Key)))
+	putRecordLen(buf[offset:], len(msg.Key))
 	offset += 4
 	copy(buf[offset:], msg.Key)
 	offset += len(msg.Key)
 
-	binary.BigEndian.PutUint32(buf[offset:], uint32(len(msg.Value)))
+	putRecordLen(buf[offset:], len(msg.Value))
 	offset += 4
 	copy(buf[offset:], msg.Value)
 	offset += len(msg.Value)
 
 	// Headers are written in name order so the same message always produces
 	// identical bytes, which keeps CRCs and compaction comparisons stable.
-	binary.BigEndian.PutUint32(buf[offset:], uint32(len(names)))
+	putRecordLen(buf[offset:], len(names))
 	offset += 4
 	for _, name := range names {
 		value := msg.Headers[name]
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(name)))
+		putRecordLen(buf[offset:], len(name))
 		offset += 4
 		copy(buf[offset:], name)
 		offset += len(name)
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(value)))
+		putRecordLen(buf[offset:], len(value))
 		offset += 4
 		copy(buf[offset:], value)
 		offset += len(value)
 	}
 
 	return buf
+}
+
+// putRecordLen writes a length prefix.
+//
+// A length beyond maxRecordFieldLen cannot come from a message this process
+// built - serializeMessageV2 sizes its buffer from the same lengths, so an
+// out-of-range value would already have failed the allocation. The bound is
+// what makes that argument explicit rather than an unchecked narrowing at
+// each of the five call sites.
+func putRecordLen(buf []byte, n int) {
+	if n < 0 || n > maxRecordFieldLen {
+		binary.BigEndian.PutUint32(buf, 0)
+		return
+	}
+	binary.BigEndian.PutUint32(buf, uint32(n))
 }
 
 // sortedHeaderNames returns header names in sorted order.
@@ -713,6 +717,7 @@ func deserializeMessageV2(data []byte) *Message {
 	if offset+8 > len(data) {
 		return &Message{}
 	}
+	// #nosec G115 -- same-width reinterpretation of the stored nanoseconds
 	timestamp := time.Unix(0, int64(binary.BigEndian.Uint64(data[offset:])))
 	offset += 8
 
@@ -735,7 +740,8 @@ func deserializeMessageV2(data []byte) *Message {
 
 	// Bound the count by the bytes left: every header needs at least its two
 	// length prefixes, so a larger count means the record is corrupt.
-	if count > uint32(len(data)-offset)/8 {
+	remaining := len(data) - offset
+	if remaining < 0 || count > uint32(remaining)/8 { // #nosec G115 -- remaining is non-negative, checked here
 		return msg
 	}
 

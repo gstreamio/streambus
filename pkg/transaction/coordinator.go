@@ -635,26 +635,46 @@ func (tc *TransactionCoordinator) checkExpiredTransactions() {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
 
-	now := time.Now()
+	now := tc.now()
 	for txnID, txn := range tc.transactions {
-		if txn.State == StateOngoing && txn.IsExpired() {
-			tc.logger.Warn("Transaction expired, aborting", logging.Fields{
-				"transaction_id": txnID,
-				"age":            now.Sub(txn.StartTime),
-			})
-
-			// Abort expired transaction
-			txn.State = StatePrepareAbort
-			txn.LastUpdateTime = now
-			tc.logTransaction(txn)
-
-			txn.State = StateCompleteAbort
-			txn.LastUpdateTime = now
-			tc.logTransaction(txn)
-
-			// Schedule cleanup
-			go tc.scheduleTransactionCleanup(txnID)
+		if txn.State != StateOngoing || !txn.IsExpired() {
+			continue
 		}
+
+		tc.logger.Warn("Transaction expired, aborting", logging.Fields{
+			"transaction_id": txnID,
+			"age":            now.Sub(txn.StartTime),
+		})
+
+		// Abort expired transaction. This must write abort markers exactly
+		// as an explicit EndTxn does: a partition learns a transaction is
+		// resolved only from its marker, so skipping them would leave the
+		// transaction hanging there forever - pinning the partition's last
+		// stable offset and stalling every read-committed consumer on it.
+		txn.State = StatePrepareAbort
+		txn.LastUpdateTime = now
+		tc.logTransaction(txn)
+
+		if err := tc.writeMarkers(txn, false); err != nil {
+			// Leave it in PrepareAbort so the next sweep retries. Advancing
+			// to CompleteAbort here would abandon partitions that never got
+			// a marker, with nothing left to drive a retry.
+			tc.logger.Error("Failed to write abort markers for expired transaction", err,
+				logging.Fields{"transaction_id": string(txnID)})
+			txn.State = StateOngoing
+			continue
+		}
+
+		// An expired transaction never commits, so its pending offsets are
+		// discarded rather than published.
+		txn.PendingOffsets = nil
+
+		txn.State = StateCompleteAbort
+		txn.LastUpdateTime = now
+		tc.logTransaction(txn)
+
+		// Schedule cleanup
+		go tc.scheduleTransactionCleanup(txnID)
 	}
 }
 

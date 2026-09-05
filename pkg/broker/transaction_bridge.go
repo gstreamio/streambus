@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gstreamio/streambus/pkg/consumer/group"
+	"github.com/gstreamio/streambus/pkg/protocol"
 	"github.com/gstreamio/streambus/pkg/server"
 	"github.com/gstreamio/streambus/pkg/storage"
 	"github.com/gstreamio/streambus/pkg/transaction"
@@ -16,19 +17,17 @@ import (
 // occupies an offset in the partition and is recovered with the rest of the
 // log. Consumers reading with read-committed semantics use them to tell a
 // control record apart from user data.
+//
+// These alias the definitions in pkg/protocol rather than restating them:
+// the fetch path (pkg/server) has to recognize the same headers to hide
+// markers from consumers, and protocol is the one package both sides
+// already depend on.
 const (
-	// ControlHeaderKey marks a record as a control record; its value names
-	// the kind of control record.
-	ControlHeaderKey = "streambus.control"
-	// ControlTypeTxnMarker is the ControlHeaderKey value for a transaction
-	// commit or abort marker.
-	ControlTypeTxnMarker = "txn-marker"
-	// TxnCommitHeaderKey holds "true" for a commit marker, "false" for abort.
-	TxnCommitHeaderKey = "streambus.txn.commit"
-	// TxnProducerIDHeaderKey holds the producer ID the marker belongs to.
-	TxnProducerIDHeaderKey = "streambus.txn.producer_id"
-	// TxnProducerEpochHeaderKey holds the producer epoch.
-	TxnProducerEpochHeaderKey = "streambus.txn.producer_epoch"
+	ControlHeaderKey          = protocol.ControlHeaderKey
+	ControlTypeTxnMarker      = protocol.ControlTypeTxnMarker
+	TxnCommitHeaderKey        = protocol.TxnCommitHeaderKey
+	TxnProducerIDHeaderKey    = protocol.TxnProducerIDHeaderKey
+	TxnProducerEpochHeaderKey = protocol.TxnProducerEpochHeaderKey
 )
 
 // logMarkerWriter writes transaction markers into real partition logs.
@@ -68,12 +67,8 @@ func (w *logMarkerWriter) WriteMarker(topic string, partitionID int32, marker *t
 	record := storage.Message{
 		Value:     nil,
 		Timestamp: timestamp,
-		Headers: map[string][]byte{
-			ControlHeaderKey:          []byte(ControlTypeTxnMarker),
-			TxnCommitHeaderKey:        []byte(formatBool(marker.Commit)),
-			TxnProducerIDHeaderKey:    []byte(fmt.Sprintf("%d", marker.ProducerID)),
-			TxnProducerEpochHeaderKey: []byte(fmt.Sprintf("%d", marker.ProducerEpoch)),
-		},
+		Headers: protocol.TransactionMarkerHeaders(
+			int64(marker.ProducerID), int16(marker.ProducerEpoch), marker.Commit),
 	}
 
 	log := partition.Log()
@@ -93,15 +88,13 @@ func (w *logMarkerWriter) WriteMarker(topic string, partitionID int32, marker *t
 		return fmt.Errorf("flushing marker: %w", err)
 	}
 
-	return nil
-}
+	// The transaction is resolved now - committed or aborted, it no longer
+	// blocks read-committed fetches. Clearing this after the marker is
+	// durable (not before) means a fetch can never observe the barrier
+	// lifted for a transaction whose marker isn't actually on the log yet.
+	partition.EndTransaction(int64(marker.ProducerID), int16(marker.ProducerEpoch))
 
-// formatBool renders a bool for a header value.
-func formatBool(v bool) string {
-	if v {
-		return "true"
-	}
-	return "false"
+	return nil
 }
 
 // groupOffsetCommitter publishes transactional offsets to the consumer group

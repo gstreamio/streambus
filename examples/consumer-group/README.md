@@ -1,8 +1,7 @@
 # StreamBus Consumer Group Example
 
-> **Note**: consumer group state lives in broker memory and does not survive a
-> broker restart, and the first configured broker acts as coordinator for every
-> group (there is no `FindCoordinator` request yet).
+> **Note**: committed offsets are persisted under the broker's data directory
+> and survive a restart. Group membership is rebuilt as members rejoin.
 
 This example demonstrates how to use StreamBus consumer groups for coordinated, scalable message consumption.
 

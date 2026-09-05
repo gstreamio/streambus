@@ -3,23 +3,212 @@ package client
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/gstreamio/streambus/pkg/protocol"
 )
 
 // Consumer group and transaction RPCs.
 //
-// Every call goes to the coordinator broker. StreamBus does not yet expose a
-// FindCoordinator request, so the first configured broker acts as coordinator
-// for every group and transactional ID; when FindCoordinator arrives, only
-// coordinatorBroker below needs to change.
+// Every call goes to the coordinator broker for its group ID or
+// transactional ID. The coordinator is discovered with FindCoordinator and
+// cached per key on the Client (coordCache), so a hot path like heartbeats
+// or offset commits does not re-resolve on every call. A response reporting
+// that the broker it hit is no longer (or never was) the coordinator
+// invalidates that key's cache entry, so the next call re-resolves instead
+// of retrying the same wrong broker forever.
 
-// coordinatorBroker returns the broker to send coordination requests to.
-func (c *Client) coordinatorBroker() (string, error) {
+// coordinatorCacheKey identifies one coordination key: a group ID resolved
+// as CoordinatorKeyTypeGroup, or a transactional ID resolved as
+// CoordinatorKeyTypeTransaction. The two spaces are kept separate because
+// nothing stops a group ID and a transactional ID from being equal strings.
+type coordinatorCacheKey struct {
+	keyType protocol.CoordinatorKeyType
+	key     string
+}
+
+// coordinatorCache maps a coordination key to the broker address last named
+// as its coordinator.
+type coordinatorCache struct {
+	mu      sync.RWMutex
+	entries map[coordinatorCacheKey]string
+}
+
+func newCoordinatorCache() *coordinatorCache {
+	return &coordinatorCache{entries: make(map[coordinatorCacheKey]string)}
+}
+
+func (c *coordinatorCache) get(keyType protocol.CoordinatorKeyType, key string) (string, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	broker, ok := c.entries[coordinatorCacheKey{keyType, key}]
+	return broker, ok
+}
+
+func (c *coordinatorCache) set(keyType protocol.CoordinatorKeyType, key, broker string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries[coordinatorCacheKey{keyType, key}] = broker
+}
+
+func (c *coordinatorCache) invalidate(keyType protocol.CoordinatorKeyType, key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, coordinatorCacheKey{keyType, key})
+}
+
+// coordinationKeyFor extracts the group ID or transactional ID that
+// identifies which coordinator a request payload must reach. Payloads with
+// no such key (there are none among the coordination RPCs today, but
+// sendCoordinationRequest must still handle the case) report ok=false, and
+// the caller falls back to the first configured broker rather than failing.
+func coordinationKeyFor(payload interface{}) (keyType protocol.CoordinatorKeyType, key string, ok bool) {
+	switch p := payload.(type) {
+	case *protocol.JoinGroupRequest:
+		return protocol.CoordinatorKeyTypeGroup, p.GroupID, true
+	case *protocol.SyncGroupRequest:
+		return protocol.CoordinatorKeyTypeGroup, p.GroupID, true
+	case *protocol.HeartbeatRequest:
+		return protocol.CoordinatorKeyTypeGroup, p.GroupID, true
+	case *protocol.LeaveGroupRequest:
+		return protocol.CoordinatorKeyTypeGroup, p.GroupID, true
+	case *protocol.OffsetCommitRequest:
+		return protocol.CoordinatorKeyTypeGroup, p.GroupID, true
+	case *protocol.OffsetFetchRequest:
+		return protocol.CoordinatorKeyTypeGroup, p.GroupID, true
+	case *protocol.InitProducerIDRequest:
+		return protocol.CoordinatorKeyTypeTransaction, p.TransactionID, true
+	case *protocol.AddPartitionsToTxnRequest:
+		return protocol.CoordinatorKeyTypeTransaction, p.TransactionID, true
+	case *protocol.AddOffsetsToTxnRequest:
+		return protocol.CoordinatorKeyTypeTransaction, p.TransactionID, true
+	case *protocol.TxnOffsetCommitRequest:
+		return protocol.CoordinatorKeyTypeTransaction, p.TransactionID, true
+	case *protocol.EndTxnRequest:
+		return protocol.CoordinatorKeyTypeTransaction, p.TransactionID, true
+	default:
+		return 0, "", false
+	}
+}
+
+// responseErrorCode extracts the primary error code from a coordination
+// response payload, used only to detect a stale cache entry (see
+// isNotCoordinatorError). Payloads that report per-member or per-partition
+// results rather than one code use their own FirstError, mirroring how
+// callers already inspect them; a code of ErrNone here never suppresses a
+// real per-item failure, it only means "nothing here looked like a
+// wrong-coordinator response".
+func responseErrorCode(payload interface{}) protocol.ErrorCode {
+	switch p := payload.(type) {
+	case *protocol.JoinGroupResponse:
+		return p.ErrorCode
+	case *protocol.SyncGroupResponse:
+		return p.ErrorCode
+	case *protocol.HeartbeatResponse:
+		return p.ErrorCode
+	case *protocol.LeaveGroupResponse:
+		return p.ErrorCode
+	case *protocol.OffsetCommitResponse:
+		return p.FirstError()
+	case *protocol.InitProducerIDResponse:
+		return p.ErrorCode
+	case *protocol.AddPartitionsToTxnResponse:
+		return p.FirstError()
+	case *protocol.AddOffsetsToTxnResponse:
+		return p.ErrorCode
+	case *protocol.TxnOffsetCommitResponse:
+		return p.FirstError()
+	case *protocol.EndTxnResponse:
+		return p.ErrorCode
+	default:
+		return protocol.ErrNone
+	}
+}
+
+// isNotCoordinatorError reports whether code means the broker that answered
+// is not the right one for this key, so the caller's cache entry is stale.
+func isNotCoordinatorError(code protocol.ErrorCode) bool {
+	switch code {
+	case protocol.ErrNotCoordinator,
+		protocol.ErrTransactionCoordinatorNotAvailable,
+		protocol.ErrTransactionCoordinatorFenced:
+		return true
+	default:
+		return false
+	}
+}
+
+// coordinatorBroker returns the broker to send a coordination request for
+// (keyType, key) to, resolving and caching it via FindCoordinator on a
+// cache miss.
+//
+// Concurrent callers that miss the cache for the same key are not
+// coordinated with each other: each runs its own resolveCoordinator and the
+// last one to finish wins the cache entry (they should all agree anyway,
+// since FindCoordinator is deterministic for a stable broker set). This is
+// deliberate, not an oversight - the duplication is bounded by however many
+// goroutines happen to race the same miss, and self-limiting, since every
+// subsequent call for that key hits the cache once any winner has populated
+// it. Single-flighting would remove the duplicate round trips, but isn't
+// worth the extra bookkeeping unless resolution becomes expensive or
+// rate-limited, neither of which is true of a single small request today.
+func (c *Client) coordinatorBroker(ctx context.Context, keyType protocol.CoordinatorKeyType, key string) (string, error) {
 	if len(c.config.Brokers) == 0 {
 		return "", fmt.Errorf("no brokers configured")
 	}
+
+	if broker, ok := c.coordCache.get(keyType, key); ok {
+		return broker, nil
+	}
+
+	if broker, ok := c.resolveCoordinator(ctx, keyType, key); ok {
+		c.coordCache.set(keyType, key, broker)
+		return broker, nil
+	}
+
+	// FindCoordinator could not be resolved against any configured broker -
+	// fall back to the first one without caching the guess, so the next
+	// call tries real resolution again instead of being stuck on a fallback
+	// that was never confirmed correct.
 	return c.config.Brokers[0], nil
+}
+
+// resolveCoordinator asks each configured broker, in turn, which broker
+// coordinates (keyType, key). ok is false if none could answer.
+//
+// Two situations look identical from here and are handled the same way: a
+// broker running a version too old to know RequestTypeFindCoordinator
+// answers with ErrUnknownRequest, which sendRequestWithRetry turns into a
+// plain error just like a connection failure would. Either way, resolution
+// keeps trying the remaining configured brokers before giving up - a
+// rolling upgrade with an old broker still in the mix should not have to
+// depend on which broker happens to be first in the list.
+//
+// Miss latency scales with how many unreachable brokers sit ahead of a live
+// one in Brokers, since each is tried (and its own retries exhausted) in
+// order before the next is attempted; this is the accepted cost of not
+// needing any out-of-band knowledge of which brokers are actually up.
+func (c *Client) resolveCoordinator(ctx context.Context, keyType protocol.CoordinatorKeyType, key string) (string, bool) {
+	for _, broker := range c.config.Brokers {
+		resp, err := c.sendRequestWithRetry(ctx, broker, &protocol.Request{
+			Header: protocol.RequestHeader{
+				Type:    protocol.RequestTypeFindCoordinator,
+				Version: protocol.ProtocolVersion,
+				Flags:   protocol.FlagNone,
+			},
+			Payload: &protocol.FindCoordinatorRequest{Key: key, KeyType: keyType},
+		})
+		if err != nil {
+			continue
+		}
+		found, ok := resp.Payload.(*protocol.FindCoordinatorResponse)
+		if !ok || found.ErrorCode != protocol.ErrNone {
+			continue
+		}
+		return fmt.Sprintf("%s:%d", found.Host, found.Port), true
+	}
+
+	return "", false
 }
 
 // sendCoordinationRequest sends a coordination request to the coordinator and
@@ -36,7 +225,15 @@ func (c *Client) sendCoordinationRequest(
 		return nil, ErrClientClosed
 	}
 
-	broker, err := c.coordinatorBroker()
+	keyType, key, hasKey := coordinationKeyFor(payload)
+
+	var broker string
+	var err error
+	if hasKey {
+		broker, err = c.coordinatorBroker(ctx, keyType, key)
+	} else {
+		broker, err = c.firstConfiguredBroker()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +250,23 @@ func (c *Client) sendCoordinationRequest(
 		return nil, err
 	}
 
+	// A stale cache entry must not keep pointing a group or transaction at a
+	// broker that just said it is not the coordinator.
+	if hasKey && isNotCoordinatorError(responseErrorCode(resp.Payload)) {
+		c.coordCache.invalidate(keyType, key)
+	}
+
 	return resp.Payload, nil
+}
+
+// firstConfiguredBroker returns the first configured broker, for requests
+// (like ListTopics) that are not scoped to any group or transactional ID and
+// so have no coordinator to resolve.
+func (c *Client) firstConfiguredBroker() (string, error) {
+	if len(c.config.Brokers) == 0 {
+		return "", fmt.Errorf("no brokers configured")
+	}
+	return c.config.Brokers[0], nil
 }
 
 // JoinGroup asks the coordinator to admit this member to a consumer group.
@@ -209,7 +422,7 @@ func (c *Client) TopicPartitionCounts(ctx context.Context, topics []string) (map
 		return nil, ErrClientClosed
 	}
 
-	broker, err := c.coordinatorBroker()
+	broker, err := c.firstConfiguredBroker()
 	if err != nil {
 		return nil, err
 	}

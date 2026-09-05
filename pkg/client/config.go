@@ -3,6 +3,8 @@ package client
 import (
 	"crypto/tls"
 	"time"
+
+	"github.com/gstreamio/streambus/pkg/protocol"
 )
 
 // Config holds client configuration
@@ -81,6 +83,13 @@ type ConsumerConfig struct {
 
 	// Auto-commit offset interval
 	AutoCommitInterval time.Duration
+
+	// IsolationLevel selects whether fetches can see records from
+	// transactions that have not committed or aborted yet. It defaults to
+	// protocol.IsolationReadUncommitted (the zero value), matching the
+	// broker's default and every consumer's behavior before isolation
+	// levels existed.
+	IsolationLevel protocol.IsolationLevel
 }
 
 // DefaultConfig returns default client configuration

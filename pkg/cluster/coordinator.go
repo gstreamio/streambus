@@ -20,6 +20,13 @@ type ClusterCoordinator struct {
 	// Current cluster state
 	currentAssignment *Assignment
 
+	// partitionLimit is the AssignmentConstraints.MaxPartitionsPerBroker most
+	// recently supplied to AssignPartitions. Rebalances triggered internally
+	// (broker add/remove/failure, the periodic check) have no caller to
+	// supply constraints, so the coordinator remembers this to keep the
+	// cluster-wide limit enforced consistently across both paths.
+	partitionLimit int
+
 	// Configuration
 	rebalanceInterval  time.Duration
 	rebalanceThreshold int // Imbalance threshold to trigger rebalance
@@ -91,7 +98,21 @@ func (cc *ClusterCoordinator) SetRebalanceThreshold(threshold int) {
 	cc.rebalanceThreshold = threshold
 }
 
-// AssignPartitions creates initial partition assignment
+// AssignPartitions assigns the given partitions (typically all belonging to
+// one new topic) to brokers.
+//
+// MaxPartitionsPerBroker is enforced across every topic the coordinator has
+// ever assigned, not just the partitions passed in this call: the
+// coordinator's own currentAssignment is the authoritative record of what is
+// already placed (the MetadataStore only persists broker metadata, not
+// partition assignments), so its BrokerLoad is folded into this call's
+// ExistingLoad before invoking the strategy. Any ExistingLoad the caller
+// supplies is added on top rather than replaced, since it represents load the
+// coordinator has no other way of knowing about.
+//
+// The returned Assignment covers only the partitions passed in this call, to
+// match AssignmentStrategy.Assign's contract; use GetCurrentAssignment for
+// the coordinator's full, merged view of the cluster.
 func (cc *ClusterCoordinator) AssignPartitions(
 	ctx context.Context,
 	partitions []PartitionInfo,
@@ -106,19 +127,72 @@ func (cc *ClusterCoordinator) AssignPartitions(
 		return nil, fmt.Errorf("no active brokers available")
 	}
 
+	effective := AssignmentConstraints{}
+	if constraints != nil {
+		effective = *constraints
+	}
+	effective.ExistingLoad = cc.cumulativeExistingLoad(effective.ExistingLoad)
+
 	// Create assignment
-	assignment, err := cc.assignmentStrategy.Assign(partitions, brokers, constraints)
+	assignment, err := cc.assignmentStrategy.Assign(partitions, brokers, &effective)
 	if err != nil {
 		return nil, fmt.Errorf("assignment failed: %w", err)
 	}
 
-	// Store assignment
-	cc.currentAssignment = assignment
+	// Fold into the running cluster-wide assignment rather than replacing it,
+	// so a later call's ExistingLoad derivation (and rebalances) see load
+	// from every topic assigned so far.
+	cc.currentAssignment = mergeAssignment(cc.currentAssignment, assignment)
+	cc.partitionLimit = effective.MaxPartitionsPerBroker
 
 	log.Printf("[ClusterCoordinator] Created assignment: %d partitions across %d brokers",
 		assignment.TotalPartitions(), len(brokers))
 
 	return assignment, nil
+}
+
+// cumulativeExistingLoad merges the coordinator's own record of already-
+// assigned partitions with any ExistingLoad the caller supplied. Must be
+// called with cc.mu held.
+func (cc *ClusterCoordinator) cumulativeExistingLoad(callerLoad map[int32]int) map[int32]int {
+	merged := make(map[int32]int, len(callerLoad))
+	if cc.currentAssignment != nil {
+		for brokerID, count := range cc.currentAssignment.BrokerLoad {
+			merged[brokerID] = count
+		}
+	}
+	for brokerID, count := range callerLoad {
+		merged[brokerID] += count
+	}
+	return merged
+}
+
+// mergeAssignment folds a newly assigned batch of partitions into the
+// coordinator's running assignment. existing may be nil (first call).
+func mergeAssignment(existing, added *Assignment) *Assignment {
+	// Replica slices are copied rather than aliased: the freshly assigned
+	// Assignment is also handed back to the caller, so sharing its slices
+	// would let a caller mutating its own result silently corrupt the
+	// coordinator's record of the cluster.
+	merged := NewAssignment()
+	if existing != nil {
+		merged.Version = existing.Version
+		for key, replicas := range existing.Partitions {
+			merged.Partitions[key] = append([]int32(nil), replicas...)
+		}
+		for key, leader := range existing.Leaders {
+			merged.Leaders[key] = leader
+		}
+	}
+	for key, replicas := range added.Partitions {
+		merged.Partitions[key] = append([]int32(nil), replicas...)
+	}
+	for key, leader := range added.Leaders {
+		merged.Leaders[key] = leader
+	}
+	merged.Version++
+	merged.RecomputeBrokerLoad()
+	return merged
 }
 
 // TriggerRebalance manually triggers a rebalance
@@ -263,6 +337,7 @@ func (cc *ClusterCoordinator) checkAndRebalance() {
 func (cc *ClusterCoordinator) performRebalance(ctx context.Context) error {
 	cc.mu.RLock()
 	current := cc.currentAssignment
+	partitionLimit := cc.partitionLimit
 	cc.mu.RUnlock()
 
 	if current == nil {
@@ -281,10 +356,17 @@ func (cc *ClusterCoordinator) performRebalance(ctx context.Context) error {
 		return fmt.Errorf("no active brokers available")
 	}
 
-	// Perform rebalance
+	// Perform rebalance. MaxPartitionsPerBroker is carried over from the last
+	// AssignPartitions call rather than left unset, so a rebalance triggered
+	// internally (this method has no caller-supplied constraints) still
+	// honours the cluster-wide limit. Rebalance derives broker load from
+	// current.BrokerLoad itself (a move decrements the old broker and
+	// increments the new one in the same map), so there is no ExistingLoad to
+	// set here and no risk of double-counting a moved partition.
 	constraints := &AssignmentConstraints{
-		RackAware:       true,
-		ExcludedBrokers: make(map[int32]bool),
+		RackAware:              true,
+		ExcludedBrokers:        make(map[int32]bool),
+		MaxPartitionsPerBroker: partitionLimit,
 	}
 
 	newAssignment, err := cc.assignmentStrategy.Rebalance(current, brokers, constraints)

@@ -1,11 +1,11 @@
 # StreamBus Transactions Example
 
-> **Note on read isolation**: committing writes a durable transaction marker to
-> every participating partition, and an aborted transaction writes no user
-> records at all (messages are buffered until commit). Consumers do not yet
-> filter by transaction outcome, though, so a consumer reading a partition
-> while a commit is in flight can observe part of a transaction, and it will
-> see the marker records themselves.
+> **Note on read isolation**: committing writes a durable transaction marker
+> to every participating partition, and an aborted transaction writes no user
+> records at all (messages are buffered until commit). Set
+> `ConsumerConfig.IsolationLevel` to `protocol.IsolationReadCommitted` so a
+> consumer never observes part of a transaction still in flight; marker
+> records are hidden from consumers at any isolation level.
 
 This example demonstrates **exactly-once semantics** using StreamBus transactions. It shows how to implement a transactional message processor that consumes from one topic, processes messages, and produces to another topic - all within atomic transactions.
 

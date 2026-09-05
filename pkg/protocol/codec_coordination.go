@@ -42,6 +42,8 @@ func newCoordinationRequest(reqType RequestType) payloadDecoder {
 		return &EndTxnRequest{}
 	case RequestTypeTxnOffsetCommit:
 		return &TxnOffsetCommitRequest{}
+	case RequestTypeFindCoordinator:
+		return &FindCoordinatorRequest{}
 	default:
 		return nil
 	}
@@ -73,6 +75,8 @@ func newCoordinationResponse(reqType RequestType) payloadDecoder {
 		return &EndTxnResponse{}
 	case RequestTypeTxnOffsetCommit:
 		return &TxnOffsetCommitResponse{}
+	case RequestTypeFindCoordinator:
+		return &FindCoordinatorResponse{}
 	default:
 		return nil
 	}

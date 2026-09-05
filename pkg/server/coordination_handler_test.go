@@ -27,11 +27,30 @@ func newCoordinationTestHandler(t *testing.T) (*CoordinationHandler, *passthroug
 	t.Cleanup(func() { _ = coordinator.Stop() })
 
 	base := &passthroughHandler{}
-	return NewCoordinationHandler(base, coordinator), base
+	return NewCoordinationHandler(base, coordinator, nil), base
+}
+
+// stubLocator is a CoordinatorLocator with a canned answer, for tests that
+// only exercise FindCoordinator routing rather than real broker selection
+// (that logic lives in pkg/broker and is tested there).
+type stubLocator struct {
+	nodeID  int32
+	host    string
+	port    int32
+	errCode protocol.ErrorCode
+
+	lastKeyType protocol.CoordinatorKeyType
+	lastKey     string
+}
+
+func (l *stubLocator) FindCoordinator(keyType protocol.CoordinatorKeyType, key string) (int32, string, int32, protocol.ErrorCode) {
+	l.lastKeyType = keyType
+	l.lastKey = key
+	return l.nodeID, l.host, l.port, l.errCode
 }
 
 // request wraps a payload in a request of the given type.
-func request(reqType protocol.RequestType, payload interface{}) *protocol.Request {
+func request(reqType protocol.RequestType, payload any) *protocol.Request {
 	return &protocol.Request{
 		Header:  protocol.RequestHeader{RequestID: 1, Type: reqType},
 		Payload: payload,
@@ -347,7 +366,7 @@ func TestCoordinationHandler_PassesThroughOtherRequests(t *testing.T) {
 
 func TestCoordinationHandler_NoCoordinator(t *testing.T) {
 	base := &passthroughHandler{}
-	handler := NewCoordinationHandler(base, nil)
+	handler := NewCoordinationHandler(base, nil, nil)
 
 	resp := handler.Handle(request(protocol.RequestTypeJoinGroup, &protocol.JoinGroupRequest{GroupID: "analytics"}))
 
@@ -366,6 +385,82 @@ func TestCoordinationHandler_WrongPayloadType(t *testing.T) {
 	handler, _ := newCoordinationTestHandler(t)
 
 	resp := handler.Handle(request(protocol.RequestTypeJoinGroup, &protocol.HeartbeatRequest{}))
+
+	if resp.Header.Status != protocol.StatusError {
+		t.Fatalf("status = %v, want Error", resp.Header.Status)
+	}
+	if resp.Header.ErrorCode != protocol.ErrInvalidRequest {
+		t.Errorf("error code = %v, want ErrInvalidRequest", resp.Header.ErrorCode)
+	}
+}
+
+func TestCoordinationHandler_FindCoordinator(t *testing.T) {
+	base := &passthroughHandler{}
+	locator := &stubLocator{nodeID: 2, host: "broker-2", port: 9092}
+	handler := NewCoordinationHandler(base, nil, locator)
+
+	resp := handler.Handle(request(protocol.RequestTypeFindCoordinator, &protocol.FindCoordinatorRequest{
+		Key:     "analytics",
+		KeyType: protocol.CoordinatorKeyTypeGroup,
+	}))
+
+	if resp.Header.Status != protocol.StatusOK {
+		t.Fatalf("status = %v, want OK", resp.Header.Status)
+	}
+	found, ok := resp.Payload.(*protocol.FindCoordinatorResponse)
+	if !ok {
+		t.Fatalf("payload = %T, want *protocol.FindCoordinatorResponse", resp.Payload)
+	}
+	if found.ErrorCode != protocol.ErrNone || found.NodeID != 2 || found.Host != "broker-2" || found.Port != 9092 {
+		t.Errorf("response = %+v, want {ErrNone 2 broker-2 9092}", found)
+	}
+	if locator.lastKeyType != protocol.CoordinatorKeyTypeGroup || locator.lastKey != "analytics" {
+		t.Errorf("locator called with (%v, %q), want (Group, analytics)", locator.lastKeyType, locator.lastKey)
+	}
+	if base.called {
+		t.Error("FindCoordinator must not fall through to the base handler")
+	}
+}
+
+func TestCoordinationHandler_FindCoordinator_LocatorError(t *testing.T) {
+	locator := &stubLocator{errCode: protocol.ErrNotCoordinator}
+	handler := NewCoordinationHandler(&passthroughHandler{}, nil, locator)
+
+	resp := handler.Handle(request(protocol.RequestTypeFindCoordinator, &protocol.FindCoordinatorRequest{Key: "txn-1"}))
+
+	// The locator's answer travels in the payload's ErrorCode, not as a
+	// transport-level failure: FindCoordinator succeeded at asking, it just
+	// has no coordinator to report.
+	found, ok := resp.Payload.(*protocol.FindCoordinatorResponse)
+	if !ok {
+		t.Fatalf("payload = %T, want *protocol.FindCoordinatorResponse", resp.Payload)
+	}
+	if resp.Header.Status != protocol.StatusOK {
+		t.Fatalf("status = %v, want OK", resp.Header.Status)
+	}
+	if found.ErrorCode != protocol.ErrNotCoordinator {
+		t.Errorf("ErrorCode = %v, want ErrNotCoordinator", found.ErrorCode)
+	}
+}
+
+func TestCoordinationHandler_FindCoordinator_NoLocator(t *testing.T) {
+	handler := NewCoordinationHandler(&passthroughHandler{}, nil, nil)
+
+	resp := handler.Handle(request(protocol.RequestTypeFindCoordinator, &protocol.FindCoordinatorRequest{Key: "analytics"}))
+
+	found, ok := resp.Payload.(*protocol.FindCoordinatorResponse)
+	if !ok {
+		t.Fatalf("payload = %T, want *protocol.FindCoordinatorResponse", resp.Payload)
+	}
+	if found.ErrorCode != protocol.ErrNotCoordinator {
+		t.Errorf("ErrorCode = %v, want ErrNotCoordinator", found.ErrorCode)
+	}
+}
+
+func TestCoordinationHandler_FindCoordinator_WrongPayloadType(t *testing.T) {
+	handler := NewCoordinationHandler(&passthroughHandler{}, nil, &stubLocator{})
+
+	resp := handler.Handle(request(protocol.RequestTypeFindCoordinator, &protocol.HeartbeatRequest{}))
 
 	if resp.Header.Status != protocol.StatusError {
 		t.Fatalf("status = %v, want Error", resp.Header.Status)

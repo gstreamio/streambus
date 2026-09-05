@@ -105,10 +105,11 @@ func (pc *PartitionConsumer) FetchFromPartition(ctx context.Context, partitionID
 			Flags:   protocol.FlagNone,
 		},
 		Payload: &protocol.FetchRequest{
-			Topic:       pc.topic,
-			PartitionID: partitionID,
-			Offset:      state.offset,
-			MaxBytes:    pc.config.MaxFetchBytes,
+			Topic:          pc.topic,
+			PartitionID:    partitionID,
+			Offset:         state.offset,
+			MaxBytes:       pc.config.MaxFetchBytes,
+			IsolationLevel: pc.config.IsolationLevel,
 		},
 	}
 
@@ -124,8 +125,18 @@ func (pc *PartitionConsumer) FetchFromPartition(ctx context.Context, partitionID
 		return nil, ErrInvalidResponse
 	}
 
-	// Update partition state
-	if len(fetchResp.Messages) > 0 {
+	// Update partition state. NextOffset accounts for control records the
+	// broker filtered out of Messages before we ever saw them - without it,
+	// a window that held only a filtered marker would leave Messages empty
+	// and this offset would never move, so the same empty-looking window
+	// would be re-fetched forever. A server that predates NextOffset sends
+	// the -1 sentinel, in which case the old last-message rule still applies
+	// (correct against a server that never filtered anything, and this
+	// method never truncates what it returns the way Consumer.FetchN does).
+	switch {
+	case fetchResp.NextOffset >= 0:
+		state.offset = fetchResp.NextOffset
+	case len(fetchResp.Messages) > 0:
 		lastMsg := fetchResp.Messages[len(fetchResp.Messages)-1]
 		state.offset = lastMsg.Offset + 1
 	}
