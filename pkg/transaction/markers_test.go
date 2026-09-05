@@ -2,6 +2,7 @@ package transaction
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -20,6 +21,46 @@ func (w *failingMarkerWriter) WriteMarker(topic string, partition int32, marker 
 	}
 	w.written = append(w.written, RecordedMarker{Topic: topic, Partition: partition, Marker: *marker})
 	return nil
+}
+
+// toggleableMarkerWriter fails on a named partition until told to stop, so a
+// test can force a partial write and then let a retry - or the expiry sweep
+// - succeed. Safe for concurrent use: the expiry sweep runs on its own
+// goroutine while a test flips the switch and reads back what was written.
+type toggleableMarkerWriter struct {
+	mu            sync.Mutex
+	failTopic     string
+	failPartition int32
+	failing       bool
+	written       []RecordedMarker
+}
+
+func (w *toggleableMarkerWriter) WriteMarker(topic string, partition int32, marker *TransactionMarker) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.failing && topic == w.failTopic && partition == w.failPartition {
+		return errors.New("disk full")
+	}
+	w.written = append(w.written, RecordedMarker{Topic: topic, Partition: partition, Marker: *marker})
+	return nil
+}
+
+// setFailing switches whether the named partition fails.
+func (w *toggleableMarkerWriter) setFailing(failing bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.failing = failing
+}
+
+// Markers returns a copy of every marker written so far.
+func (w *toggleableMarkerWriter) Markers() []RecordedMarker {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	out := make([]RecordedMarker, len(w.written))
+	copy(out, w.written)
+	return out
 }
 
 // failingOffsetCommitter always fails.
@@ -512,5 +553,362 @@ func TestExpiredTransaction_MarkerFailureLeavesItRetryable(t *testing.T) {
 	}
 	if state == StateCompleteAbort {
 		t.Error("transaction reported CompleteAbort despite its abort marker failing to write")
+	}
+}
+
+func TestEndTxn_RetryAfterMarkerFailureCompletesTheTransaction(t *testing.T) {
+	writer := &toggleableMarkerWriter{failTopic: "events", failPartition: 0, failing: true}
+
+	tc := NewTransactionCoordinator(NewMemoryTransactionLog(), DefaultCoordinatorConfig(), testLogger())
+	tc.SetMarkerWriter(writer)
+	defer tc.Stop()
+
+	producerID, epoch := beginTransaction(t, tc, "txn-1",
+		PartitionMetadata{Topic: "orders", Partition: 0},
+		PartitionMetadata{Topic: "events", Partition: 0},
+	)
+
+	// First attempt: the marker write to events-0 fails, so the transaction
+	// must stay in its prepare state rather than being reported committed.
+	resp, err := tc.EndTxn(&EndTxnRequest{
+		TransactionID: "txn-1", ProducerID: producerID, ProducerEpoch: epoch, Commit: true,
+	})
+	if err != nil {
+		t.Fatalf("EndTxn failed: %v", err)
+	}
+	if resp.ErrorCode == ErrorNone {
+		t.Fatal("EndTxn reported success despite a marker write failing")
+	}
+	if state, _ := tc.GetTransactionState("txn-1"); state != StatePrepareCommit {
+		t.Fatalf("state = %v, want StatePrepareCommit after the first attempt", state)
+	}
+
+	// The underlying fault clears - e.g. the partition becomes reachable
+	// again - and the producer retries the same EndTxn call.
+	writer.setFailing(false)
+
+	resp, err = tc.EndTxn(&EndTxnRequest{
+		TransactionID: "txn-1", ProducerID: producerID, ProducerEpoch: epoch, Commit: true,
+	})
+	if err != nil {
+		t.Fatalf("retried EndTxn failed: %v", err)
+	}
+	if resp.ErrorCode != ErrorNone {
+		t.Fatalf("retried EndTxn returned %v, want ErrorNone - a retry with the same outcome must resume and finish the transaction", resp.ErrorCode)
+	}
+
+	state, err := tc.GetTransactionState("txn-1")
+	if err != nil {
+		t.Fatalf("GetTransactionState failed: %v", err)
+	}
+	if state != StateCompleteCommit {
+		t.Fatalf("state = %v, want StateCompleteCommit", state)
+	}
+
+	// Every partition must have ended up with a commit marker, including the
+	// one that failed on the first attempt.
+	sawOrders, sawEvents := false, false
+	for _, m := range writer.Markers() {
+		if !m.Marker.Commit {
+			t.Fatalf("%s-%d got an abort marker, want commit", m.Topic, m.Partition)
+		}
+		if m.Topic == "orders" && m.Partition == 0 {
+			sawOrders = true
+		}
+		if m.Topic == "events" && m.Partition == 0 {
+			sawEvents = true
+		}
+	}
+	if !sawOrders || !sawEvents {
+		t.Fatalf("missing commit marker: orders-0=%v events-0=%v", sawOrders, sawEvents)
+	}
+}
+
+func TestEndTxn_RetryWithOppositeOutcomeIsRefused(t *testing.T) {
+	writer := &toggleableMarkerWriter{failTopic: "events", failPartition: 0, failing: true}
+
+	tc := NewTransactionCoordinator(NewMemoryTransactionLog(), DefaultCoordinatorConfig(), testLogger())
+	tc.SetMarkerWriter(writer)
+	defer tc.Stop()
+
+	producerID, epoch := beginTransaction(t, tc, "txn-1",
+		PartitionMetadata{Topic: "orders", Partition: 0},
+		PartitionMetadata{Topic: "events", Partition: 0},
+	)
+
+	// Phase 1 records a commit, and phase 2 fails partway through.
+	resp, err := tc.EndTxn(&EndTxnRequest{
+		TransactionID: "txn-1", ProducerID: producerID, ProducerEpoch: epoch, Commit: true,
+	})
+	if err != nil {
+		t.Fatalf("EndTxn failed: %v", err)
+	}
+	if resp.ErrorCode == ErrorNone {
+		t.Fatal("EndTxn reported success despite a marker write failing")
+	}
+
+	writer.setFailing(false)
+
+	// A retry asking to abort must be refused: the outcome was already
+	// decided as a commit, and orders-0 may already carry a commit marker.
+	resp, err = tc.EndTxn(&EndTxnRequest{
+		TransactionID: "txn-1", ProducerID: producerID, ProducerEpoch: epoch, Commit: false,
+	})
+	if err != nil {
+		t.Fatalf("EndTxn failed: %v", err)
+	}
+	if resp.ErrorCode != ErrorInvalidTransactionState {
+		t.Fatalf("EndTxn(commit=false) on a prepare-commit returned %v, want ErrorInvalidTransactionState", resp.ErrorCode)
+	}
+
+	// It must still be sitting in its original prepare state, untouched by
+	// the refused request.
+	state, err := tc.GetTransactionState("txn-1")
+	if err != nil {
+		t.Fatalf("GetTransactionState failed: %v", err)
+	}
+	if state != StatePrepareCommit {
+		t.Fatalf("state = %v, want StatePrepareCommit - a refused retry must not change it", state)
+	}
+
+	// No abort marker must have been written for events-0.
+	for _, m := range writer.Markers() {
+		if m.Topic == "events" && m.Partition == 0 && !m.Marker.Commit {
+			t.Fatal("an abort marker was written for events-0 despite the retry being refused")
+		}
+	}
+}
+
+func TestAddPartitionsToTxn_ProceedsAfterStuckTransactionResolves(t *testing.T) {
+	writer := &toggleableMarkerWriter{failTopic: "orders", failPartition: 0, failing: true}
+
+	tc := NewTransactionCoordinator(NewMemoryTransactionLog(), DefaultCoordinatorConfig(), testLogger())
+	tc.SetMarkerWriter(writer)
+	defer tc.Stop()
+
+	producerID, epoch := beginTransaction(t, tc, "txn-1",
+		PartitionMetadata{Topic: "orders", Partition: 0})
+
+	resp, err := tc.EndTxn(&EndTxnRequest{
+		TransactionID: "txn-1", ProducerID: producerID, ProducerEpoch: epoch, Commit: true,
+	})
+	if err != nil {
+		t.Fatalf("EndTxn failed: %v", err)
+	}
+	if resp.ErrorCode == ErrorNone {
+		t.Fatal("EndTxn reported success despite a marker write failing")
+	}
+
+	// While it is stuck, a fresh AddPartitionsToTxn for the same
+	// transactional ID (still on the original epoch) must not silently
+	// stomp its still-unresolved record.
+	addResp, err := tc.AddPartitionsToTxn(&AddPartitionsToTxnRequest{
+		TransactionID: "txn-1",
+		ProducerID:    producerID,
+		ProducerEpoch: epoch,
+		Partitions:    []PartitionMetadata{{Topic: "orders", Partition: 0}},
+	})
+	if err != nil {
+		t.Fatalf("AddPartitionsToTxn failed: %v", err)
+	}
+	if code := addResp.Errors["orders"][0]; code != ErrorInvalidTransactionState {
+		t.Fatalf("AddPartitionsToTxn while stuck returned %v, want ErrorInvalidTransactionState", code)
+	}
+
+	// The stuck transaction now resolves - here, via a retry succeeding.
+	writer.setFailing(false)
+	if _, err := tc.EndTxn(&EndTxnRequest{
+		TransactionID: "txn-1", ProducerID: producerID, ProducerEpoch: epoch, Commit: true,
+	}); err != nil {
+		t.Fatalf("retried EndTxn failed: %v", err)
+	}
+	if state, _ := tc.GetTransactionState("txn-1"); state != StateCompleteCommit {
+		t.Fatalf("state = %v, want StateCompleteCommit before starting the next transaction", state)
+	}
+
+	// Only now, with the prior transaction terminal, does a new producer
+	// epoch for the same transactional ID get to start the next transaction.
+	initResp, err := tc.InitProducerID(&InitProducerIDRequest{TransactionID: "txn-1"})
+	if err != nil {
+		t.Fatalf("InitProducerID failed: %v", err)
+	}
+	addResp, err = tc.AddPartitionsToTxn(&AddPartitionsToTxnRequest{
+		TransactionID: "txn-1",
+		ProducerID:    initResp.ProducerID,
+		ProducerEpoch: initResp.ProducerEpoch,
+		Partitions:    []PartitionMetadata{{Topic: "orders", Partition: 0}},
+	})
+	if err != nil {
+		t.Fatalf("AddPartitionsToTxn failed: %v", err)
+	}
+	for topic, byPartition := range addResp.Errors {
+		for partition, code := range byPartition {
+			if code != ErrorNone {
+				t.Fatalf("AddPartitionsToTxn(%s-%d) returned %v, want ErrorNone now that the prior transaction is terminal",
+					topic, partition, code)
+			}
+		}
+	}
+
+	state, err := tc.GetTransactionState("txn-1")
+	if err != nil {
+		t.Fatalf("GetTransactionState failed: %v", err)
+	}
+	if state != StateOngoing {
+		t.Fatalf("state = %v, want StateOngoing for the new transaction", state)
+	}
+}
+
+func TestExpiredTransaction_CompletesStuckPrepareCommitAsCommit(t *testing.T) {
+	writer := &toggleableMarkerWriter{failTopic: "orders", failPartition: 0, failing: true}
+
+	config := DefaultCoordinatorConfig()
+	config.DefaultTransactionTimeout = 50 * time.Millisecond
+	config.MaxTransactionTimeout = time.Second
+	config.ExpirationCheckInterval = 20 * time.Millisecond
+
+	tc := NewTransactionCoordinator(NewMemoryTransactionLog(), config, testLogger())
+	tc.SetMarkerWriter(writer)
+	defer tc.Stop()
+
+	initResp, err := tc.InitProducerID(&InitProducerIDRequest{
+		TransactionID:      "txn-stuck-commit",
+		TransactionTimeout: 50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("InitProducerID failed: %v", err)
+	}
+	if _, err := tc.AddPartitionsToTxn(&AddPartitionsToTxnRequest{
+		TransactionID: "txn-stuck-commit",
+		ProducerID:    initResp.ProducerID,
+		ProducerEpoch: initResp.ProducerEpoch,
+		Partitions:    []PartitionMetadata{{Topic: "orders", Partition: 0}},
+	}); err != nil {
+		t.Fatalf("AddPartitionsToTxn failed: %v", err)
+	}
+
+	resp, err := tc.EndTxn(&EndTxnRequest{
+		TransactionID: "txn-stuck-commit",
+		ProducerID:    initResp.ProducerID,
+		ProducerEpoch: initResp.ProducerEpoch,
+		Commit:        true,
+	})
+	if err != nil {
+		t.Fatalf("EndTxn failed: %v", err)
+	}
+	if resp.ErrorCode == ErrorNone {
+		t.Fatal("EndTxn reported success despite the marker write failing")
+	}
+	if state, _ := tc.GetTransactionState("txn-stuck-commit"); state != StatePrepareCommit {
+		t.Fatalf("state = %v, want StatePrepareCommit", state)
+	}
+
+	// The fault clears, but nothing ever retries EndTxn for this
+	// transaction. Only the expiry sweep is left to resolve it.
+	writer.setFailing(false)
+
+	deadline := time.Now().Add(3 * time.Second)
+	var state TransactionState
+	for time.Now().Before(deadline) {
+		state, err = tc.GetTransactionState("txn-stuck-commit")
+		if err != nil {
+			t.Fatalf("GetTransactionState failed: %v", err)
+		}
+		if state == StateCompleteCommit {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if state != StateCompleteCommit {
+		t.Fatalf("state = %v, want StateCompleteCommit - the expiry sweep must complete a stuck prepare-commit as a commit, not leave it stuck or flip it to abort", state)
+	}
+
+	foundCommit := false
+	for _, m := range writer.Markers() {
+		if m.Topic == "orders" && m.Partition == 0 {
+			if !m.Marker.Commit {
+				t.Fatal("expiry sweep wrote an abort marker for a stuck prepare-commit, want commit")
+			}
+			foundCommit = true
+		}
+	}
+	if !foundCommit {
+		t.Fatal("expiry sweep never wrote a marker for the stuck prepare-commit")
+	}
+}
+
+func TestExpiredTransaction_CompletesStuckPrepareAbortAsAbort(t *testing.T) {
+	writer := &toggleableMarkerWriter{failTopic: "orders", failPartition: 0, failing: true}
+
+	config := DefaultCoordinatorConfig()
+	config.DefaultTransactionTimeout = 50 * time.Millisecond
+	config.MaxTransactionTimeout = time.Second
+	config.ExpirationCheckInterval = 20 * time.Millisecond
+
+	tc := NewTransactionCoordinator(NewMemoryTransactionLog(), config, testLogger())
+	tc.SetMarkerWriter(writer)
+	defer tc.Stop()
+
+	initResp, err := tc.InitProducerID(&InitProducerIDRequest{
+		TransactionID:      "txn-stuck-abort",
+		TransactionTimeout: 50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("InitProducerID failed: %v", err)
+	}
+	if _, err := tc.AddPartitionsToTxn(&AddPartitionsToTxnRequest{
+		TransactionID: "txn-stuck-abort",
+		ProducerID:    initResp.ProducerID,
+		ProducerEpoch: initResp.ProducerEpoch,
+		Partitions:    []PartitionMetadata{{Topic: "orders", Partition: 0}},
+	}); err != nil {
+		t.Fatalf("AddPartitionsToTxn failed: %v", err)
+	}
+
+	resp, err := tc.EndTxn(&EndTxnRequest{
+		TransactionID: "txn-stuck-abort",
+		ProducerID:    initResp.ProducerID,
+		ProducerEpoch: initResp.ProducerEpoch,
+		Commit:        false,
+	})
+	if err != nil {
+		t.Fatalf("EndTxn failed: %v", err)
+	}
+	if resp.ErrorCode == ErrorNone {
+		t.Fatal("EndTxn reported success despite the marker write failing")
+	}
+	if state, _ := tc.GetTransactionState("txn-stuck-abort"); state != StatePrepareAbort {
+		t.Fatalf("state = %v, want StatePrepareAbort", state)
+	}
+
+	writer.setFailing(false)
+
+	deadline := time.Now().Add(3 * time.Second)
+	var state TransactionState
+	for time.Now().Before(deadline) {
+		state, err = tc.GetTransactionState("txn-stuck-abort")
+		if err != nil {
+			t.Fatalf("GetTransactionState failed: %v", err)
+		}
+		if state == StateCompleteAbort {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if state != StateCompleteAbort {
+		t.Fatalf("state = %v, want StateCompleteAbort - the expiry sweep must complete a stuck prepare-abort as an abort", state)
+	}
+
+	foundAbort := false
+	for _, m := range writer.Markers() {
+		if m.Topic == "orders" && m.Partition == 0 {
+			if m.Marker.Commit {
+				t.Fatal("expiry sweep wrote a commit marker for a stuck prepare-abort, want abort")
+			}
+			foundAbort = true
+		}
+	}
+	if !foundAbort {
+		t.Fatal("expiry sweep never wrote a marker for the stuck prepare-abort")
 	}
 }

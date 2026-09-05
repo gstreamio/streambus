@@ -59,6 +59,17 @@ func (tc *TransactionCoordinator) SetOffsetCommitter(committer OffsetCommitter) 
 // transaction is left in its prepare state so a retry can finish it: reporting
 // success after a partial write would tell the producer its records are
 // committed on partitions that never received a marker.
+//
+// Calling it again for the same transaction - as EndTxn does on a retry, and
+// the expiry sweep does for a stuck prepare - is safe. It always starts from
+// the first partition in sorted order, so an already-marked partition gets a
+// second, benign marker record: consumers already filter markers out of a
+// fetch response by their headers, and the partition-side bookkeeping
+// (Partition.EndTransaction / AbortTransaction) is itself idempotent, since
+// it keys off whether the partition still has that producer epoch's
+// transaction open rather than off the call count. A partition that never
+// got its first marker still has the transaction open, so a retry records it
+// exactly as the first attempt would have.
 func (tc *TransactionCoordinator) writeMarkers(txn *TransactionMetadata, commit bool) error {
 	if len(txn.Partitions) == 0 {
 		return nil
