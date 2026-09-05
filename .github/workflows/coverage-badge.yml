@@ -85,20 +85,44 @@ jobs:
             echo "changed=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Commit coverage updates (main branch only)
+      # main is protected, so this cannot push to it directly - that is what
+      # GH013 "repository rule violations" meant when this step used to run
+      # `git push`. It only surfaced once coverage actually moved, because a
+      # run with an unchanged badge never reached the push at all, which is why
+      # a broken step sat here looking green for a long time. Route the update
+      # through a pull request, the same way every other change reaches main.
+      - name: Open a pull request with the coverage update (main branch only)
         if: |
-          github.event_name == 'push' && 
-          github.ref == 'refs/heads/main' && 
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main' &&
           steps.check_changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COVERAGE: ${{ steps.coverage.outputs.coverage }}
         run: |
+          set -euo pipefail
+
+          BRANCH=chore/coverage-badge
+
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          
+
+          git checkout -B "$BRANCH"
           git add README.md docs/README.md docs/TESTING.md
-          
-          git commit -m "chore: update coverage badge to ${{ steps.coverage.outputs.coverage }}% [skip ci]" || exit 0
-          
-          git push
+          git commit -m "chore: update coverage badge to ${COVERAGE}% [skip ci]"
+
+          # The branch is owned entirely by this workflow, so replacing it
+          # wholesale is safe and keeps one rolling PR rather than a new one
+          # per push.
+          git push --force origin "$BRANCH"
+
+          if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
+            echo "Coverage PR already open; the force-push above updated it."
+          else
+            gh pr create --base main --head "$BRANCH" \
+              --title "chore: update coverage badge to ${COVERAGE}%" \
+              --body "Automated update of the coverage badge and the figures in docs/ to ${COVERAGE}%."
+          fi
 
       - name: Comment on PR
         if: |

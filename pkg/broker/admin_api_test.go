@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,9 +15,11 @@ import (
 	"github.com/gstreamio/streambus/pkg/consumer/group"
 	"github.com/gstreamio/streambus/pkg/logging"
 	"github.com/gstreamio/streambus/pkg/metadata"
+	"github.com/gstreamio/streambus/pkg/protocol"
 	"github.com/gstreamio/streambus/pkg/replication/link"
 	"github.com/gstreamio/streambus/pkg/server"
 	"github.com/gstreamio/streambus/pkg/storage"
+	"github.com/gstreamio/streambus/pkg/transaction"
 )
 
 // mockClusterMetadataStore implements cluster.MetadataStore for testing
@@ -905,7 +908,29 @@ func startTestStreamBusBroker(t *testing.T) string {
 	config := server.DefaultConfig()
 	config.Address = addr
 
-	srv, err := server.New(config, server.NewHandlerWithDataDir(t.TempDir()))
+	// A replication link now opens a transactional producer against each
+	// cluster, so a bare handler is no longer enough: InitProducerID would
+	// come back as "unknown request type" and the link would fail to start.
+	// Wire the same coordinators a real broker does, using this package's
+	// production marker writer and offset committer rather than doubles, so
+	// the test broker behaves like the thing it stands in for.
+	topicManager := server.NewTopicManager(t.TempDir())
+
+	groupCoordinator := group.NewGroupCoordinator(
+		group.NewMemoryOffsetStorage(), group.DefaultCoordinatorConfig())
+
+	txnCoordinator := transaction.NewTransactionCoordinator(
+		transaction.NewMemoryTransactionLog(),
+		transaction.DefaultCoordinatorConfig(),
+		logging.New(&logging.Config{Level: logging.LevelError, Component: "test"}))
+	txnCoordinator.SetMarkerWriter(newLogMarkerWriter(topicManager))
+	txnCoordinator.SetOffsetCommitter(newGroupOffsetCommitter(groupCoordinator))
+
+	var handler server.RequestHandler = server.NewHandlerWithTopicManager(topicManager)
+	handler = server.NewCoordinationHandler(handler, groupCoordinator, singleBrokerLocator{addr: addr})
+	handler = server.NewTransactionHandler(handler, txnCoordinator)
+
+	srv, err := server.New(config, handler)
 	if err != nil {
 		t.Fatalf("Failed to create StreamBus server: %v", err)
 	}
@@ -915,6 +940,28 @@ func startTestStreamBusBroker(t *testing.T) string {
 	t.Cleanup(func() { _ = srv.Stop() })
 
 	return addr
+}
+
+// singleBrokerLocator points every coordinator lookup at the one broker in a
+// test, standing in for the registry-backed locator a real cluster uses.
+type singleBrokerLocator struct {
+	addr string
+}
+
+func (l singleBrokerLocator) FindCoordinator(
+	_ protocol.CoordinatorKeyType,
+	_ string,
+) (int32, string, int32, protocol.ErrorCode) {
+	host, portStr, err := net.SplitHostPort(l.addr)
+	if err != nil {
+		return 0, "", 0, protocol.ErrNotCoordinator
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return 0, "", 0, protocol.ErrNotCoordinator
+	}
+	//nolint:gosec // an ephemeral test port always fits in int32
+	return 1, host, int32(port), protocol.ErrNone
 }
 
 // createTestReplicationLink creates a link through the API and returns its ID.
