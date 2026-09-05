@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile for StreamBus Broker
 # Stage 1: Builder
-FROM golang:1.26.6-alpine AS builder
+FROM golang:1.27.1-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git make ca-certificates tzdata
