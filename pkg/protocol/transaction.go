@@ -41,13 +41,13 @@ type InitProducerIDResponse struct {
 func (p *InitProducerIDResponse) encodePayload(w *payloadWriter) {
 	w.writeInt64(p.ProducerID)
 	w.writeInt16(p.ProducerEpoch)
-	w.writeInt16(int16(p.ErrorCode))
+	w.writeErrorCode(p.ErrorCode)
 }
 
 func (p *InitProducerIDResponse) decodePayload(r *payloadReader) {
 	p.ProducerID = r.readInt64()
 	p.ProducerEpoch = r.readInt16()
-	p.ErrorCode = ErrorCode(r.readInt16())
+	p.ErrorCode = r.readErrorCode()
 }
 
 // ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ func (p *AddPartitionsToTxnRequest) encodePayload(w *payloadWriter) {
 	w.writeString(p.TransactionID)
 	w.writeInt64(p.ProducerID)
 	w.writeInt16(p.ProducerEpoch)
-	w.writeInt32(int32(len(p.Partitions)))
+	w.writeArrayLen(len(p.Partitions))
 	for _, partition := range p.Partitions {
 		w.writeString(partition.Topic)
 		w.writeInt32(partition.Partition)
@@ -121,11 +121,11 @@ func (p *AddPartitionsToTxnResponse) FirstError() ErrorCode {
 }
 
 func (p *AddPartitionsToTxnResponse) encodePayload(w *payloadWriter) {
-	w.writeInt32(int32(len(p.Results)))
+	w.writeArrayLen(len(p.Results))
 	for _, result := range p.Results {
 		w.writeString(result.Topic)
 		w.writeInt32(result.Partition)
-		w.writeInt16(int16(result.ErrorCode))
+		w.writeErrorCode(result.ErrorCode)
 	}
 }
 
@@ -139,7 +139,7 @@ func (p *AddPartitionsToTxnResponse) decodePayload(r *payloadReader) {
 		p.Results = append(p.Results, TxnPartitionResult{
 			Topic:     r.readString(),
 			Partition: r.readInt32(),
-			ErrorCode: ErrorCode(r.readInt16()),
+			ErrorCode: r.readErrorCode(),
 		})
 	}
 }
@@ -177,11 +177,11 @@ type AddOffsetsToTxnResponse struct {
 }
 
 func (p *AddOffsetsToTxnResponse) encodePayload(w *payloadWriter) {
-	w.writeInt16(int16(p.ErrorCode))
+	w.writeErrorCode(p.ErrorCode)
 }
 
 func (p *AddOffsetsToTxnResponse) decodePayload(r *payloadReader) {
-	p.ErrorCode = ErrorCode(r.readInt16())
+	p.ErrorCode = r.readErrorCode()
 }
 
 // ---------------------------------------------------------------------------
@@ -203,10 +203,10 @@ func (p *TxnOffsetCommitRequest) encodePayload(w *payloadWriter) {
 	w.writeString(p.GroupID)
 	w.writeInt64(p.ProducerID)
 	w.writeInt16(p.ProducerEpoch)
-	w.writeInt32(int32(len(p.Topics)))
+	w.writeArrayLen(len(p.Topics))
 	for _, topic := range p.Topics {
 		w.writeString(topic.Topic)
-		w.writeInt32(int32(len(topic.Partitions)))
+		w.writeArrayLen(len(topic.Partitions))
 		for _, partition := range topic.Partitions {
 			w.writeInt32(partition.Partition)
 			w.writeInt64(partition.Offset)
@@ -299,9 +299,9 @@ type EndTxnResponse struct {
 }
 
 func (p *EndTxnResponse) encodePayload(w *payloadWriter) {
-	w.writeInt16(int16(p.ErrorCode))
+	w.writeErrorCode(p.ErrorCode)
 }
 
 func (p *EndTxnResponse) decodePayload(r *payloadReader) {
-	p.ErrorCode = ErrorCode(r.readInt16())
+	p.ErrorCode = r.readErrorCode()
 }

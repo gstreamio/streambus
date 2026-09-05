@@ -41,7 +41,7 @@ func EncodeSubscription(sub *Subscription) []byte {
 
 func writeSubscription(w *payloadWriter, sub *Subscription) {
 	w.writeInt16(coordinationVersion)
-	w.writeInt32(int32(len(sub.Topics)))
+	w.writeArrayLen(len(sub.Topics))
 	for _, topic := range sub.Topics {
 		w.writeString(topic)
 	}
@@ -91,7 +91,7 @@ func EncodeMemberAssignment(assignment *MemberAssignment) []byte {
 
 func writeMemberAssignment(w *payloadWriter, assignment *MemberAssignment) {
 	w.writeInt16(coordinationVersion)
-	w.writeInt32(int32(len(assignment.Partitions)))
+	w.writeArrayLen(len(assignment.Partitions))
 
 	// Sort topics so the same assignment always produces identical bytes;
 	// callers compare assignment blobs to detect whether a rebalance actually
@@ -99,7 +99,7 @@ func writeMemberAssignment(w *payloadWriter, assignment *MemberAssignment) {
 	for _, topic := range sortedKeys(assignment.Partitions) {
 		w.writeString(topic)
 		partitions := assignment.Partitions[topic]
-		w.writeInt32(int32(len(partitions)))
+		w.writeArrayLen(len(partitions))
 		for _, partition := range partitions {
 			w.writeInt32(partition)
 		}
@@ -170,7 +170,7 @@ func (p *JoinGroupRequest) encodePayload(w *payloadWriter) {
 	w.writeString(p.ProtocolType)
 	w.writeInt32(p.SessionTimeoutMs)
 	w.writeInt32(p.RebalanceTimeoutMs)
-	w.writeInt32(int32(len(p.Protocols)))
+	w.writeArrayLen(len(p.Protocols))
 	for _, protocol := range p.Protocols {
 		w.writeString(protocol.Name)
 		w.writeBytes(protocol.Metadata)
@@ -222,12 +222,12 @@ func (p *JoinGroupResponse) IsLeader() bool {
 }
 
 func (p *JoinGroupResponse) encodePayload(w *payloadWriter) {
-	w.writeInt16(int16(p.ErrorCode))
+	w.writeErrorCode(p.ErrorCode)
 	w.writeInt32(p.GenerationID)
 	w.writeString(p.ProtocolName)
 	w.writeString(p.MemberID)
 	w.writeString(p.LeaderID)
-	w.writeInt32(int32(len(p.Members)))
+	w.writeArrayLen(len(p.Members))
 	for _, member := range p.Members {
 		w.writeString(member.MemberID)
 		w.writeBytes(member.Metadata)
@@ -235,7 +235,7 @@ func (p *JoinGroupResponse) encodePayload(w *payloadWriter) {
 }
 
 func (p *JoinGroupResponse) decodePayload(r *payloadReader) {
-	p.ErrorCode = ErrorCode(r.readInt16())
+	p.ErrorCode = r.readErrorCode()
 	p.GenerationID = r.readInt32()
 	p.ProtocolName = r.readString()
 	p.MemberID = r.readString()
@@ -277,7 +277,7 @@ func (p *SyncGroupRequest) encodePayload(w *payloadWriter) {
 	w.writeString(p.GroupID)
 	w.writeInt32(p.GenerationID)
 	w.writeString(p.MemberID)
-	w.writeInt32(int32(len(p.Assignments)))
+	w.writeArrayLen(len(p.Assignments))
 	for _, assignment := range p.Assignments {
 		w.writeString(assignment.MemberID)
 		w.writeBytes(assignment.Assignment)
@@ -309,12 +309,12 @@ type SyncGroupResponse struct {
 }
 
 func (p *SyncGroupResponse) encodePayload(w *payloadWriter) {
-	w.writeInt16(int16(p.ErrorCode))
+	w.writeErrorCode(p.ErrorCode)
 	w.writeBytes(p.Assignment)
 }
 
 func (p *SyncGroupResponse) decodePayload(r *payloadReader) {
-	p.ErrorCode = ErrorCode(r.readInt16())
+	p.ErrorCode = r.readErrorCode()
 	p.Assignment = r.readBytes()
 }
 
@@ -348,11 +348,11 @@ type HeartbeatResponse struct {
 }
 
 func (p *HeartbeatResponse) encodePayload(w *payloadWriter) {
-	w.writeInt16(int16(p.ErrorCode))
+	w.writeErrorCode(p.ErrorCode)
 }
 
 func (p *HeartbeatResponse) decodePayload(r *payloadReader) {
-	p.ErrorCode = ErrorCode(r.readInt16())
+	p.ErrorCode = r.readErrorCode()
 }
 
 // ---------------------------------------------------------------------------
@@ -381,11 +381,11 @@ type LeaveGroupResponse struct {
 }
 
 func (p *LeaveGroupResponse) encodePayload(w *payloadWriter) {
-	w.writeInt16(int16(p.ErrorCode))
+	w.writeErrorCode(p.ErrorCode)
 }
 
 func (p *LeaveGroupResponse) decodePayload(r *payloadReader) {
-	p.ErrorCode = ErrorCode(r.readInt16())
+	p.ErrorCode = r.readErrorCode()
 }
 
 // ---------------------------------------------------------------------------
@@ -420,10 +420,10 @@ func (p *OffsetCommitRequest) encodePayload(w *payloadWriter) {
 	w.writeString(p.GroupID)
 	w.writeInt32(p.GenerationID)
 	w.writeString(p.MemberID)
-	w.writeInt32(int32(len(p.Topics)))
+	w.writeArrayLen(len(p.Topics))
 	for _, topic := range p.Topics {
 		w.writeString(topic.Topic)
-		w.writeInt32(int32(len(topic.Partitions)))
+		w.writeArrayLen(len(topic.Partitions))
 		for _, partition := range topic.Partitions {
 			w.writeInt32(partition.Partition)
 			w.writeInt64(partition.Offset)
@@ -492,13 +492,13 @@ func (p *OffsetCommitResponse) FirstError() ErrorCode {
 }
 
 func (p *OffsetCommitResponse) encodePayload(w *payloadWriter) {
-	w.writeInt32(int32(len(p.Topics)))
+	w.writeArrayLen(len(p.Topics))
 	for _, topic := range p.Topics {
 		w.writeString(topic.Topic)
-		w.writeInt32(int32(len(topic.Partitions)))
+		w.writeArrayLen(len(topic.Partitions))
 		for _, partition := range topic.Partitions {
 			w.writeInt32(partition.Partition)
-			w.writeInt16(int16(partition.ErrorCode))
+			w.writeErrorCode(partition.ErrorCode)
 		}
 	}
 }
@@ -519,7 +519,7 @@ func (p *OffsetCommitResponse) decodePayload(r *payloadReader) {
 		for j := 0; j < partitionCount; j++ {
 			topic.Partitions = append(topic.Partitions, OffsetCommitPartitionResult{
 				Partition: r.readInt32(),
-				ErrorCode: ErrorCode(r.readInt16()),
+				ErrorCode: r.readErrorCode(),
 			})
 		}
 		p.Topics = append(p.Topics, topic)
@@ -541,10 +541,10 @@ type OffsetFetchRequest struct {
 
 func (p *OffsetFetchRequest) encodePayload(w *payloadWriter) {
 	w.writeString(p.GroupID)
-	w.writeInt32(int32(len(p.Topics)))
+	w.writeArrayLen(len(p.Topics))
 	for _, topic := range p.Topics {
 		w.writeString(topic.Topic)
-		w.writeInt32(int32(len(topic.Partitions)))
+		w.writeArrayLen(len(topic.Partitions))
 		for _, partition := range topic.Partitions {
 			w.writeInt32(partition)
 		}
@@ -600,15 +600,15 @@ type OffsetFetchResponse struct {
 }
 
 func (p *OffsetFetchResponse) encodePayload(w *payloadWriter) {
-	w.writeInt32(int32(len(p.Topics)))
+	w.writeArrayLen(len(p.Topics))
 	for _, topic := range p.Topics {
 		w.writeString(topic.Topic)
-		w.writeInt32(int32(len(topic.Partitions)))
+		w.writeArrayLen(len(topic.Partitions))
 		for _, partition := range topic.Partitions {
 			w.writeInt32(partition.Partition)
 			w.writeInt64(partition.Offset)
 			w.writeString(partition.Metadata)
-			w.writeInt16(int16(partition.ErrorCode))
+			w.writeErrorCode(partition.ErrorCode)
 		}
 	}
 }
@@ -631,7 +631,7 @@ func (p *OffsetFetchResponse) decodePayload(r *payloadReader) {
 				Partition: r.readInt32(),
 				Offset:    r.readInt64(),
 				Metadata:  r.readString(),
-				ErrorCode: ErrorCode(r.readInt16()),
+				ErrorCode: r.readErrorCode(),
 			})
 		}
 		p.Topics = append(p.Topics, topic)
