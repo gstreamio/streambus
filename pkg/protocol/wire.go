@@ -48,9 +48,14 @@ func (w *payloadWriter) reserve(n int) []byte {
 	return w.buf[start : start+n]
 }
 
+// The int/uint conversions in the fixed-width writers and readers below
+// reinterpret the same bits at the same width - int16 to uint16, int64 to
+// uint64 - rather than narrowing, so no value can be lost. Length-prefixed
+// fields, which do narrow, go through writeArrayLen instead.
+
 func (w *payloadWriter) writeInt8(v int8) {
 	if b := w.reserve(1); b != nil {
-		b[0] = byte(v)
+		b[0] = byte(v) // #nosec G115 -- same-width reinterpretation, not a narrowing
 	}
 }
 
@@ -64,25 +69,25 @@ func (w *payloadWriter) writeBool(v bool) {
 
 func (w *payloadWriter) writeInt16(v int16) {
 	if b := w.reserve(2); b != nil {
-		binary.BigEndian.PutUint16(b, uint16(v))
+		binary.BigEndian.PutUint16(b, uint16(v)) // #nosec G115 -- same-width reinterpretation, not a narrowing
 	}
 }
 
 func (w *payloadWriter) writeInt32(v int32) {
 	if b := w.reserve(4); b != nil {
-		binary.BigEndian.PutUint32(b, uint32(v))
+		binary.BigEndian.PutUint32(b, uint32(v)) // #nosec G115 -- same-width reinterpretation, not a narrowing
 	}
 }
 
 func (w *payloadWriter) writeInt64(v int64) {
 	if b := w.reserve(8); b != nil {
-		binary.BigEndian.PutUint64(b, uint64(v))
+		binary.BigEndian.PutUint64(b, uint64(v)) // #nosec G115 -- same-width reinterpretation, not a narrowing
 	}
 }
 
 // writeString writes a 4-byte length prefix followed by the string bytes.
 func (w *payloadWriter) writeString(s string) {
-	w.writeInt32(int32(len(s)))
+	w.writeArrayLen(len(s))
 	if b := w.reserve(len(s)); b != nil {
 		copy(b, s)
 	}
@@ -96,7 +101,7 @@ func (w *payloadWriter) writeBytes(data []byte) {
 		w.writeInt32(-1)
 		return
 	}
-	w.writeInt32(int32(len(data)))
+	w.writeArrayLen(len(data))
 	if b := w.reserve(len(data)); b != nil {
 		copy(b, data)
 	}
@@ -148,7 +153,7 @@ func (r *payloadReader) readInt8() int8 {
 	if b == nil {
 		return 0
 	}
-	return int8(b[0])
+	return int8(b[0]) // #nosec G115 -- same-width reinterpretation, not a narrowing
 }
 
 func (r *payloadReader) readBool() bool {
@@ -160,7 +165,7 @@ func (r *payloadReader) readInt16() int16 {
 	if b == nil {
 		return 0
 	}
-	return int16(binary.BigEndian.Uint16(b))
+	return int16(binary.BigEndian.Uint16(b)) // #nosec G115 -- same-width reinterpretation, not a narrowing
 }
 
 func (r *payloadReader) readInt32() int32 {
@@ -168,7 +173,7 @@ func (r *payloadReader) readInt32() int32 {
 	if b == nil {
 		return 0
 	}
-	return int32(binary.BigEndian.Uint32(b))
+	return int32(binary.BigEndian.Uint32(b)) // #nosec G115 -- same-width reinterpretation, not a narrowing
 }
 
 func (r *payloadReader) readInt64() int64 {
@@ -176,7 +181,7 @@ func (r *payloadReader) readInt64() int64 {
 	if b == nil {
 		return 0
 	}
-	return int64(binary.BigEndian.Uint64(b))
+	return int64(binary.BigEndian.Uint64(b)) // #nosec G115 -- same-width reinterpretation, not a narrowing
 }
 
 func (r *payloadReader) readString() string {

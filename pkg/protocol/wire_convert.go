@@ -1,9 +1,6 @@
 package protocol
 
-import (
-	"encoding/binary"
-	"fmt"
-)
+import "encoding/binary"
 
 // bigEndian is the byte order every StreamBus wire field uses.
 var bigEndian = binary.BigEndian
@@ -62,13 +59,4 @@ func (r *payloadReader) readUint16() uint16 {
 		return 0
 	}
 	return bigEndian.Uint16(b)
-}
-
-// checkedInt32 narrows an int for callers that must surface an out-of-range
-// value as an error rather than clamping it.
-func checkedInt32(n int) (int32, error) {
-	if n < 0 || n > maxArrayLen {
-		return 0, fmt.Errorf("%w: value %d out of range", ErrMalformedPayload, n)
-	}
-	return int32(n), nil
 }

@@ -88,8 +88,13 @@ func IsCoordinationRequest(reqType RequestType) bool {
 func measurePayload(p payloadEncoder) uint32 {
 	sizer := newSizer()
 	p.encodePayload(sizer)
-	//nolint:gosec // payload sizes are bounded by the codec's max message size
-	return uint32(sizer.Len())
+	size := sizer.Len()
+	if size < 0 || size > MaxMessageSize {
+		// Unreachable for any payload the encoders can build, but returning a
+		// wrapped-around size would have the caller allocate the wrong buffer.
+		return 0
+	}
+	return uint32(size)
 }
 
 // encodeSelfDescribing writes a self-describing payload into buf at offset and
