@@ -452,7 +452,11 @@ docker-compose up -d
   restarts)
 - Transactional producers with commit/abort markers written durably to every
   participating partition, and consumer offsets committed inside a transaction,
-  giving exactly-once semantics within a cluster
+  giving exactly-once semantics within a cluster. Pinning
+  `storage.message_format_version` to v2 for a rolling upgrade trades this
+  away: v2 has nowhere to carry producer identity, so while it is selected a
+  transactional produce is refused outright rather than written without the
+  identity `read_committed` needs to hide it after an abort
 - read_committed consumer isolation: a fetch never returns a record from a
   transaction still in flight, and an aborted transaction's records stay
   hidden after its marker resolves
@@ -472,16 +476,6 @@ docker-compose up -d
 - Prometheus metrics and OpenTelemetry tracing
 - Structured logging
 - Grafana dashboards
-
-### Known Limitations ⚠️
-
-- **Pinning the record format to v2 disables transactions.** A rolling upgrade
-  can set `storage.message_format_version: v2` so an upgraded broker keeps
-  writing a format older brokers can read, then switch to v3 once the fleet is
-  fully upgraded. v2 has nowhere to carry producer identity, though, so while
-  it is selected a transactional produce is refused outright rather than
-  written without the identity `read_committed` needs to hide it after an
-  abort.
 
 ---
 
