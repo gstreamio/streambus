@@ -1,6 +1,7 @@
 package link
 
 import (
+	"errors"
 	"time"
 )
 
@@ -478,6 +479,11 @@ type ReplicationHealth struct {
 	// Warnings contains non-critical warnings
 	Warnings []string
 }
+
+// ErrLinkNotFound is returned when an operation names a replication link
+// that does not exist. Callers should test for it with errors.Is rather than
+// matching on the message, which also carries the link ID.
+var ErrLinkNotFound = errors.New("replication link not found")
 
 // Manager manages all cross-datacenter replication links
 type Manager interface {

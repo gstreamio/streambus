@@ -52,6 +52,18 @@ type StreamHandler struct {
 	// mu protects mutable state
 	mu sync.RWMutex
 
+	// statsMu guards metrics and health.
+	//
+	// These are deliberately not covered by mu: Stop holds mu while waiting
+	// for the worker, health-check and metrics goroutines to exit, so any of
+	// those taking mu would deadlock against a concurrent Stop. They are also
+	// the same objects the link manager exposes through GetMetrics/GetHealth,
+	// which runs under the manager's own lock - so a single lock dedicated to
+	// this state is what keeps the two sides from racing.
+	//
+	// Lock order is always mu then statsMu; never the reverse.
+	statsMu sync.Mutex
+
 	// started indicates if the stream has been started
 	started bool
 
@@ -91,28 +103,19 @@ func NewStreamHandler(link *ReplicationLink, checkpointStore Storage) (*StreamHa
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// The handler takes its own copies of metrics and health rather than
+	// aliasing the link's. Sharing them made the link struct mutable from the
+	// handler's worker goroutines, so anything the manager did with the link -
+	// Clone, SaveLink, ListLinks - raced with replication. The manager reads
+	// live values back through WithStats instead.
 	handler := &StreamHandler{
 		link:             link,
 		partitionWorkers: make(map[string]*partitionWorker),
-		metrics:          link.Metrics,
-		health:           link.Health,
+		metrics:          cloneMetrics(link.Metrics),
+		health:           initialHealth(link.Health),
 		checkpointStore:  checkpointStore,
 		ctx:              ctx,
 		cancel:           cancel,
-	}
-
-	// Initialize metrics if not present
-	if handler.metrics == nil {
-		handler.metrics = &ReplicationMetrics{
-			PartitionMetrics: make(map[string]*PartitionReplicationMetrics),
-		}
-	}
-
-	// Initialize health if not present
-	if handler.health == nil {
-		handler.health = &ReplicationHealth{
-			Status: "initializing",
-		}
 	}
 
 	// Compile filter patterns if filtering is enabled
@@ -145,7 +148,7 @@ func (h *StreamHandler) Start() error {
 	// Connect to target cluster
 	targetClient, err := h.connectToCluster(&h.link.TargetCluster)
 	if err != nil {
-		h.sourceClient.Close()
+		_ = h.sourceClient.Close() // failing to close a client we are abandoning changes nothing
 		return fmt.Errorf("failed to connect to target cluster: %w", err)
 	}
 	h.targetClient = targetClient
@@ -153,8 +156,8 @@ func (h *StreamHandler) Start() error {
 	// Get topics to replicate
 	topics, err := h.getTopicsToReplicate()
 	if err != nil {
-		h.sourceClient.Close()
-		h.targetClient.Close()
+		_ = h.sourceClient.Close() // failing to close clients we are abandoning changes nothing
+		_ = h.targetClient.Close()
 		return fmt.Errorf("failed to get topics: %w", err)
 	}
 
@@ -175,7 +178,7 @@ func (h *StreamHandler) Start() error {
 	go h.metricsUpdateLoop()
 
 	h.started = true
-	h.health.Status = "healthy"
+	h.setHealthStatus("healthy")
 
 	return nil
 }
@@ -189,22 +192,31 @@ func (h *StreamHandler) Stop() error {
 		return nil
 	}
 
-	// Cancel context to stop all workers
+	// Cancel the handler context, which cascades to every worker, then cancel
+	// each worker explicitly so a worker that never started still releases
+	// its context.
 	h.cancel()
+	for _, worker := range h.partitionWorkers {
+		if worker.cancel != nil {
+			worker.cancel()
+		}
+	}
 
 	// Wait for all workers to finish
 	h.wg.Wait()
 
-	// Close clients
+	// Close clients. A close error here has no recovery path - the stream is
+	// stopping either way - so it is dropped deliberately rather than
+	// masking the caller's own result.
 	if h.sourceClient != nil {
-		h.sourceClient.Close()
+		_ = h.sourceClient.Close()
 	}
 	if h.targetClient != nil {
-		h.targetClient.Close()
+		_ = h.targetClient.Close()
 	}
 
 	h.started = false
-	h.health.Status = "stopped"
+	h.setHealthStatus("stopped")
 
 	return nil
 }
@@ -218,13 +230,24 @@ func (h *StreamHandler) connectToCluster(config *ClusterConfig) (*client.Client,
 		brokers = []string{config.BootstrapServers}
 	}
 
-	// Create client configuration
-	clientConfig := &client.Config{
-		Brokers:        brokers,
-		ConnectTimeout: config.ConnectionTimeout,
-		RequestTimeout: config.RequestTimeout,
-		RetryBackoff:   config.RetryBackoff,
-		MaxRetries:     config.MaxRetries,
+	// Start from the client defaults and override only what the cluster
+	// config actually specifies. Building a bare client.Config here would
+	// leave required fields such as MaxConnectionsPerBroker at zero, which
+	// client.New rejects - making every StartLink fail before it connected.
+	clientConfig := client.DefaultConfig()
+	clientConfig.Brokers = brokers
+
+	if config.ConnectionTimeout > 0 {
+		clientConfig.ConnectTimeout = config.ConnectionTimeout
+	}
+	if config.RequestTimeout > 0 {
+		clientConfig.RequestTimeout = config.RequestTimeout
+	}
+	if config.RetryBackoff > 0 {
+		clientConfig.RetryBackoff = config.RetryBackoff
+	}
+	if config.MaxRetries > 0 {
+		clientConfig.MaxRetries = config.MaxRetries
 	}
 
 	// Apply security configuration if present.
@@ -241,7 +264,43 @@ func (h *StreamHandler) connectToCluster(config *ClusterConfig) (*client.Client,
 		return nil, fmt.Errorf("failed to create client: %w", err)
 	}
 
+	// client.New does not dial, so verify the cluster is actually reachable
+	// before reporting the link as connected. Without this a link starts
+	// "active" and healthy against brokers that do not exist, and silently
+	// replicates nothing.
+	if err := verifyClusterReachable(c, brokers, clientConfig.ConnectTimeout); err != nil {
+		_ = c.Close() // the connection is being discarded; a close error is moot
+		return nil, err
+	}
+
 	return c, nil
+}
+
+// verifyClusterReachable health-checks the cluster's brokers, succeeding as
+// soon as one responds. A cluster is usable if any of its brokers answers;
+// requiring all of them would make a single down broker fail the whole link.
+func verifyClusterReachable(c *client.Client, brokers []string, timeout time.Duration) error {
+	if len(brokers) == 0 {
+		return fmt.Errorf("no brokers configured")
+	}
+
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	var lastErr error
+	for _, broker := range brokers {
+		if err := c.HealthCheck(ctx, broker); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+
+	return fmt.Errorf("no reachable broker among %v: %w", brokers, lastErr)
 }
 
 // getTopicsToReplicate returns the list of topics to replicate
@@ -303,6 +362,11 @@ func (h *StreamHandler) startTopicReplication(topic string) error {
 // run is the main loop for a partition worker
 func (w *partitionWorker) run() {
 	defer w.handler.wg.Done()
+	// Release the worker's context regardless of why the loop exits.
+	// Without this, each worker's child context stays registered on the
+	// handler's context for the handler's whole lifetime, which leaks for a
+	// handler that starts replication for topics repeatedly.
+	defer w.cancel()
 
 	ticker := time.NewTicker(time.Duration(w.handler.link.Config.CheckpointIntervalMs) * time.Millisecond)
 	defer ticker.Stop()
@@ -322,23 +386,14 @@ func (w *partitionWorker) run() {
 			// Fetch and replicate messages
 			if err := w.replicateBatch(); err != nil {
 				w.errors++
-				w.handler.metrics.TotalErrors++
-				w.handler.metrics.ConsecutiveFailures++
-
-				// Check if we should mark as failed
-				if w.handler.metrics.ConsecutiveFailures > int(w.handler.link.FailoverConfig.MaxConsecutiveFailures) {
-					w.handler.health.Status = "unhealthy"
-					w.handler.health.Issues = append(w.handler.health.Issues,
-						fmt.Sprintf("Too many consecutive failures: %d", w.handler.metrics.ConsecutiveFailures))
-				}
+				w.handler.recordReplicationFailure()
 
 				// Backoff on error
 				time.Sleep(time.Duration(w.handler.link.Config.FetchWaitMaxMs) * time.Millisecond)
 				continue
 			}
 
-			// Reset consecutive failures on success
-			w.handler.metrics.ConsecutiveFailures = 0
+			w.handler.recordReplicationSuccess()
 		}
 	}
 }
@@ -396,8 +451,8 @@ func (h *StreamHandler) healthCheckLoop() {
 
 // performHealthCheck checks the health of the replication stream
 func (h *StreamHandler) performHealthCheck() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	h.statsMu.Lock()
+	defer h.statsMu.Unlock()
 
 	h.health.LastHealthCheck = time.Now()
 	h.health.Issues = nil
@@ -453,9 +508,12 @@ func (h *StreamHandler) metricsUpdateLoop() {
 	defer ticker.Stop()
 
 	lastUpdate := time.Now()
+
+	h.statsMu.Lock()
 	lastMessages := h.metrics.TotalMessagesReplicated
 	lastBytes := h.metrics.TotalBytesReplicated
 	lastErrors := h.metrics.TotalErrors
+	h.statsMu.Unlock()
 
 	for {
 		select {
@@ -465,7 +523,7 @@ func (h *StreamHandler) metricsUpdateLoop() {
 			now := time.Now()
 			elapsed := now.Sub(lastUpdate).Seconds()
 
-			h.mu.Lock()
+			h.statsMu.Lock()
 
 			// Calculate rates
 			messagesDelta := h.metrics.TotalMessagesReplicated - lastMessages
@@ -487,9 +545,76 @@ func (h *StreamHandler) metricsUpdateLoop() {
 				h.metrics.UptimeSeconds = int64(time.Since(h.link.StartedAt).Seconds())
 			}
 
-			h.mu.Unlock()
+			h.statsMu.Unlock()
 		}
 	}
+}
+
+// initialHealth returns the handler's starting health. A link that has never
+// run carries no health of its own, and a handler that has been constructed
+// but not started is initializing rather than of unknown health.
+func initialHealth(source *ReplicationHealth) *ReplicationHealth {
+	if source == nil {
+		return &ReplicationHealth{Status: "initializing"}
+	}
+	return cloneHealth(source)
+}
+
+// setHealthStatus records the stream's overall health status.
+func (h *StreamHandler) setHealthStatus(status string) {
+	h.statsMu.Lock()
+	defer h.statsMu.Unlock()
+	h.health.Status = status
+}
+
+// recordReplicationFailure counts a failed replication batch and marks the
+// stream unhealthy once failures pass the link's tolerance.
+func (h *StreamHandler) recordReplicationFailure() {
+	h.statsMu.Lock()
+	defer h.statsMu.Unlock()
+
+	h.metrics.TotalErrors++
+	h.metrics.ConsecutiveFailures++
+
+	maxFailures := 0
+	if h.link.FailoverConfig != nil {
+		maxFailures = int(h.link.FailoverConfig.MaxConsecutiveFailures)
+	}
+	if maxFailures > 0 && h.metrics.ConsecutiveFailures > maxFailures {
+		h.health.Status = "unhealthy"
+		h.health.Issues = append(h.health.Issues,
+			fmt.Sprintf("Too many consecutive failures: %d", h.metrics.ConsecutiveFailures))
+	}
+}
+
+// recordReplicationSuccess clears the consecutive-failure counter.
+func (h *StreamHandler) recordReplicationSuccess() {
+	h.statsMu.Lock()
+	defer h.statsMu.Unlock()
+	h.metrics.ConsecutiveFailures = 0
+}
+
+// ResetFailureStats clears failure counters and health issues, used when a
+// link is (re)started.
+func (h *StreamHandler) ResetFailureStats() {
+	h.statsMu.Lock()
+	defer h.statsMu.Unlock()
+
+	h.metrics.ConsecutiveFailures = 0
+	h.health.Status = "healthy"
+	h.health.Issues = nil
+	h.health.Warnings = nil
+}
+
+// WithStats runs fn with exclusive access to the stream's metrics and health.
+//
+// The link manager holds the same pointers and must read them under this lock
+// while the stream is running, otherwise a snapshot races with the worker and
+// health-check goroutines updating them.
+func (h *StreamHandler) WithStats(fn func(metrics *ReplicationMetrics, health *ReplicationHealth)) {
+	h.statsMu.Lock()
+	defer h.statsMu.Unlock()
+	fn(h.metrics, h.health)
 }
 
 // compileFilterPatterns compiles regex patterns for message filtering

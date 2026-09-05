@@ -26,19 +26,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Consumer group coordination end to end.** `JoinGroup`, `SyncGroup`,
+  `Heartbeat`, `LeaveGroup`, `OffsetCommit` and `OffsetFetch` now have wire
+  formats in `pkg/protocol`, are routed to the broker's
+  `group.GroupCoordinator` by the new `server.CoordinationHandler`, and are
+  driven by `client.GroupConsumer`. `Subscribe` joins the group, computes the
+  assignment when elected leader, and heartbeats to stay a member; `Poll`
+  fetches from the assigned partitions; `CommitSync` persists offsets to the
+  group. New `GroupConsumer.Position` and `GroupConsumer.Committed` expose
+  fetch positions and committed offsets.
+- **Transaction coordination end to end.** `InitProducerID`,
+  `AddPartitionsToTxn`, `AddOffsetsToTxn`, `TxnOffsetCommit` and `EndTxn` now
+  have wire formats and are routed to the broker's
+  `transaction.TransactionCoordinator` by the new `server.TransactionHandler`.
+  `TransactionCoordinator.EndTxn` writes a commit or abort marker to every
+  participating partition through the new `transaction.MarkerWriter` before
+  reporting success, and `TransactionCoordinator.TxnOffsetCommit` holds
+  consumer offsets until the transaction resolves, publishing them through the
+  new `transaction.OffsetCommitter` on commit and discarding them on abort.
+- `Client` gained the coordination RPCs (`JoinGroup`, `SyncGroup`,
+  `Heartbeat`, `LeaveGroup`, `CommitOffsets`, `FetchOffsets`,
+  `InitProducerID`, `AddPartitionsToTxn`, `AddOffsetsToTxn`,
+  `TxnOffsetCommit`, `EndTxn`, `TopicPartitionCounts`).
+- Admin API `GET /api/v1/topics/:name/messages` now reads real messages from
+  the partition log and honours `partition`, `offset` and `limit`. Non-UTF-8
+  payloads are base64-encoded and flagged with an `encoding` field.
+- Admin API `/api/v1/replication/links` is backed by a real
+  `link.Manager`: list, create, update, delete, start, stop, pause, resume,
+  failover, metrics and health all work rather than returning 501.
+- `AssignmentConstraints.MaxPartitionsPerBroker` is enforced by the
+  round-robin, range and sticky strategies, including their rack-aware paths,
+  with `BrokerInfo.Capacity` as a per-broker override. The new
+  `AssignmentConstraints.ExistingLoad` field lets callers seed counts held
+  from previous assignment passes.
+- `tenancy.Manager` gained topic ownership (`RegisterTopic`,
+  `UnregisterTopic`, `TenantForTopic`, `TopicsFor`, `TopicOwners`), which the
+  broker uses to attribute on-disk bytes to tenants.
+- `server.TopicManager` gained `ReadMessages`, `PartitionOffsets`,
+  `TopicDiskUsage` and `DiskUsageByTopic`; `server.NewHandlerWithTopicManager`
+  lets a caller share one storage view with the wire-protocol handler.
+
 ### Changed
-- **BREAKING**: `GroupConsumer.Subscribe`/`CommitSync` now return
-  `ErrGroupCoordinationNotImplemented` instead of silently simulating a
-  successful join/sync/commit. Multi-partition consumer group coordination
-  against a broker-side coordinator was never actually wired up (`Poll` always
-  returned empty results); callers that previously received a fake success
-  need to handle this error and use `Consumer`/`PartitionConsumer` instead.
-- **BREAKING**: `TransactionalProducer.CommitTransaction`/
-  `SendOffsetsToTransaction` now return `ErrTransactionCoordinationNotImplemented`
-  instead of silently reporting success. `flushMessages` never actually wrote
-  committed messages to the broker, so a successful-looking commit previously
-  discarded every message in the transaction. Use `Producer` instead until
-  transaction coordination is implemented.
+- **BREAKING**: `ErrGroupCoordinationNotImplemented` and
+  `ErrTransactionCoordinationNotImplemented` are removed. `GroupConsumer` and
+  `TransactionalProducer` now work, so code that tested for these sentinels
+  should handle real coordination errors instead.
+- **BREAKING**: `server.NewTenancyHandler` takes a `RequestHandler` rather
+  than a concrete `*server.Handler`, so it can wrap the coordination handlers.
+- `Broker.storage` (declared but never assigned) is replaced by a
+  `*server.TopicManager` created in `initStorage` and shared with the
+  wire-protocol handler, so the admin API and per-tenant accounting read the
+  same bytes producers write.
+- `Broker.updateTenantStorageUsage` reports real per-tenant on-disk usage
+  instead of only logging. Topics with no ownership record are reported as
+  unattributed rather than billed to an arbitrary tenant.
 - **BREAKING**: `Producer.Send`/`SendToPartition`/`SendMessages`/
   `SendMessagesToPartition`/`Flush`/`FlushAll`, `Consumer.Fetch`/`FetchN`/
   `FetchOne`/`SeekToEnd`/`GetEndOffset`/`Poll`, `PartitionConsumer.FetchFromPartition`/
@@ -57,6 +99,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Config` literal directly instead of starting from `DefaultConfig()`.
 
 ### Fixed
+- `storage`: `Message.Headers` were silently discarded on write - the record
+  format had nowhere to put them, so every header set by a producer (including
+  the `tenant_id` header the tenancy handler reads) was lost on read. A third
+  record format carries headers, and header-less records are byte-identical to
+  what earlier versions wrote.
+- `storage`: `Log.ReadRange` never stamped `Message.Offset`, so every message
+  in a range came back reporting offset 0, and it skipped offsets that had
+  been flushed out of the memtables instead of falling back to the WAL.
+- `transaction`: a completed transaction blocked every later transaction under
+  the same transactional ID until its record was garbage-collected (24 hours by
+  default), so a `TransactionalProducer` could run exactly one transaction in
+  its lifetime.
+- `consumer/group`: `HandleSyncGroup` returned only assignments taken from the
+  request, so a follower - whose own request carries none - received nothing.
+  It now returns the assignment the leader stored for that member, and reports
+  `RebalanceInProgress` when the leader has not published one yet.
+- `consumer/group`: `parseAssignmentBytes` never decoded partition lists, so a
+  member's assignment always looked empty to the admin API. Assignments are
+  now decoded, and stale assignments are cleared when a new generation begins.
+- `replication/link`: `connectToCluster` built a bare `client.Config`, leaving
+  `MaxConnectionsPerBroker` at zero, which `client.New` always rejects - so
+  every `StartLink` failed before it connected.
+- `replication/link`: starting a link never verified the clusters were
+  reachable, so a link went active and healthy against brokers that do not
+  exist and silently replicated nothing.
 - `Consumer`/`PartitionConsumer`'s default `StartOffset: -1` ("latest") was
   never resolved to a concrete offset before being sent to the broker - a
   fresh consumer relying on this documented default (no explicit `Seek`/

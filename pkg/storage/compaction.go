@@ -345,19 +345,29 @@ func countEntries(t MemTable) int {
 	return count
 }
 
-// extractTimestamp extracts a timestamp from serialized message data.
-// Uses the same format as logImpl.deserializeMessage:
-// [Timestamp:8][KeyLen:4][Key:n][ValueLen:4][Value:n]
+// extractTimestamp extracts a timestamp from serialized message data,
+// understanding the same record formats as logImpl.deserializeMessage.
+//
+// A v0 record carries no timestamp and yields the zero time; retention then
+// treats it as ineligible for age-based cleanup rather than deleting it as
+// infinitely old.
 func extractTimestamp(data []byte) time.Time {
+	// v2 records put the timestamp after the magic and version bytes.
+	if isRecordV2(data) {
+		if len(data) < 5+8 {
+			return time.Time{}
+		}
+		return time.Unix(0, int64(binary.BigEndian.Uint64(data[5:13])))
+	}
+
 	if len(data) < 12 {
 		return time.Time{}
 	}
 
-	// Check if this is the new format with timestamp prefix.
-	// Same heuristic as deserializeMessage: if first 4 bytes represent
-	// a key length > 1MB, it's likely a timestamp.
+	// v1 vs v0: if the first word could not be a sane key length, it is the
+	// high half of a timestamp.
 	possibleKeyLen := binary.BigEndian.Uint32(data[0:4])
-	if possibleKeyLen > 1048576 {
+	if possibleKeyLen > maxSaneKeyLen {
 		nanos := int64(binary.BigEndian.Uint64(data[0:8]))
 		return time.Unix(0, nanos)
 	}

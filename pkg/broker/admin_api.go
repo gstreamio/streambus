@@ -2,16 +2,22 @@ package broker
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gstreamio/streambus/pkg/logging"
 	"github.com/gstreamio/streambus/pkg/metadata"
+	"github.com/gstreamio/streambus/pkg/replication/link"
 	"github.com/gstreamio/streambus/pkg/security"
+	"github.com/gstreamio/streambus/pkg/storage"
 )
 
 // registerAdminAPI registers admin management HTTP endpoints
@@ -445,17 +451,31 @@ func (b *Broker) handleTopicPartitions(w http.ResponseWriter, r *http.Request, t
 	partitions := make([]PartitionInfo, topic.NumPartitions)
 	for i := 0; i < topic.NumPartitions; i++ {
 		partInfo, exists := b.metaStore.GetPartition(topicName, i)
-		if exists {
-			partitions[i] = PartitionInfo{
-				ID:              int32(i),
-				Leader:          int32(partInfo.Leader),
-				Replicas:        convertUint64SliceToInt32(partInfo.Replicas),
-				ISR:             convertUint64SliceToInt32(partInfo.ISR),
-				BeginningOffset: 0,
-				EndOffset:       0,
-				MessageCount:    0,
-			}
+		if !exists {
+			continue
 		}
+
+		partitions[i] = PartitionInfo{
+			ID:       int32(i),
+			Leader:   int32(partInfo.Leader),
+			Replicas: convertUint64SliceToInt32(partInfo.Replicas),
+			ISR:      convertUint64SliceToInt32(partInfo.ISR),
+		}
+
+		// Offsets come from local storage, so they are only populated for
+		// partitions this broker actually hosts. A partition led elsewhere
+		// keeps its zero values.
+		if b.topicManager == nil {
+			continue
+		}
+		//nolint:gosec // partition IDs are bounded by topic.NumPartitions
+		start, end, _, err := b.topicManager.PartitionOffsets(topicName, uint32(i))
+		if err != nil {
+			continue
+		}
+		partitions[i].BeginningOffset = start
+		partitions[i].EndOffset = end
+		partitions[i].MessageCount = end - start
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -464,40 +484,148 @@ func (b *Broker) handleTopicPartitions(w http.ResponseWriter, r *http.Request, t
 
 // MessageInfo represents message metadata for browsing
 type MessageInfo struct {
-	Offset    int64             `json:"offset"`
-	Key       string            `json:"key,omitempty"`
-	Value     string            `json:"value"`
-	Headers   map[string]string `json:"headers,omitempty"`
-	Timestamp int64             `json:"timestamp"`
+	Offset  int64             `json:"offset"`
+	Key     string            `json:"key,omitempty"`
+	Value   string            `json:"value"`
+	Headers map[string]string `json:"headers,omitempty"`
+	// Timestamp is the message timestamp in Unix nanoseconds.
+	Timestamp int64 `json:"timestamp"`
+	// Encoding is set to "base64" when any of Key, Value or Headers held
+	// non-UTF-8 bytes and had to be base64-encoded to survive JSON. It is
+	// omitted when everything was plain text.
+	Encoding string `json:"encoding,omitempty"`
 }
+
+// Bounds for the messages endpoint's limit parameter.
+const (
+	defaultMessageLimit = 100
+	maxMessageLimit     = 1000
+)
 
 // handleTopicMessages handles GET /api/v1/topics/:name/messages.
 //
-// Known limitation: this endpoint does not yet read from the storage engine.
-// It always returns an empty array regardless of the topic's actual content
-// or the partition/offset/limit query parameters, which are accepted but
-// ignored. This is a deliberate, documented stub (matching the empty-list
-// convention used elsewhere in this API for not-yet-wired subsystems, e.g.
-// handleConsumerGroups and listReplicationLinks) rather than a broker error,
-// so do not mistake an empty response here for "no messages in that range."
-// See README.md's Known Limitations section.
+// Query parameters:
+//   - partition: partition to read from (default 0)
+//   - offset:    offset to start reading at (default 0, clamped up to the
+//     partition's log start offset)
+//   - limit:     maximum messages to return (default 100, capped at 1000)
+//
+// Message keys and values are returned as strings. Non-UTF-8 payloads are
+// base64-encoded and flagged via the "encoding" field so binary data survives
+// the round-trip through JSON intact.
 func (b *Broker) handleTopicMessages(w http.ResponseWriter, r *http.Request, topicName string) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Parse query parameters (for future use)
-	_ = r.URL.Query().Get("partition")
-	_ = r.URL.Query().Get("offset")
-	_ = r.URL.Query().Get("limit")
+	if b.topicManager == nil {
+		http.Error(w, "Storage not initialized", http.StatusServiceUnavailable)
+		return
+	}
 
-	// TODO: Fetch messages from storage - requires storage API changes
-	// For now, return empty array
-	messages := []MessageInfo{}
+	partitionID, offset, limit, err := parseMessageQuery(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	stored, err := b.topicManager.ReadMessages(topicName, partitionID, offset, limit)
+	if err != nil {
+		// GetPartition reports both a missing topic and a missing partition as
+		// an error; either way the client asked for something that isn't there.
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	messages := make([]MessageInfo, 0, len(stored))
+	for _, msg := range stored {
+		messages = append(messages, toMessageInfo(msg))
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(messages)
+}
+
+// parseMessageQuery extracts and validates the messages endpoint's query
+// parameters. Absent parameters take their defaults; present but malformed
+// ones are rejected rather than silently defaulted, so a typo does not look
+// like an empty partition.
+func parseMessageQuery(r *http.Request) (partitionID uint32, offset int64, limit int, err error) {
+	query := r.URL.Query()
+	limit = defaultMessageLimit
+
+	if raw := query.Get("partition"); raw != "" {
+		parsed, parseErr := strconv.ParseUint(raw, 10, 32)
+		if parseErr != nil {
+			return 0, 0, 0, fmt.Errorf("invalid partition %q: must be a non-negative integer", raw)
+		}
+		partitionID = uint32(parsed)
+	}
+
+	if raw := query.Get("offset"); raw != "" {
+		parsed, parseErr := strconv.ParseInt(raw, 10, 64)
+		if parseErr != nil || parsed < 0 {
+			return 0, 0, 0, fmt.Errorf("invalid offset %q: must be a non-negative integer", raw)
+		}
+		offset = parsed
+	}
+
+	if raw := query.Get("limit"); raw != "" {
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsed < 0 {
+			return 0, 0, 0, fmt.Errorf("invalid limit %q: must be a non-negative integer", raw)
+		}
+		limit = parsed
+	}
+
+	if limit > maxMessageLimit {
+		limit = maxMessageLimit
+	}
+
+	return partitionID, offset, limit, nil
+}
+
+// toMessageInfo converts a stored message into its JSON representation.
+func toMessageInfo(msg *storage.Message) MessageInfo {
+	info := MessageInfo{
+		Offset:    int64(msg.Offset),
+		Timestamp: msg.Timestamp.UnixNano(),
+	}
+
+	key, keyBinary := encodePayload(msg.Key)
+	value, valueBinary := encodePayload(msg.Value)
+	info.Key = key
+	info.Value = value
+
+	if keyBinary || valueBinary {
+		info.Encoding = "base64"
+	}
+
+	if len(msg.Headers) > 0 {
+		info.Headers = make(map[string]string, len(msg.Headers))
+		for name, raw := range msg.Headers {
+			headerValue, headerBinary := encodePayload(raw)
+			info.Headers[name] = headerValue
+			if headerBinary {
+				info.Encoding = "base64"
+			}
+		}
+	}
+
+	return info
+}
+
+// encodePayload renders a byte payload for JSON, falling back to base64 when
+// it is not valid UTF-8. The bool reports whether base64 was used.
+func encodePayload(data []byte) (string, bool) {
+	if len(data) == 0 {
+		return "", false
+	}
+	if utf8.Valid(data) {
+		return string(data), false
+	}
+	return base64.StdEncoding.EncodeToString(data), true
 }
 
 // ==================== Consumer Group Endpoints ====================
@@ -785,87 +913,390 @@ func (b *Broker) handleReplicationLinkOperations(w http.ResponseWriter, r *http.
 	}
 }
 
+// ReplicationLinkRequest is the JSON body accepted when creating or updating
+// a replication link.
+type ReplicationLinkRequest struct {
+	ID     string         `json:"id,omitempty"`
+	Name   string         `json:"name"`
+	Type   string         `json:"type"`
+	Source ClusterRequest `json:"source_cluster"`
+	Target ClusterRequest `json:"target_cluster"`
+	Topics []string       `json:"topics,omitempty"`
+	// TopicPrefix is prepended to replicated topic names on the target.
+	TopicPrefix string `json:"topic_prefix,omitempty"`
+}
+
+// ClusterRequest describes one side of a replication link.
+type ClusterRequest struct {
+	ClusterID        string   `json:"cluster_id"`
+	Brokers          []string `json:"brokers,omitempty"`
+	BootstrapServers string   `json:"bootstrap_servers,omitempty"`
+	// ConnectionTimeoutMs and RequestTimeoutMs default to the package
+	// defaults when omitted or zero.
+	ConnectionTimeoutMs int `json:"connection_timeout_ms,omitempty"`
+	RequestTimeoutMs    int `json:"request_timeout_ms,omitempty"`
+	MaxRetries          int `json:"max_retries,omitempty"`
+}
+
+// ReplicationLinkInfo is the JSON representation of a replication link.
+type ReplicationLinkInfo struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Type          string   `json:"type"`
+	Status        string   `json:"status"`
+	SourceCluster string   `json:"source_cluster"`
+	TargetCluster string   `json:"target_cluster"`
+	Topics        []string `json:"topics,omitempty"`
+	TopicPrefix   string   `json:"topic_prefix,omitempty"`
+	CreatedAt     string   `json:"created_at"`
+	UpdatedAt     string   `json:"updated_at"`
+	StartedAt     string   `json:"started_at,omitempty"`
+	StoppedAt     string   `json:"stopped_at,omitempty"`
+}
+
+// toReplicationLinkInfo converts an internal link into its JSON form.
+func toReplicationLinkInfo(l *link.ReplicationLink) ReplicationLinkInfo {
+	info := ReplicationLinkInfo{
+		ID:            l.ID,
+		Name:          l.Name,
+		Type:          string(l.Type),
+		Status:        string(l.Status),
+		SourceCluster: l.SourceCluster.ClusterID,
+		TargetCluster: l.TargetCluster.ClusterID,
+		Topics:        l.Topics,
+		TopicPrefix:   l.TopicPrefix,
+		CreatedAt:     l.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:     l.UpdatedAt.Format(time.RFC3339),
+	}
+	if !l.StartedAt.IsZero() {
+		info.StartedAt = l.StartedAt.Format(time.RFC3339)
+	}
+	if !l.StoppedAt.IsZero() {
+		info.StoppedAt = l.StoppedAt.Format(time.RFC3339)
+	}
+	return info
+}
+
+// toClusterConfig converts a cluster request into a link.ClusterConfig,
+// filling unset timeouts from the package defaults so a minimal request body
+// still validates.
+func toClusterConfig(req ClusterRequest) link.ClusterConfig {
+	config := link.DefaultClusterConfig()
+	config.ClusterID = req.ClusterID
+	config.Brokers = req.Brokers
+	config.BootstrapServers = req.BootstrapServers
+
+	if req.ConnectionTimeoutMs > 0 {
+		config.ConnectionTimeout = time.Duration(req.ConnectionTimeoutMs) * time.Millisecond
+	}
+	if req.RequestTimeoutMs > 0 {
+		config.RequestTimeout = time.Duration(req.RequestTimeoutMs) * time.Millisecond
+	}
+	if req.MaxRetries > 0 {
+		config.MaxRetries = req.MaxRetries
+	}
+
+	return config
+}
+
+// toReplicationLink converts a request body into an internal link definition.
+func (req *ReplicationLinkRequest) toReplicationLink() *link.ReplicationLink {
+	linkType := link.ReplicationType(req.Type)
+	if req.Type == "" {
+		linkType = link.ReplicationTypeActivePassive
+	}
+
+	return &link.ReplicationLink{
+		ID:             req.ID,
+		Name:           req.Name,
+		Type:           linkType,
+		SourceCluster:  toClusterConfig(req.Source),
+		TargetCluster:  toClusterConfig(req.Target),
+		Topics:         req.Topics,
+		TopicPrefix:    req.TopicPrefix,
+		Config:         link.DefaultReplicationConfig(),
+		FailoverConfig: link.DefaultFailoverConfig(),
+	}
+}
+
+// replicationManagerReady reports whether the replication manager is wired up,
+// writing a 503 when it is not.
+func (b *Broker) replicationManagerReady(w http.ResponseWriter) bool {
+	if b.replicationManager == nil {
+		http.Error(w, "Replication manager not available", http.StatusServiceUnavailable)
+		return false
+	}
+	return true
+}
+
+// writeReplicationError maps a replication manager error onto an HTTP status:
+// an unknown link is 404, anything else is 400 (the caller's request was
+// rejected) - the manager does not return transport-level failures.
+func writeReplicationError(w http.ResponseWriter, err error) {
+	if errors.Is(err, link.ErrLinkNotFound) {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	http.Error(w, err.Error(), http.StatusBadRequest)
+}
+
+// decodeReplicationLinkRequest reads and validates a link request body.
+func decodeReplicationLinkRequest(w http.ResponseWriter, r *http.Request) (*ReplicationLinkRequest, bool) {
+	var req ReplicationLinkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		return nil, false
+	}
+	if req.Name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return nil, false
+	}
+	return &req, true
+}
+
 // listReplicationLinks returns all replication links.
-//
-// Known limitation: the broker does not yet wire a replication manager into
-// this API, so this always returns an empty list rather than an error -
-// consistent with the read/list convention used elsewhere in this file for
-// not-yet-wired subsystems (see handleConsumerGroups). All mutating
-// operations on replication links (create/update/delete/start/stop/etc.)
-// correctly return 501 Not Implemented; this GET endpoint intentionally does
-// not, so do not mistake an empty response here for "no links configured."
-// See README.md's Known Limitations section.
 func (b *Broker) listReplicationLinks(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement when broker has replication manager
-	// For now, return empty list
+	if !b.replicationManagerReady(w) {
+		return
+	}
+
+	links, err := b.replicationManager.ListLinks()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	infos := make([]ReplicationLinkInfo, 0, len(links))
+	for _, l := range links {
+		infos = append(infos, toReplicationLinkInfo(l))
+	}
+
+	// Sort by ID so repeated calls return a stable order.
+	sort.Slice(infos, func(i, j int) bool { return infos[i].ID < infos[j].ID })
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode([]interface{}{})
+	_ = json.NewEncoder(w).Encode(infos)
 }
 
 // createReplicationLink creates a new replication link
 func (b *Broker) createReplicationLink(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement when broker has replication manager
-	http.Error(w, "Replication not yet available", http.StatusNotImplemented)
+	if !b.replicationManagerReady(w) {
+		return
+	}
+
+	req, ok := decodeReplicationLinkRequest(w, r)
+	if !ok {
+		return
+	}
+
+	newLink := req.toReplicationLink()
+	if err := b.replicationManager.CreateLink(newLink); err != nil {
+		writeReplicationError(w, err)
+		return
+	}
+
+	b.logger.Info("Replication link created via API", logging.Fields{
+		"link_id": newLink.ID,
+		"name":    newLink.Name,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(toReplicationLinkInfo(newLink))
 }
 
 // getReplicationLink returns details of a specific replication link
 func (b *Broker) getReplicationLink(w http.ResponseWriter, r *http.Request, linkID string) {
-	// TODO: Implement when broker has replication manager
-	http.Error(w, "Replication not yet available", http.StatusNotImplemented)
+	if !b.replicationManagerReady(w) {
+		return
+	}
+
+	l, err := b.replicationManager.GetLink(linkID)
+	if err != nil {
+		writeReplicationError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(toReplicationLinkInfo(l))
 }
 
 // updateReplicationLink updates a replication link configuration
 func (b *Broker) updateReplicationLink(w http.ResponseWriter, r *http.Request, linkID string) {
-	// TODO: Implement when broker has replication manager
-	http.Error(w, "Replication not yet available", http.StatusNotImplemented)
+	if !b.replicationManagerReady(w) {
+		return
+	}
+
+	req, ok := decodeReplicationLinkRequest(w, r)
+	if !ok {
+		return
+	}
+
+	// The path is authoritative for identity; a body that names a different
+	// ID would otherwise silently update (or fail on) the wrong link.
+	req.ID = linkID
+
+	if err := b.replicationManager.UpdateLink(linkID, req.toReplicationLink()); err != nil {
+		writeReplicationError(w, err)
+		return
+	}
+
+	updated, err := b.replicationManager.GetLink(linkID)
+	if err != nil {
+		writeReplicationError(w, err)
+		return
+	}
+
+	b.logger.Info("Replication link updated via API", logging.Fields{"link_id": linkID})
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(toReplicationLinkInfo(updated))
 }
 
 // deleteReplicationLink deletes a replication link
 func (b *Broker) deleteReplicationLink(w http.ResponseWriter, r *http.Request, linkID string) {
-	// TODO: Implement when broker has replication manager
-	http.Error(w, "Replication not yet available", http.StatusNotImplemented)
+	if !b.replicationManagerReady(w) {
+		return
+	}
+
+	if err := b.replicationManager.DeleteLink(linkID); err != nil {
+		writeReplicationError(w, err)
+		return
+	}
+
+	b.logger.Info("Replication link deleted via API", logging.Fields{"link_id": linkID})
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// replicationLinkAction runs a state-changing operation on a link and responds
+// with the link's resulting state. Every such endpoint is POST-only.
+func (b *Broker) replicationLinkAction(
+	w http.ResponseWriter,
+	r *http.Request,
+	linkID string,
+	action string,
+	run func(string) error,
+) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !b.replicationManagerReady(w) {
+		return
+	}
+
+	if err := run(linkID); err != nil {
+		writeReplicationError(w, err)
+		return
+	}
+
+	l, err := b.replicationManager.GetLink(linkID)
+	if err != nil {
+		writeReplicationError(w, err)
+		return
+	}
+
+	b.logger.Info("Replication link action via API", logging.Fields{
+		"link_id": linkID,
+		"action":  action,
+		"status":  string(l.Status),
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(toReplicationLinkInfo(l))
 }
 
 // startReplicationLink starts a replication link
 func (b *Broker) startReplicationLink(w http.ResponseWriter, r *http.Request, linkID string) {
-	// TODO: Implement when broker has replication manager
-	http.Error(w, "Replication not yet available", http.StatusNotImplemented)
+	b.replicationLinkAction(w, r, linkID, "start", func(id string) error {
+		return b.replicationManager.StartLink(id)
+	})
 }
 
 // stopReplicationLink stops a replication link
 func (b *Broker) stopReplicationLink(w http.ResponseWriter, r *http.Request, linkID string) {
-	// TODO: Implement when broker has replication manager
-	http.Error(w, "Replication not yet available", http.StatusNotImplemented)
+	b.replicationLinkAction(w, r, linkID, "stop", func(id string) error {
+		return b.replicationManager.StopLink(id)
+	})
 }
 
 // pauseReplicationLink pauses a replication link
 func (b *Broker) pauseReplicationLink(w http.ResponseWriter, r *http.Request, linkID string) {
-	// TODO: Implement when broker has replication manager
-	http.Error(w, "Replication not yet available", http.StatusNotImplemented)
+	b.replicationLinkAction(w, r, linkID, "pause", func(id string) error {
+		return b.replicationManager.PauseLink(id)
+	})
 }
 
 // resumeReplicationLink resumes a paused replication link
 func (b *Broker) resumeReplicationLink(w http.ResponseWriter, r *http.Request, linkID string) {
-	// TODO: Implement when broker has replication manager
-	http.Error(w, "Replication not yet available", http.StatusNotImplemented)
+	b.replicationLinkAction(w, r, linkID, "resume", func(id string) error {
+		return b.replicationManager.ResumeLink(id)
+	})
 }
 
 // getReplicationLinkMetrics returns metrics for a replication link
 func (b *Broker) getReplicationLinkMetrics(w http.ResponseWriter, r *http.Request, linkID string) {
-	// TODO: Implement when broker has replication manager
-	http.Error(w, "Replication not yet available", http.StatusNotImplemented)
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !b.replicationManagerReady(w) {
+		return
+	}
+
+	metrics, err := b.replicationManager.GetMetrics(linkID)
+	if err != nil {
+		writeReplicationError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(metrics)
 }
 
 // getReplicationLinkHealth returns health status for a replication link
 func (b *Broker) getReplicationLinkHealth(w http.ResponseWriter, r *http.Request, linkID string) {
-	// TODO: Implement when broker has replication manager
-	http.Error(w, "Replication not yet available", http.StatusNotImplemented)
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !b.replicationManagerReady(w) {
+		return
+	}
+
+	health, err := b.replicationManager.GetHealth(linkID)
+	if err != nil {
+		writeReplicationError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(health)
 }
 
 // failoverReplicationLink triggers a manual failover
 func (b *Broker) failoverReplicationLink(w http.ResponseWriter, r *http.Request, linkID string) {
-	// TODO: Implement when broker has replication manager
-	http.Error(w, "Replication not yet available", http.StatusNotImplemented)
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !b.replicationManagerReady(w) {
+		return
+	}
+
+	event, err := b.replicationManager.Failover(linkID)
+	if err != nil {
+		writeReplicationError(w, err)
+		return
+	}
+
+	b.logger.Info("Replication link failover triggered via API", logging.Fields{
+		"link_id": linkID,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(event)
 }
 
 // ==================== Security Endpoints ====================

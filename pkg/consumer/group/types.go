@@ -87,6 +87,12 @@ type MemberMetadata struct {
 	// Current partition assignment
 	Assignment *MemberAssignment
 
+	// AssignmentBytes is the encoded assignment exactly as the group leader
+	// produced it. SyncGroup hands this back to the member verbatim, so a
+	// follower receives the assignment the leader computed for it rather than
+	// re-deriving it (or, as before, receiving nothing).
+	AssignmentBytes []byte
+
 	// Protocol metadata provided by member
 	ProtocolMetadata []byte
 

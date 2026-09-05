@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gstreamio/streambus/pkg/logging"
+	"github.com/gstreamio/streambus/pkg/protocol"
 )
 
 // GroupCoordinator manages consumer groups
@@ -168,6 +169,11 @@ func (gc *GroupCoordinator) HandleJoinGroup(req *JoinGroupRequest) (*JoinGroupRe
 		group.GenerationID++
 		group.StateTimestamp = time.Now()
 
+		// Assignments from the previous generation are void: clear them so
+		// SyncGroup makes members wait for the new leader's assignment
+		// instead of handing back stale partitions.
+		clearAssignments(group)
+
 		gc.logger.Info("Group rebalancing due to new member", logging.Fields{
 			"group_id":      group.GroupID,
 			"member_id":     memberID,
@@ -242,6 +248,7 @@ func (gc *GroupCoordinator) HandleSyncGroup(req *SyncGroupRequest) (*SyncGroupRe
 		for _, assignment := range req.Assignments {
 			if m, ok := group.Members[assignment.MemberID]; ok {
 				m.Assignment = parseAssignmentBytes(assignment.Assignment)
+				m.AssignmentBytes = assignment.Assignment
 				m.State = MemberStateStable
 			}
 		}
@@ -260,18 +267,23 @@ func (gc *GroupCoordinator) HandleSyncGroup(req *SyncGroupRequest) (*SyncGroupRe
 	// Update member state
 	member.State = MemberStateStable
 
-	// Return assignment for this member
-	var assignment []byte
-	for _, a := range req.Assignments {
-		if a.MemberID == req.MemberID {
-			assignment = a.Assignment
-			break
-		}
+	// Return the assignment the leader stored for this member. Reading it
+	// back from group state rather than from the request is what lets a
+	// follower - whose own SyncGroup request carries no assignments - receive
+	// the partitions the leader assigned it.
+	//
+	// A member that syncs before the leader has done so has no stored
+	// assignment yet and is told to retry rather than handed an empty one,
+	// which it would otherwise read as "no partitions for you".
+	if member.AssignmentBytes == nil {
+		return &SyncGroupResponse{
+			ErrorCode: ErrorCodeRebalanceInProgress,
+		}, nil
 	}
 
 	return &SyncGroupResponse{
 		ErrorCode:  ErrorCodeNone,
-		Assignment: assignment,
+		Assignment: member.AssignmentBytes,
 	}, nil
 }
 
@@ -349,6 +361,7 @@ func (gc *GroupCoordinator) HandleLeaveGroup(req *LeaveGroupRequest) (*LeaveGrou
 		group.State = GroupStatePreparingRebalance
 		group.GenerationID++
 		group.StateTimestamp = time.Now()
+		clearAssignments(group)
 
 		gc.logger.Info("Group rebalancing due to member departure", logging.Fields{
 			"group_id":      req.GroupID,
@@ -567,6 +580,7 @@ func (gc *GroupCoordinator) checkExpiredMembers() {
 				group.State = GroupStatePreparingRebalance
 				group.GenerationID++
 				group.StateTimestamp = now
+				clearAssignments(group)
 			}
 		}
 	}
@@ -605,12 +619,28 @@ func buildMemberSubscriptions(group *GroupMetadata) []MemberSubscription {
 	return members
 }
 
+// clearAssignments drops every member's assignment, used when a new
+// generation begins.
+func clearAssignments(group *GroupMetadata) {
+	for _, m := range group.Members {
+		m.Assignment = nil
+		m.AssignmentBytes = nil
+	}
+}
+
 // parseSubscriptionTopics extracts topic names from protocol metadata bytes.
-// The expected format is null-separated topic names. If parsing fails,
-// the raw bytes are treated as a single topic name.
+//
+// The canonical format is the one produced by protocol.EncodeSubscription.
+// Metadata that does not parse as that format falls back to the older
+// null-separated topic list, and finally to treating the whole payload as a
+// single topic name, so older clients keep working.
 func parseSubscriptionTopics(metadata []byte) []string {
 	if len(metadata) == 0 {
 		return nil
+	}
+
+	if sub, err := protocol.DecodeSubscription(metadata); err == nil {
+		return sub.Topics
 	}
 
 	// Try null-separated format
@@ -641,12 +671,25 @@ func splitByNull(data []byte) []string {
 	return topics
 }
 
-// parseAssignmentBytes converts raw assignment bytes into a MemberAssignment struct.
+// parseAssignmentBytes converts raw assignment bytes into a MemberAssignment.
 // Returns nil if data is empty.
+//
+// Assignments produced by protocol.EncodeMemberAssignment decode into real
+// per-topic partition lists. Anything else is kept as opaque UserData so a
+// custom assignor's payload is preserved rather than discarded - but note that
+// such an assignment reports no partitions to the admin API.
 func parseAssignmentBytes(data []byte) *MemberAssignment {
 	if len(data) == 0 {
 		return nil
 	}
+
+	if decoded, err := protocol.DecodeMemberAssignment(data); err == nil {
+		return &MemberAssignment{
+			Partitions: decoded.Partitions,
+			UserData:   decoded.UserData,
+		}
+	}
+
 	return &MemberAssignment{
 		UserData: data,
 	}

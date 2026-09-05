@@ -13,21 +13,18 @@ import (
 
 // TransactionCoordinator manages transactional operations.
 //
-// Known limitation: EndTxn only drives the in-memory transaction state
-// machine (Ongoing -> PrepareCommit/PrepareAbort -> CompleteCommit/
-// CompleteAbort) and logs the transitions; it does not write transaction
-// marker records to the affected partitions or wait for replica
-// acknowledgment before reporting ErrorCodeNone, so "committed"/"aborted"
-// here does not yet carry the durability guarantee a real Kafka-style
-// transaction coordinator provides. This mirrors, at the broker/coordinator
-// layer, the same gap that pkg/client.TransactionalProducer.CommitTransaction
-// already refuses to paper over on the client side (it returns
-// ErrTransactionCoordinationNotImplemented rather than silently succeeding).
-// As of this writing pkg/server's wire-protocol dispatcher does not route
-// InitProducerId/AddPartitionsToTxn/EndTxn/AddOffsetsToTxn requests to this
-// coordinator at all, so it is unreachable from a real network client; it is
-// reachable only by Go code that imports this package directly. See
-// README.md's Known Limitations section.
+// EndTxn drives the transaction state machine (Ongoing -> PrepareCommit /
+// PrepareAbort -> CompleteCommit / CompleteAbort) and, between the two
+// phases, writes a transaction marker to every partition the transaction
+// touched via the configured MarkerWriter. A transaction is reported as
+// committed only once every marker is durable; a partial write leaves the
+// transaction in its prepare state so a retry can finish it.
+//
+// Offsets sent through TxnOffsetCommit are held until the outcome is known
+// and published to the consumer group through the configured OffsetCommitter
+// on commit, or discarded on abort.
+//
+// Wire requests reach this coordinator through server.TransactionHandler.
 type TransactionCoordinator struct {
 	mu sync.RWMutex
 
@@ -43,6 +40,16 @@ type TransactionCoordinator struct {
 
 	// Transaction log
 	txnLog TransactionLog
+
+	// markerWriter persists transaction markers to partitions. See
+	// markers.go; without one, EndTxn cannot honour a commit.
+	markerWriter MarkerWriter
+
+	// offsetCommitter publishes transactional offsets on commit.
+	offsetCommitter OffsetCommitter
+
+	// clock returns the current time; overridable in tests.
+	clock func() time.Time
 
 	// Lifecycle
 	ctx    context.Context
@@ -194,8 +201,15 @@ func (tc *TransactionCoordinator) AddPartitionsToTxn(req *AddPartitionsToTxnRequ
 		}, err
 	}
 
-	// Get or create transaction
+	// Get or create transaction. A transactional ID is reused across
+	// transactions, so a record left over from a completed one is replaced
+	// rather than blocking the next transaction: keeping it would let a
+	// producer run exactly one transaction in its lifetime.
 	txn, exists := tc.transactions[req.TransactionID]
+	if exists && isTerminalState(txn.State) {
+		exists = false
+	}
+
 	if !exists {
 		// Get producer to retrieve transaction timeout
 		producer, producerExists := tc.producers[req.ProducerID]
@@ -293,28 +307,50 @@ func (tc *TransactionCoordinator) EndTxn(req *EndTxnRequest) (*EndTxnResponse, e
 		}, nil
 	}
 
-	// Phase 1: Prepare
+	// Phase 1: Prepare. Recording the intended outcome before touching any
+	// partition is what lets a retry after a crash or partial failure finish
+	// the transaction the same way.
 	if req.Commit {
 		txn.State = StatePrepareCommit
 	} else {
 		txn.State = StatePrepareAbort
 	}
-	txn.LastUpdateTime = time.Now()
-
-	// Log prepare phase
+	txn.LastUpdateTime = tc.now()
 	tc.logTransaction(txn)
 
-	// Phase 2: Complete
-	// In a real implementation, this would write transaction markers to all partitions
-	// and wait for acknowledgments before completing
+	// Phase 2: write a marker to every participating partition. The
+	// transaction stays in its prepare state if any marker fails, so the
+	// producer learns the outcome is unresolved rather than being told the
+	// records committed on partitions that never received a marker.
+	if err := tc.writeMarkers(txn, req.Commit); err != nil {
+		tc.logger.Error("Failed to write transaction markers", err, logging.Fields{
+			"transaction_id": string(req.TransactionID),
+			"producer_id":    int64(req.ProducerID),
+		})
+		return &EndTxnResponse{
+			ErrorCode: ErrorTransactionCoordinatorNotAvailable,
+		}, nil
+	}
+
+	// Publish or discard any offsets that were committed inside the
+	// transaction, now that its outcome is durable.
+	if err := tc.resolvePendingOffsets(txn, req.Commit); err != nil {
+		tc.logger.Error("Failed to publish transactional offsets", err, logging.Fields{
+			"transaction_id": string(req.TransactionID),
+			"group_id":       txn.GroupID,
+		})
+		return &EndTxnResponse{
+			ErrorCode: ErrorTransactionCoordinatorNotAvailable,
+		}, nil
+	}
+
+	// Phase 3: Complete
 	if req.Commit {
 		txn.State = StateCompleteCommit
 	} else {
 		txn.State = StateCompleteAbort
 	}
-	txn.LastUpdateTime = time.Now()
-
-	// Log complete phase
+	txn.LastUpdateTime = tc.now()
 	tc.logTransaction(txn)
 
 	action := "committed"
@@ -334,6 +370,126 @@ func (tc *TransactionCoordinator) EndTxn(req *EndTxnRequest) (*EndTxnResponse, e
 	return &EndTxnResponse{
 		ErrorCode: ErrorNone,
 	}, nil
+}
+
+// resolvePendingOffsets publishes a transaction's offsets on commit and drops
+// them on abort.
+func (tc *TransactionCoordinator) resolvePendingOffsets(txn *TransactionMetadata, commit bool) error {
+	if len(txn.PendingOffsets) == 0 {
+		return nil
+	}
+
+	if !commit {
+		txn.PendingOffsets = nil
+		return nil
+	}
+
+	if tc.offsetCommitter == nil {
+		return fmt.Errorf("no offset committer configured: cannot publish offsets for transaction %s", txn.TransactionID)
+	}
+
+	if err := tc.offsetCommitter.CommitOffsets(txn.GroupID, txn.PendingOffsets); err != nil {
+		return err
+	}
+
+	txn.PendingOffsets = nil
+	return nil
+}
+
+// TxnOffsetCommit records consumer offsets as part of a transaction.
+//
+// The offsets are held until EndTxn resolves the transaction: on commit they
+// are published to the consumer group, on abort they are discarded. They are
+// deliberately not visible to the group before then, which is what makes a
+// read-process-write loop atomic.
+func (tc *TransactionCoordinator) TxnOffsetCommit(req *TxnOffsetCommitRequest) (*TxnOffsetCommitResponse, error) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	partitions := partitionsFromOffsets(req.Offsets)
+
+	if err := tc.validateProducer(req.ProducerID, req.ProducerEpoch); err != nil {
+		return &TxnOffsetCommitResponse{
+			Errors: tc.buildPartitionErrors(partitions, ErrorProducerFenced),
+		}, nil
+	}
+
+	txn, exists := tc.transactions[req.TransactionID]
+	if !exists || txn.State != StateOngoing {
+		return &TxnOffsetCommitResponse{
+			Errors: tc.buildPartitionErrors(partitions, ErrorInvalidTransactionState),
+		}, nil
+	}
+
+	if txn.ProducerID != req.ProducerID || txn.ProducerEpoch != req.ProducerEpoch {
+		return &TxnOffsetCommitResponse{
+			Errors: tc.buildPartitionErrors(partitions, ErrorInvalidProducerIDMapping),
+		}, nil
+	}
+
+	// AddOffsetsToTxn must have named the group first: committing offsets for
+	// a group the transaction never joined would publish them outside the
+	// transaction's scope.
+	if txn.GroupID == "" || txn.GroupID != req.GroupID {
+		return &TxnOffsetCommitResponse{
+			Errors: tc.buildPartitionErrors(partitions, ErrorInvalidTransactionState),
+		}, nil
+	}
+
+	if tc.offsetCommitter == nil {
+		return &TxnOffsetCommitResponse{
+			Errors: tc.buildPartitionErrors(partitions, ErrorTransactionCoordinatorNotAvailable),
+		}, nil
+	}
+
+	if txn.PendingOffsets == nil {
+		txn.PendingOffsets = make(map[string]map[int32]OffsetMetadata)
+	}
+	for topic, offsets := range req.Offsets {
+		if txn.PendingOffsets[topic] == nil {
+			txn.PendingOffsets[topic] = make(map[int32]OffsetMetadata)
+		}
+		for partition, offset := range offsets {
+			txn.PendingOffsets[topic][partition] = offset
+		}
+	}
+	txn.LastUpdateTime = tc.now()
+
+	tc.logger.Debug("Recorded transactional offsets", logging.Fields{
+		"transaction_id": string(req.TransactionID),
+		"group_id":       req.GroupID,
+		"topics":         len(req.Offsets),
+	})
+
+	return &TxnOffsetCommitResponse{
+		Errors: tc.buildPartitionErrors(partitions, ErrorNone),
+	}, nil
+}
+
+// partitionsFromOffsets flattens an offset map into the partition list used
+// for per-partition error reporting.
+func partitionsFromOffsets(offsets map[string]map[int32]OffsetMetadata) []PartitionMetadata {
+	partitions := make([]PartitionMetadata, 0, len(offsets))
+	for topic, byPartition := range offsets {
+		for partition := range byPartition {
+			partitions = append(partitions, PartitionMetadata{Topic: topic, Partition: partition})
+		}
+	}
+	return partitions
+}
+
+// isTerminalState reports whether a transaction has finished, one way or the
+// other, and its transactional ID is free for the next transaction.
+func isTerminalState(state TransactionState) bool {
+	return state == StateCompleteCommit || state == StateCompleteAbort
+}
+
+// now returns the current time through the coordinator's clock.
+func (tc *TransactionCoordinator) now() time.Time {
+	if tc.clock != nil {
+		return tc.clock()
+	}
+	return time.Now()
 }
 
 // AddOffsetsToTxn adds consumer group offsets to a transaction
@@ -363,8 +519,15 @@ func (tc *TransactionCoordinator) AddOffsetsToTxn(req *AddOffsetsToTxnRequest) (
 		}, nil
 	}
 
-	// In a real implementation, this would add the consumer group offsets
-	// to the transaction's metadata for coordinated commit
+	// Record the group on the transaction. TxnOffsetCommit checks this, so
+	// offsets can only be committed for the group the producer declared.
+	if txn.GroupID != "" && txn.GroupID != req.GroupID {
+		return &AddOffsetsToTxnResponse{
+			ErrorCode: ErrorInvalidTransactionState,
+		}, nil
+	}
+	txn.GroupID = req.GroupID
+	txn.LastUpdateTime = tc.now()
 
 	tc.logger.Debug("Added offsets to transaction", logging.Fields{
 		"transaction_id": req.TransactionID,

@@ -80,6 +80,16 @@ type TransactionMetadata struct {
 	TransactionTimeout time.Duration
 	StartTime          time.Time
 	LastUpdateTime     time.Time
+
+	// GroupID is the consumer group whose offsets take part in this
+	// transaction, set by AddOffsetsToTxn. Empty when the transaction
+	// produces records only.
+	GroupID string
+
+	// PendingOffsets holds offsets committed through TxnOffsetCommit that are
+	// not yet visible to the consumer group. EndTxn publishes them on commit
+	// and discards them on abort.
+	PendingOffsets map[string]map[int32]OffsetMetadata
 }
 
 // IsExpired checks if the transaction has exceeded its timeout

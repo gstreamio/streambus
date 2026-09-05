@@ -9,7 +9,7 @@ import (
 
 // TenancyHandler wraps a handler with multi-tenancy and quota enforcement
 type TenancyHandler struct {
-	baseHandler     *Handler
+	baseHandler     RequestHandler
 	tenancyManager  *tenancy.Manager
 	enabled         bool
 	quotaViolations int64
@@ -17,7 +17,7 @@ type TenancyHandler struct {
 }
 
 // NewTenancyHandler creates a new tenancy-aware handler
-func NewTenancyHandler(baseHandler *Handler, tenancyManager *tenancy.Manager, enabled bool) *TenancyHandler {
+func NewTenancyHandler(baseHandler RequestHandler, tenancyManager *tenancy.Manager, enabled bool) *TenancyHandler {
 	return &TenancyHandler{
 		baseHandler:    baseHandler,
 		tenancyManager: tenancyManager,
@@ -44,7 +44,34 @@ func (h *TenancyHandler) Handle(req *protocol.Request) *protocol.Response {
 	}
 
 	// Pass to base handler
-	return h.baseHandler.Handle(req)
+	resp := h.baseHandler.Handle(req)
+
+	// Record topic ownership only after the base handler confirms the topic
+	// was actually created or deleted, so a rejected request does not leave a
+	// stale owner behind.
+	h.recordTopicOwnership(tenantID, resp)
+
+	return resp
+}
+
+// recordTopicOwnership keeps the tenant-to-topic mapping in step with
+// successful create/delete topic requests. That mapping is what lets the
+// broker attribute a topic's on-disk bytes to a tenant's storage quota.
+func (h *TenancyHandler) recordTopicOwnership(tenantID tenancy.TenantID, resp *protocol.Response) {
+	if resp == nil || resp.Header.Status != protocol.StatusOK {
+		return
+	}
+
+	switch payload := resp.Payload.(type) {
+	case *protocol.CreateTopicResponse:
+		if payload.Created {
+			h.tenancyManager.RegisterTopic(tenantID, payload.Topic)
+		}
+	case *protocol.DeleteTopicResponse:
+		if payload.Deleted {
+			h.tenancyManager.UnregisterTopic(payload.Topic)
+		}
+	}
 }
 
 // extractTenantID extracts tenant ID from request

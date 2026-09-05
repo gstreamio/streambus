@@ -13,12 +13,13 @@ import (
 
 // TransactionalProducer provides exactly-once semantics for message production.
 //
-// NOT YET IMPLEMENTED: there is no transaction-coordinator wiring yet.
-// CommitTransaction and SendOffsetsToTransaction return
-// ErrTransactionCoordinationNotImplemented rather than silently reporting
-// success, as earlier versions did - flushMessages never actually wrote
-// committed messages to the broker, so a successful-looking commit silently
-// dropped every message in the transaction. Use Producer for now.
+// Messages sent inside a transaction are buffered locally and written to the
+// broker only when CommitTransaction runs, so an aborted transaction never
+// puts anything on a partition. Commit then asks the coordinator to end the
+// transaction, which writes a marker to every participating partition before
+// reporting success. SendOffsetsToTransaction folds a consumer group's
+// positions into the same transaction, making a read-process-write loop
+// atomic across the records produced and the positions consumed.
 type TransactionalProducer struct {
 	client *Client
 	config TransactionalProducerConfig
@@ -78,6 +79,11 @@ type Transaction struct {
 	StartTime  time.Time
 	Partitions map[string][]int32 // topic -> partitions
 	Messages   []PendingMessage
+
+	// GroupID and Offsets hold consumer positions folded into this
+	// transaction by SendOffsetsToTransaction.
+	GroupID string
+	Offsets map[string]map[int32]int64
 }
 
 // PendingMessage represents a message pending in a transaction
@@ -177,9 +183,10 @@ func (tp *TransactionalProducer) Send(ctx context.Context, topic string, partiti
 
 // SendOffsetsToTransaction adds consumer group offsets to the transaction.
 //
-// NOT YET IMPLEMENTED: returns ErrTransactionCoordinationNotImplemented rather
-// than silently discarding the offsets, since there's no coordinator to add
-// them to.
+// The offsets become visible to the group only if the transaction commits,
+// which is what makes a read-process-write loop atomic: either the produced
+// records and the advanced consumer positions both take effect, or neither
+// does.
 func (tp *TransactionalProducer) SendOffsetsToTransaction(ctx context.Context, groupID string, offsets map[string]map[int32]int64) error {
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
@@ -188,20 +195,74 @@ func (tp *TransactionalProducer) SendOffsetsToTransaction(ctx context.Context, g
 		return ErrProducerClosed
 	}
 
-	if tp.state != ProducerStateInTransaction {
+	if tp.state != ProducerStateInTransaction || tp.currentTransaction == nil {
 		return fmt.Errorf("no transaction in progress")
 	}
-	_ = groupID
-	_ = offsets
 
-	return ErrTransactionCoordinationNotImplemented
+	if groupID == "" {
+		return fmt.Errorf("group_id is required")
+	}
+
+	// A transaction commits offsets for exactly one group; switching groups
+	// mid-transaction would make the atomicity guarantee ambiguous.
+	if tp.currentTransaction.GroupID != "" && tp.currentTransaction.GroupID != groupID {
+		return fmt.Errorf("transaction already carries offsets for group %s",
+			tp.currentTransaction.GroupID)
+	}
+
+	// Register the group with the coordinator before sending offsets, so it
+	// knows the group's offset partition takes part in this transaction.
+	if tp.currentTransaction.GroupID == "" {
+		resp, err := tp.client.AddOffsetsToTxn(ctx, &protocol.AddOffsetsToTxnRequest{
+			TransactionID: string(tp.transactionID),
+			ProducerID:    int64(tp.producerID),
+			ProducerEpoch: int16(tp.producerEpoch),
+			GroupID:       groupID,
+		})
+		if err != nil {
+			return fmt.Errorf("adding offsets to transaction: %w", err)
+		}
+		if resp.ErrorCode != protocol.ErrNone {
+			return fmt.Errorf("adding offsets to transaction: %s", coordinationErrorText(resp.ErrorCode))
+		}
+		tp.currentTransaction.GroupID = groupID
+	}
+
+	commitResp, err := tp.client.TxnOffsetCommit(ctx, &protocol.TxnOffsetCommitRequest{
+		TransactionID: string(tp.transactionID),
+		GroupID:       groupID,
+		ProducerID:    int64(tp.producerID),
+		ProducerEpoch: int16(tp.producerEpoch),
+		Topics:        offsetCommitTopics(offsets),
+	})
+	if err != nil {
+		return fmt.Errorf("committing transactional offsets: %w", err)
+	}
+	if code := commitResp.FirstError(); code != protocol.ErrNone {
+		return fmt.Errorf("committing transactional offsets: %s", coordinationErrorText(code))
+	}
+
+	if tp.currentTransaction.Offsets == nil {
+		tp.currentTransaction.Offsets = make(map[string]map[int32]int64)
+	}
+	for topic, byPartition := range offsets {
+		if tp.currentTransaction.Offsets[topic] == nil {
+			tp.currentTransaction.Offsets[topic] = make(map[int32]int64)
+		}
+		for partition, offset := range byPartition {
+			tp.currentTransaction.Offsets[topic][partition] = offset
+		}
+	}
+
+	return nil
 }
 
 // CommitTransaction commits the current transaction.
 //
-// NOT YET IMPLEMENTED: flushMessages cannot actually write the transaction's
-// messages to the broker yet, so this returns ErrTransactionCoordinationNotImplemented
-// (wrapped) and aborts the transaction rather than reporting a fake success.
+// The buffered messages are written to their partitions first, then the
+// coordinator ends the transaction, which writes a commit marker to every
+// participating partition. The call returns success only once the coordinator
+// confirms every marker is durable.
 func (tp *TransactionalProducer) CommitTransaction(ctx context.Context) error {
 	tp.mu.Lock()
 	if atomic.LoadInt32(&tp.closed) == 1 {
@@ -225,22 +286,29 @@ func (tp *TransactionalProducer) CommitTransaction(ctx context.Context) error {
 
 	// Write all pending messages
 	if err := tp.flushMessages(ctx, txn); err != nil {
-		// On error, try to abort
+		// The records are not all on their partitions, so the transaction
+		// cannot commit; abort so the coordinator writes abort markers for
+		// whatever did land.
 		_ = tp.AbortTransaction(ctx)
 		return fmt.Errorf("failed to flush messages: %w", err)
 	}
 
-	// Commit transaction via coordinator
-	endReq := &transaction.EndTxnRequest{
-		TransactionID: tp.transactionID,
-		ProducerID:    tp.producerID,
-		ProducerEpoch: tp.producerEpoch,
+	resp, err := tp.client.EndTxn(ctx, &protocol.EndTxnRequest{
+		TransactionID: string(tp.transactionID),
+		ProducerID:    int64(tp.producerID),
+		ProducerEpoch: int16(tp.producerEpoch),
 		Commit:        true,
+	})
+	if err != nil {
+		// The outcome is unknown: leave the producer in the committing state
+		// rather than claiming either result, so a retry is possible and no
+		// caller is told a transaction committed when it may not have.
+		return fmt.Errorf("committing transaction %s: %w", tp.transactionID, err)
 	}
-	_ = endReq
-
-	// In a real implementation, this would call the coordinator
-	// For now, simulate success
+	if resp.ErrorCode != protocol.ErrNone {
+		return fmt.Errorf("committing transaction %s: %s",
+			tp.transactionID, coordinationErrorText(resp.ErrorCode))
+	}
 
 	tp.mu.Lock()
 	tp.currentTransaction = nil
@@ -265,27 +333,39 @@ func (tp *TransactionalProducer) AbortTransaction(ctx context.Context) error {
 	}
 
 	tp.state = ProducerStateAborting
+	hasPartitions := tp.currentTransaction != nil && len(tp.currentTransaction.Partitions) > 0
 	tp.mu.Unlock()
 
-	// Abort transaction via coordinator
-	endReq := &transaction.EndTxnRequest{
-		TransactionID: tp.transactionID,
-		ProducerID:    tp.producerID,
-		ProducerEpoch: tp.producerEpoch,
-		Commit:        false,
+	// Buffered messages are simply dropped: nothing was written for a
+	// transaction that never reached commit. The coordinator still needs to
+	// hear about the abort if any partition was registered with it.
+	var abortErr error
+	if hasPartitions {
+		resp, err := tp.client.EndTxn(ctx, &protocol.EndTxnRequest{
+			TransactionID: string(tp.transactionID),
+			ProducerID:    int64(tp.producerID),
+			ProducerEpoch: int16(tp.producerEpoch),
+			Commit:        false,
+		})
+		switch {
+		case err != nil:
+			abortErr = fmt.Errorf("aborting transaction %s: %w", tp.transactionID, err)
+		case resp.ErrorCode != protocol.ErrNone:
+			abortErr = fmt.Errorf("aborting transaction %s: %s",
+				tp.transactionID, coordinationErrorText(resp.ErrorCode))
+		}
 	}
-	_ = endReq
 
-	// In a real implementation, this would call the coordinator
-	// For now, simulate success
-
+	// The local transaction is discarded either way: its messages were never
+	// written, so leaving the producer stuck would strand it over a
+	// bookkeeping call. The error is still reported.
 	tp.mu.Lock()
 	tp.currentTransaction = nil
 	tp.state = ProducerStateReady
 	atomic.AddInt64(&tp.transactionsAborted, 1)
 	tp.mu.Unlock()
 
-	return nil
+	return abortErr
 }
 
 // Close closes the transactional producer
@@ -295,24 +375,34 @@ func (tp *TransactionalProducer) Close() error {
 	}
 
 	tp.mu.Lock()
-
-	// Abort any in-progress transaction (inline to avoid deadlock)
-	if tp.state == ProducerStateInTransaction {
-		// Abort inline without calling AbortTransaction to avoid deadlock
-		endReq := &transaction.EndTxnRequest{
-			TransactionID: tp.transactionID,
-			ProducerID:    tp.producerID,
-			ProducerEpoch: tp.producerEpoch,
-			Commit:        false,
-		}
-		_ = endReq
-
-		tp.currentTransaction = nil
+	inTransaction := tp.state == ProducerStateInTransaction
+	hasPartitions := tp.currentTransaction != nil && len(tp.currentTransaction.Partitions) > 0
+	transactionID := tp.transactionID
+	producerID := tp.producerID
+	producerEpoch := tp.producerEpoch
+	tp.currentTransaction = nil
+	tp.state = ProducerStateClosed
+	if inTransaction {
 		atomic.AddInt64(&tp.transactionsAborted, 1)
 	}
-
-	tp.state = ProducerStateClosed
 	tp.mu.Unlock()
+
+	// Tell the coordinator to abort anything still open, so a closed
+	// producer does not leave a transaction hanging until it times out.
+	// The lock is released first: EndTxn is a network call.
+	if inTransaction && hasPartitions {
+		ctx, cancel := context.WithTimeout(context.Background(), tp.config.RequestTimeout)
+		defer cancel()
+
+		if _, err := tp.client.EndTxn(ctx, &protocol.EndTxnRequest{
+			TransactionID: string(transactionID),
+			ProducerID:    int64(producerID),
+			ProducerEpoch: int16(producerEpoch),
+			Commit:        false,
+		}); err != nil {
+			return fmt.Errorf("aborting transaction %s during close: %w", transactionID, err)
+		}
+	}
 
 	return nil
 }
@@ -344,18 +434,25 @@ type TransactionalProducerStats struct {
 
 // Internal methods
 
+// initProducerID claims a producer identity from the coordinator. Reclaiming
+// an existing transactional ID bumps the epoch, which fences any older
+// producer instance still running under the same ID.
 func (tp *TransactionalProducer) initProducerID(ctx context.Context) error {
-	// In a real implementation, this would call the coordinator
-	req := &transaction.InitProducerIDRequest{
-		TransactionID:      tp.transactionID,
-		TransactionTimeout: tp.config.TransactionTimeout,
+	resp, err := tp.client.InitProducerID(ctx, &protocol.InitProducerIDRequest{
+		TransactionID:        string(tp.transactionID),
+		TransactionTimeoutMs: int32(tp.config.TransactionTimeout.Milliseconds()),
+	})
+	if err != nil {
+		return err
 	}
-	_ = req
+	if resp.ErrorCode != protocol.ErrNone {
+		return fmt.Errorf("initializing producer for %s: %s",
+			tp.transactionID, coordinationErrorText(resp.ErrorCode))
+	}
 
-	// Simulate coordinator response
 	tp.mu.Lock()
-	tp.producerID = 1001 // Would come from coordinator
-	tp.producerEpoch = 0
+	tp.producerID = transaction.ProducerID(resp.ProducerID)
+	tp.producerEpoch = transaction.ProducerEpoch(resp.ProducerEpoch)
 	tp.state = ProducerStateReady
 	tp.mu.Unlock()
 
@@ -372,30 +469,74 @@ func (tp *TransactionalProducer) addPartitionToTxn(ctx context.Context, topic st
 		}
 	}
 
-	// Add partition to local tracking
+	// Register with the coordinator before recording it locally: the
+	// coordinator must know about a partition before anything is written to
+	// it, otherwise EndTxn would not write that partition a marker.
+	resp, err := tp.client.AddPartitionsToTxn(ctx, &protocol.AddPartitionsToTxnRequest{
+		TransactionID: string(tp.transactionID),
+		ProducerID:    int64(tp.producerID),
+		ProducerEpoch: int16(tp.producerEpoch),
+		Partitions:    []protocol.TxnPartition{{Topic: topic, Partition: partition}},
+	})
+	if err != nil {
+		return err
+	}
+	if code := resp.FirstError(); code != protocol.ErrNone {
+		return fmt.Errorf("registering %s-%d: %s", topic, partition, coordinationErrorText(code))
+	}
+
 	if tp.currentTransaction.Partitions[topic] == nil {
 		tp.currentTransaction.Partitions[topic] = make([]int32, 0)
 	}
 	tp.currentTransaction.Partitions[topic] = append(tp.currentTransaction.Partitions[topic], partition)
 
-	// In a real implementation, notify coordinator
-	addReq := &transaction.AddPartitionsToTxnRequest{
-		TransactionID: tp.transactionID,
-		ProducerID:    tp.producerID,
-		ProducerEpoch: tp.producerEpoch,
-		Partitions: []transaction.PartitionMetadata{
-			{Topic: topic, Partition: partition},
-		},
-	}
-	_ = addReq
-
 	return nil
 }
 
+// flushMessages writes a transaction's buffered messages to their partitions,
+// grouped so each topic-partition takes a single produce request.
+//
+// Messages are held until commit rather than streamed as they are sent: an
+// aborted transaction then leaves nothing behind on any partition, so a reader
+// never has to filter out records from a transaction that did not happen.
 func (tp *TransactionalProducer) flushMessages(ctx context.Context, txn *Transaction) error {
-	// Writing all messages to the broker with transactional markers (producer
-	// ID + epoch) is not implemented yet. Fail clearly instead of discarding
-	// txn.Messages silently and letting CommitTransaction report success.
-	_ = txn
-	return ErrTransactionCoordinationNotImplemented
+	if len(txn.Messages) == 0 {
+		return nil
+	}
+
+	type partitionKey struct {
+		topic     string
+		partition int32
+	}
+
+	// Preserve send order within a partition, and produce partitions in a
+	// stable order so a failure is reproducible.
+	order := make([]partitionKey, 0)
+	batches := make(map[partitionKey][]protocol.Message)
+	for _, pending := range txn.Messages {
+		key := partitionKey{topic: pending.Topic, partition: pending.Partition}
+		if _, seen := batches[key]; !seen {
+			order = append(order, key)
+		}
+		batches[key] = append(batches[key], pending.Message)
+	}
+
+	producer := NewProducer(tp.client)
+	defer func() { _ = producer.Close() }()
+
+	for _, key := range order {
+		if key.partition < 0 {
+			return fmt.Errorf("invalid partition %d for topic %s", key.partition, key.topic)
+		}
+		//nolint:gosec // partition is checked non-negative above
+		if err := producer.SendMessagesToPartition(ctx, key.topic, uint32(key.partition), batches[key]); err != nil {
+			return fmt.Errorf("writing %s-%d: %w", key.topic, key.partition, err)
+		}
+	}
+
+	if err := producer.FlushAll(ctx); err != nil {
+		return fmt.Errorf("flushing transactional messages: %w", err)
+	}
+
+	return nil
 }

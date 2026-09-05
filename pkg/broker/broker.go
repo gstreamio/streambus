@@ -15,10 +15,10 @@ import (
 	"github.com/gstreamio/streambus/pkg/logging"
 	"github.com/gstreamio/streambus/pkg/metadata"
 	"github.com/gstreamio/streambus/pkg/metrics"
+	"github.com/gstreamio/streambus/pkg/replication/link"
 	"github.com/gstreamio/streambus/pkg/schema"
 	"github.com/gstreamio/streambus/pkg/security"
 	"github.com/gstreamio/streambus/pkg/server"
-	"github.com/gstreamio/streambus/pkg/storage"
 	"github.com/gstreamio/streambus/pkg/tenancy"
 	"github.com/gstreamio/streambus/pkg/transaction"
 )
@@ -60,12 +60,17 @@ type Broker struct {
 	logger *logging.Logger
 
 	// Core components
-	storage   storage.Storage
-	server    *server.Server
-	raftNode  *consensus.RaftNode
-	fsm       *metadata.FSM
-	metaStore *metadata.Store
-	adapter   *metadata.ClusterMetadataStore
+	//
+	// topicManager owns the broker's partition logs on disk. It is created by
+	// initStorage and shared with the wire-protocol handler (initServer) so
+	// the admin API reads exactly the data producers write, rather than
+	// opening a second, independent view of the same directory.
+	topicManager *server.TopicManager
+	server       *server.Server
+	raftNode     *consensus.RaftNode
+	fsm          *metadata.FSM
+	metaStore    *metadata.Store
+	adapter      *metadata.ClusterMetadataStore
 
 	// Cluster components
 	registry    *cluster.BrokerRegistry
@@ -77,6 +82,9 @@ type Broker struct {
 
 	// Transaction coordinator
 	txnCoordinator *transaction.TransactionCoordinator
+
+	// Cross-datacenter replication link manager
+	replicationManager link.Manager
 
 	// Schema registry
 	schemaRegistry *schema.SchemaRegistry
@@ -197,6 +205,10 @@ func (b *Broker) Start() error {
 		return fmt.Errorf("failed to initialize transactions: %w", err)
 	}
 
+	if err := b.initReplication(); err != nil {
+		return fmt.Errorf("failed to initialize replication: %w", err)
+	}
+
 	if err := b.initSchemaRegistry(); err != nil {
 		return fmt.Errorf("failed to initialize schema registry: %w", err)
 	}
@@ -267,6 +279,12 @@ func (b *Broker) Stop() error {
 		b.txnCoordinator.Stop()
 	}
 
+	if b.replicationManager != nil {
+		if err := b.replicationManager.Close(); err != nil {
+			b.logger.Error("Failed to close replication manager", err)
+		}
+	}
+
 	if b.server != nil {
 		_ = b.server.Stop()
 	}
@@ -281,8 +299,10 @@ func (b *Broker) Stop() error {
 		_ = b.raftNode.Stop()
 	}
 
-	if b.storage != nil {
-		b.storage.Close()
+	if b.topicManager != nil {
+		if err := b.topicManager.Close(); err != nil {
+			b.logger.Error("Failed to close storage", err)
+		}
 	}
 
 	// Cancel context
@@ -313,25 +333,23 @@ func (b *Broker) Status() BrokerStatus {
 
 // initStorage initializes the storage engine.
 //
-// Known limitation: this never actually assigns b.storage - it logs as if it
-// initialized a storage engine and returns nil (success) unconditionally.
-// b.storage therefore stays nil for the lifetime of every Broker. This is
-// currently harmless for request serving because the wire-protocol path
-// (b.server, built via server.NewHandlerWithDataDir in setupRoutes) owns its
-// own independent storage and does not depend on b.storage; all existing
-// readers of b.storage (e.g. Stop's Close call) already nil-check it. It is
-// NOT harmless for trackTenantStorage/updateTenantStorageUsage below, which
-// is written to read real usage from b.storage once wired up - until then,
-// tenant storage quota tracking never reflects real usage. See README.md's
-// Known Limitations section.
+// The TopicManager it creates is the broker's single owner of partition logs:
+// initServer hands it to the wire-protocol handler, and the admin API and
+// per-tenant storage accounting read through it. Creating it here (rather than
+// letting initServer create its own) is what lets those readers observe the
+// same bytes producers write.
 func (b *Broker) initStorage() error {
 	b.logger.Info("Initializing storage engine", logging.Fields{
 		"data_dir": b.config.DataDir,
 	})
 
-	// TODO: Implement actual storage initialization
-	// For now, this is a placeholder
-	// b.storage = storage.NewLSMStore(storageConfig)
+	b.topicManager = server.NewTopicManager(b.config.DataDir)
+
+	topics := b.topicManager.ListTopics()
+	b.logger.Info("Storage engine initialized", logging.Fields{
+		"data_dir": b.config.DataDir,
+		"topics":   len(topics),
+	})
 
 	return nil
 }
@@ -485,7 +503,29 @@ func (b *Broker) initTransactions() error {
 	// Create transaction coordinator
 	b.txnCoordinator = transaction.NewTransactionCoordinator(txnLog, coordinatorConfig, b.logger)
 
+	// Give the coordinator somewhere real to write transaction markers and
+	// publish transactional offsets. Without these it cannot honour a commit
+	// and EndTxn refuses rather than reporting a commit it did not perform.
+	b.txnCoordinator.SetMarkerWriter(newLogMarkerWriter(b.topicManager))
+	b.txnCoordinator.SetOffsetCommitter(newGroupOffsetCommitter(b.groupCoordinator))
+
 	b.logger.Info("Transaction coordinator initialized")
+
+	return nil
+}
+
+// initReplication initializes the cross-datacenter replication link manager
+// that backs the /api/v1/replication/links admin endpoints.
+//
+// Link definitions live in memory for now, so they do not survive a restart;
+// swapping in a persistent link.Storage implementation is all that is needed
+// to change that.
+func (b *Broker) initReplication() error {
+	b.logger.Info("Initializing replication link manager")
+
+	b.replicationManager = link.NewManager(link.NewMemoryStorage())
+
+	b.logger.Info("Replication link manager initialized")
 
 	return nil
 }
@@ -584,29 +624,53 @@ func (b *Broker) trackTenantStorage() {
 	}
 }
 
-// updateTenantStorageUsage updates storage usage for all tenants.
+// updateTenantStorageUsage recomputes each tenant's storage usage from the
+// bytes its topics actually occupy on disk and reports it to the quota
+// tracker.
 //
-// Known limitation: this never actually computes or reports real usage (see
-// b.storage / initStorage above) - it only logs a debug line per tenant, so
-// b.tenancyManager's per-tenant storage quota bookkeeping never reflects
-// actual bytes written. See README.md's Known Limitations section.
+// A tenant owns a topic when it created it through the tenancy-aware handler
+// (see tenancy.Manager.RegisterTopic). Topics with no ownership record - those
+// created before multi-tenancy was enabled, or directly on disk - are not
+// counted against any tenant; they are reported as unattributed so an operator
+// can see the gap rather than silently under-billing a tenant.
 func (b *Broker) updateTenantStorageUsage() {
-	if b.tenancyManager == nil {
+	if b.tenancyManager == nil || b.topicManager == nil {
 		return
 	}
 
-	// Get all tenants
-	tenants := b.tenancyManager.ListTenants()
+	usageByTopic := b.topicManager.DiskUsageByTopic()
+	owners := b.tenancyManager.TopicOwners()
 
-	for _, tenant := range tenants {
-		// TODO: Calculate actual storage usage from storage engine
-		// For now, we'll just log that we're tracking
-		// When storage integration is complete, this will be:
-		// storageBytes := b.storage.GetTenantUsage(tenant.ID)
-		// b.tenancyManager.UpdateStorageUsage(tenant.ID, storageBytes)
+	usageByTenant := make(map[tenancy.TenantID]int64)
+	var unattributed int64
+	for topic, bytes := range usageByTopic {
+		owner, ok := owners[topic]
+		if !ok {
+			unattributed += bytes
+			continue
+		}
+		usageByTenant[owner] += bytes
+	}
 
-		b.logger.Debug("Tracking storage for tenant", logging.Fields{
-			"tenant_id": tenant.ID,
+	for _, tenant := range b.tenancyManager.ListTenants() {
+		storageBytes := usageByTenant[tenant.ID]
+
+		if err := b.tenancyManager.UpdateStorageUsage(tenant.ID, storageBytes); err != nil {
+			b.logger.Error("Failed to update tenant storage usage", err, logging.Fields{
+				"tenant_id": string(tenant.ID),
+			})
+			continue
+		}
+
+		b.logger.Debug("Updated storage usage for tenant", logging.Fields{
+			"tenant_id":     string(tenant.ID),
+			"storage_bytes": storageBytes,
+		})
+	}
+
+	if unattributed > 0 {
+		b.logger.Debug("Storage not attributed to any tenant", logging.Fields{
+			"bytes": unattributed,
 		})
 	}
 }
@@ -617,17 +681,25 @@ func (b *Broker) initServer() error {
 		"address": fmt.Sprintf("%s:%d", b.config.Host, b.config.Port),
 	})
 
-	// Create base server handler
-	baseHandler := server.NewHandlerWithDataDir(b.config.DataDir)
+	// Create base server handler over the broker's storage. initStorage runs
+	// first, so b.topicManager is set; fall back to opening one here only if a
+	// caller drove initServer directly (as some tests do).
+	if b.topicManager == nil {
+		b.topicManager = server.NewTopicManager(b.config.DataDir)
+	}
+	baseHandler := server.NewHandlerWithTopicManager(b.topicManager)
+
+	// Route consumer group and transaction requests to their coordinators.
+	// These sit closest to the base handler so the tenancy, schema and
+	// security wrappers below still see every request.
+	var handler server.RequestHandler = baseHandler
+	handler = server.NewCoordinationHandler(handler, b.groupCoordinator)
+	handler = server.NewTransactionHandler(handler, b.txnCoordinator)
 
 	// Wrap with tenancy handler if enabled
-	var handler server.RequestHandler
 	if b.config.EnableMultiTenancy && b.tenancyManager != nil {
-		tenancyHandler := server.NewTenancyHandler(baseHandler, b.tenancyManager, true)
-		handler = tenancyHandler
+		handler = server.NewTenancyHandler(handler, b.tenancyManager, true)
 		b.logger.Info("Multi-tenancy enabled for request handling")
-	} else {
-		handler = baseHandler
 	}
 
 	// Wrap with schema validation handler if schema registry is available

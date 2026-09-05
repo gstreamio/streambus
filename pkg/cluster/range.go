@@ -48,15 +48,26 @@ func (rs *RangeStrategy) Assign(
 	topicPartitions := rs.groupByTopic(partitions)
 
 	assignment := NewAssignment()
+	load := newBrokerLoad(availableBrokers, constraints)
+
+	// Sort topic names so assignment is deterministic. This matters once
+	// per-broker capacity limits are in play: which topic consumes a broker's
+	// remaining capacity must not depend on Go's map iteration order.
+	topics := make([]string, 0, len(topicPartitions))
+	for topic := range topicPartitions {
+		topics = append(topics, topic)
+	}
+	sort.Strings(topics)
 
 	// Assign each topic's partitions
-	for topic, topicParts := range topicPartitions {
+	for _, topic := range topics {
 		if err := rs.assignTopicPartitions(
 			topic,
-			topicParts,
+			topicPartitions[topic],
 			availableBrokers,
 			assignment,
 			constraints,
+			load,
 		); err != nil {
 			return nil, fmt.Errorf("failed to assign topic %s: %w", topic, err)
 		}
@@ -95,6 +106,7 @@ func (rs *RangeStrategy) assignTopicPartitions(
 	brokers []BrokerInfo,
 	assignment *Assignment,
 	constraints *AssignmentConstraints,
+	load *brokerLoad,
 ) error {
 	if len(partitions) == 0 {
 		return nil
@@ -127,12 +139,14 @@ func (rs *RangeStrategy) assignTopicPartitions(
 				brokers,
 				brokerIdx,
 				constraints,
+				load,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to select replicas for partition %d: %w",
 					partition.PartitionID, err)
 			}
 
+			load.addAll(replicas)
 			assignment.AddReplica(topic, partition.PartitionID, replicas)
 			partitionIndex++
 		}
@@ -147,6 +161,7 @@ func (rs *RangeStrategy) selectReplicas(
 	brokers []BrokerInfo,
 	primaryBrokerIdx int,
 	constraints *AssignmentConstraints,
+	load *brokerLoad,
 ) ([]int32, error) {
 	replicaCount := partition.Replicas
 	if replicaCount > len(brokers) {
@@ -162,13 +177,17 @@ func (rs *RangeStrategy) selectReplicas(
 
 	// If rack-aware, use rack-aware selection
 	if constraints.RackAware {
-		return rs.selectRackAwareReplicas(partition, brokers, primaryBrokerIdx, replicaCount)
+		return rs.selectRackAwareReplicas(partition, brokers, primaryBrokerIdx, replicaCount, load)
 	}
 
-	// First replica is the primary broker
-	primaryBroker := brokers[primaryBrokerIdx]
-	replicas = append(replicas, primaryBroker.ID)
-	selectedBrokers[primaryBroker.ID] = true
+	// First replica is the primary broker for this range. If it is already at
+	// its partition limit, walk forward to the next broker that has capacity.
+	primaryBrokerIdx = nextBrokerWithCapacity(brokers, primaryBrokerIdx, load)
+	if primaryBrokerIdx >= 0 {
+		primaryBroker := brokers[primaryBrokerIdx]
+		replicas = append(replicas, primaryBroker.ID)
+		selectedBrokers[primaryBroker.ID] = true
+	}
 
 	// Select remaining replicas round-robin from next brokers
 	brokerIdx := primaryBrokerIdx + 1
@@ -184,16 +203,36 @@ func (rs *RangeStrategy) selectReplicas(
 			continue
 		}
 
+		if !load.hasCapacity(broker.ID) {
+			continue
+		}
+
 		replicas = append(replicas, broker.ID)
 		selectedBrokers[broker.ID] = true
 	}
 
 	if len(replicas) < replicaCount {
+		if load.limited() {
+			return nil, load.capacityError(partition, replicaCount, len(replicas))
+		}
 		return nil, fmt.Errorf("could not find %d unique brokers (found %d)",
 			replicaCount, len(replicas))
 	}
 
 	return replicas, nil
+}
+
+// nextBrokerWithCapacity returns the index of the first broker at or after
+// start (wrapping around) that can take another partition replica, or -1 if
+// every broker is at its limit.
+func nextBrokerWithCapacity(brokers []BrokerInfo, start int, load *brokerLoad) int {
+	for i := 0; i < len(brokers); i++ {
+		idx := (start + i) % len(brokers)
+		if load.hasCapacity(brokers[idx].ID) {
+			return idx
+		}
+	}
+	return -1
 }
 
 // selectRackAwareReplicas selects replicas with rack awareness
@@ -202,6 +241,7 @@ func (rs *RangeStrategy) selectRackAwareReplicas(
 	brokers []BrokerInfo,
 	primaryBrokerIdx int,
 	replicaCount int,
+	load *brokerLoad,
 ) ([]int32, error) {
 	// Group brokers by rack
 	rackBrokers := make(map[string][]BrokerInfo)
@@ -220,11 +260,14 @@ func (rs *RangeStrategy) selectRackAwareReplicas(
 	selectedBrokers := make(map[int32]bool)
 	selectedRacks := make(map[string]bool)
 
-	// First replica is the primary broker
-	primaryBroker := brokers[primaryBrokerIdx]
-	replicas = append(replicas, primaryBroker.ID)
-	selectedBrokers[primaryBroker.ID] = true
-	selectedRacks[brokerRack[primaryBroker.ID]] = true
+	// First replica is the primary broker for this range. If it is at its
+	// partition limit, walk forward to the next broker that has capacity.
+	if idx := nextBrokerWithCapacity(brokers, primaryBrokerIdx, load); idx >= 0 {
+		primaryBroker := brokers[idx]
+		replicas = append(replicas, primaryBroker.ID)
+		selectedBrokers[primaryBroker.ID] = true
+		selectedRacks[brokerRack[primaryBroker.ID]] = true
+	}
 
 	// Select remaining replicas from different racks
 	for _, broker := range brokers {
@@ -238,6 +281,10 @@ func (rs *RangeStrategy) selectRackAwareReplicas(
 		}
 
 		rack := brokerRack[broker.ID]
+
+		if !load.hasCapacity(broker.ID) {
+			continue
+		}
 
 		// Prefer brokers from unselected racks
 		if !selectedRacks[rack] || len(selectedRacks) == len(rackBrokers) {
@@ -253,7 +300,7 @@ func (rs *RangeStrategy) selectRackAwareReplicas(
 			if len(replicas) >= replicaCount {
 				break
 			}
-			if !selectedBrokers[broker.ID] {
+			if !selectedBrokers[broker.ID] && load.hasCapacity(broker.ID) {
 				replicas = append(replicas, broker.ID)
 				selectedBrokers[broker.ID] = true
 			}
@@ -261,6 +308,9 @@ func (rs *RangeStrategy) selectRackAwareReplicas(
 	}
 
 	if len(replicas) < replicaCount {
+		if load.limited() {
+			return nil, load.capacityError(partition, replicaCount, len(replicas))
+		}
 		return nil, fmt.Errorf("could not find %d unique brokers (found %d)",
 			replicaCount, len(replicas))
 	}

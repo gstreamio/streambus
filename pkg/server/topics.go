@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -313,4 +314,140 @@ func (tm *TopicManager) Close() error {
 type TopicInfo struct {
 	Name          string
 	NumPartitions uint32
+}
+
+// ID returns the partition ID.
+func (p *Partition) ID() uint32 {
+	return p.id
+}
+
+// Log returns the partition's underlying log.
+func (p *Partition) Log() storage.Log {
+	return p.log
+}
+
+// PartitionOffsets returns the start offset, end offset and high water mark
+// for a partition.
+func (tm *TopicManager) PartitionOffsets(topic string, partitionID uint32) (start, end, highWaterMark int64, err error) {
+	partition, err := tm.GetPartition(topic, partitionID)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	log := partition.Log()
+	return int64(log.StartOffset()), int64(log.EndOffset()), int64(log.HighWaterMark()), nil
+}
+
+// ReadMessages reads up to limit messages from a partition starting at the
+// given offset.
+//
+// An offset below the partition's start offset is clamped to the start offset
+// so that callers browsing from 0 see the oldest retained messages rather than
+// an error. Reading at or past the end offset returns an empty slice.
+func (tm *TopicManager) ReadMessages(topic string, partitionID uint32, offset int64, limit int) ([]*storage.Message, error) {
+	if limit <= 0 {
+		return []*storage.Message{}, nil
+	}
+
+	partition, err := tm.GetPartition(topic, partitionID)
+	if err != nil {
+		return nil, err
+	}
+
+	log := partition.Log()
+	startOffset := int64(log.StartOffset())
+	endOffset := int64(log.EndOffset())
+
+	if offset < startOffset {
+		offset = startOffset
+	}
+	if offset >= endOffset {
+		return []*storage.Message{}, nil
+	}
+
+	// ReadRange's end is exclusive; never read past the end of the log.
+	rangeEnd := offset + int64(limit)
+	if rangeEnd > endOffset {
+		rangeEnd = endOffset
+	}
+
+	messages, err := log.ReadRange(storage.Offset(offset), storage.Offset(rangeEnd))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read messages from %s:%d: %w", topic, partitionID, err)
+	}
+
+	if len(messages) > limit {
+		messages = messages[:limit]
+	}
+
+	return messages, nil
+}
+
+// TopicDiskUsage returns the number of bytes the topic occupies on disk,
+// summed across all of its partition directories.
+func (tm *TopicManager) TopicDiskUsage(topic string) (int64, error) {
+	if !tm.TopicExists(topic) {
+		return 0, fmt.Errorf("topic %s does not exist", topic)
+	}
+	return dirSize(filepath.Join(tm.storageDir, topic))
+}
+
+// DiskUsageByTopic returns on-disk byte usage for every known topic. Topics
+// whose directory cannot be read are reported as zero rather than failing the
+// whole call, so a single unreadable topic does not hide usage for the rest.
+func (tm *TopicManager) DiskUsageByTopic() map[string]int64 {
+	tm.mu.RLock()
+	names := make([]string, 0, len(tm.topics))
+	for name := range tm.topics {
+		names = append(names, name)
+	}
+	tm.mu.RUnlock()
+
+	usage := make(map[string]int64, len(names))
+	for _, name := range names {
+		size, err := dirSize(filepath.Join(tm.storageDir, name))
+		if err != nil {
+			logger.Warn("failed to measure topic disk usage",
+				zap.String("topic", name), zap.Error(err))
+			size = 0
+		}
+		usage[name] = size
+	}
+
+	return usage
+}
+
+// dirSize sums the size of every regular file under root. A missing directory
+// counts as zero bytes rather than an error: a topic that exists in memory but
+// has not flushed anything to disk yet legitimately uses no disk.
+func dirSize(root string) (int64, error) {
+	var total int64
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			// The file was removed between listing and stat (e.g. compaction);
+			// skip it rather than failing the whole measurement.
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		total += info.Size()
+		return nil
+	})
+	if err != nil && !os.IsNotExist(err) {
+		return total, err
+	}
+
+	return total, nil
 }

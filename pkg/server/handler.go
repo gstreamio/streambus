@@ -32,10 +32,23 @@ func NewHandler() *Handler {
 
 // NewHandlerWithDataDir creates a new request handler with custom data directory
 func NewHandlerWithDataDir(dataDir string) *Handler {
+	return NewHandlerWithTopicManager(NewTopicManager(dataDir))
+}
+
+// NewHandlerWithTopicManager creates a new request handler backed by an
+// existing TopicManager. Use this when another component (such as a broker's
+// admin API) needs to read the same storage the wire-protocol path writes to,
+// instead of opening a second, independent view of the same directory.
+func NewHandlerWithTopicManager(tm *TopicManager) *Handler {
 	return &Handler{
-		topicManager: NewTopicManager(dataDir),
+		topicManager: tm,
 		startTime:    time.Now(),
 	}
+}
+
+// TopicManager returns the topic manager backing this handler.
+func (h *Handler) TopicManager() *TopicManager {
+	return h.topicManager
 }
 
 // Handle handles a request and returns a response

@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"fmt"
+	"sort"
 )
 
 // StickyStrategy minimizes partition movement during rebalancing
@@ -276,7 +277,19 @@ func (ss *StickyStrategy) reassignPartitions(
 	brokers []BrokerInfo,
 	constraints *AssignmentConstraints,
 ) error {
-	for key, partition := range partitions {
+	limits := brokerCapacityLimits(brokers, constraints)
+
+	// Iterate in a stable order so that, once per-broker capacity limits are
+	// in play, which partition claims a broker's remaining capacity does not
+	// depend on Go's map iteration order.
+	keys := make([]string, 0, len(partitions))
+	for key := range partitions {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		partition := partitions[key]
 		currentReplicas := assignment.Partitions[key]
 		neededReplicas := partition.Replicas - len(currentReplicas)
 
@@ -306,6 +319,12 @@ func (ss *StickyStrategy) reassignPartitions(
 				continue
 			}
 
+			// Skip brokers already at their partition limit
+			// (MaxPartitionsPerBroker / BrokerInfo.Capacity).
+			if !withinLimit(limits, broker.ID, assignment.BrokerLoad[broker.ID]) {
+				continue
+			}
+
 			// Add replica
 			currentReplicas = append(currentReplicas, broker.ID)
 			assignment.BrokerLoad[broker.ID]++
@@ -313,6 +332,11 @@ func (ss *StickyStrategy) reassignPartitions(
 		}
 
 		if selectedCount < neededReplicas {
+			if anyLimited(limits) {
+				return fmt.Errorf(
+					"could not find enough brokers for partition %s: all remaining brokers are at their partition limit",
+					key)
+			}
 			return fmt.Errorf("could not find enough brokers for partition %s", key)
 		}
 
@@ -346,6 +370,7 @@ func (ss *StickyStrategy) balanceLoad(
 
 	targetLoad := totalPartitions / numBrokers
 	maxImbalance := 1
+	limits := brokerCapacityLimits(brokers, constraints)
 
 	// Iteratively move partitions from overloaded to underloaded brokers
 	maxIterations := totalPartitions * 2
@@ -355,13 +380,13 @@ func (ss *StickyStrategy) balanceLoad(
 		iteration++
 
 		// Find most overloaded and underloaded brokers
-		overloaded, underloaded := ss.findImbalancedBrokers(assignment, targetLoad, brokers)
+		overloaded, underloaded := ss.findImbalancedBrokers(assignment, targetLoad, brokers, limits)
 		if overloaded == nil || underloaded == nil {
 			break
 		}
 
 		// Find a partition to move
-		moved := ss.movePartition(assignment, overloaded.ID, underloaded.ID, constraints)
+		moved := ss.movePartition(assignment, overloaded.ID, underloaded.ID, limits)
 		if !moved {
 			break
 		}
@@ -375,6 +400,7 @@ func (ss *StickyStrategy) findImbalancedBrokers(
 	assignment *Assignment,
 	targetLoad int,
 	brokers []BrokerInfo,
+	limits map[int32]int,
 ) (*BrokerInfo, *BrokerInfo) {
 	var overloaded *BrokerInfo
 	var underloaded *BrokerInfo
@@ -395,7 +421,9 @@ func (ss *StickyStrategy) findImbalancedBrokers(
 			overloaded = &b
 		}
 
-		if load < minLoad {
+		// A broker already at its partition limit cannot receive a move, so it
+		// is not a valid underloaded target no matter how light its load is.
+		if load < minLoad && withinLimit(limits, brokerID, load) {
 			minLoad = load
 			b := broker
 			underloaded = &b
@@ -409,8 +437,14 @@ func (ss *StickyStrategy) findImbalancedBrokers(
 func (ss *StickyStrategy) movePartition(
 	assignment *Assignment,
 	fromBroker, toBroker int32,
-	constraints *AssignmentConstraints,
+	limits map[int32]int,
 ) bool {
+	// Never move a replica onto a broker that is at its partition limit
+	// (MaxPartitionsPerBroker / BrokerInfo.Capacity).
+	if !withinLimit(limits, toBroker, assignment.BrokerLoad[toBroker]) {
+		return false
+	}
+
 	// Find a partition on fromBroker that we can move
 	var partitionToMove string
 	var replicaIndex int
