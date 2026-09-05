@@ -306,7 +306,10 @@ func TestReconcile_ConfigMapUpdatesWhenConfigChanges(t *testing.T) {
 	if err := c.Get(ctx, types.NamespacedName{Name: cluster.Name + "-config", Namespace: cluster.Namespace}, &cm); err != nil {
 		t.Fatalf("get configmap: %v", err)
 	}
-	if !contains(cm.Data["broker.yaml"], "log_level: debug") {
+	// Asserted in its nested form because that is the key the broker actually
+	// reads (observability.logging.level). This assertion previously looked
+	// for a flat "log_level:", which the broker never matched.
+	if !contains(cm.Data["broker.yaml"], "level: debug") {
 		t.Errorf("expected ConfigMap to reflect the updated log level, got:\n%s", cm.Data["broker.yaml"])
 	}
 }

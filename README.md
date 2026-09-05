@@ -496,10 +496,9 @@ docker-compose up -d
 - **A replication link cannot use TLS.** Setting `EnableTLS` on a link's
   cluster config is rejected outright rather than silently ignored, so
   cross-cluster traffic is plaintext until this is implemented.
-- **The Kubernetes operator does not implement `spec.security`.** Its TLS and
-  SASL fields are accepted and have no effect, so a cluster deployed with
-  security enabled in the CR is still fully open. `spec.image.pullSecrets`,
-  `spec.version` and `spec.observability.metrics` are likewise inert.
+- **Some Kubernetes operator spec fields are still inert.**
+  `spec.image.pullSecrets`, `spec.version` and `spec.observability.metrics` are
+  accepted and have no effect. `spec.security` is implemented.
 
 ---
 
