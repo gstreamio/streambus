@@ -60,3 +60,24 @@ func (r *payloadReader) readUint16() uint16 {
 	}
 	return bigEndian.Uint16(b)
 }
+
+// putWireLen writes a length prefix for the hand-rolled codec path in
+// codec.go, which builds byte buffers directly rather than through
+// payloadWriter.
+//
+// Same reasoning as writeArrayLen: the codec refuses to encode a message
+// larger than MaxMessageSize, so a legitimate length cannot approach the
+// bound. Stating it once here replaces an unchecked narrowing repeated at
+// every length prefix in that file.
+func putWireLen(buf []byte, n int) {
+	bigEndian.PutUint32(buf, wireLen(n))
+}
+
+// wireLen narrows a length for the wire, clamping an impossible value to zero
+// rather than letting it wrap.
+func wireLen(n int) uint32 {
+	if n < 0 || n > maxArrayLen {
+		return 0
+	}
+	return uint32(n)
+}

@@ -27,6 +27,7 @@ var (
 	ErrInvalidTopic     = errors.New("invalid topic name")
 	ErrInvalidPartition = errors.New("invalid partition")
 	ErrInvalidOffset    = errors.New("invalid offset")
+	ErrInvalidMaxBytes  = errors.New("invalid max bytes")
 
 	// Producer errors
 	ErrProducerClosed  = errors.New("producer is closed")
