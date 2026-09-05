@@ -34,22 +34,14 @@ func benchmarkProduceLatency(b *testing.B, msgSize int) {
 		b.Skip("Skipping integration benchmark in short mode")
 	}
 
-	cfg := &client.Config{
-		Brokers: []string{"localhost:9092"},
-		Timeout: 10 * time.Second,
-	}
-
-	c, err := client.NewClient(cfg)
+	c, err := newBenchClient([]string{"localhost:9092"}, 10*time.Second)
 	if err != nil {
 		b.Skipf("Cannot connect to broker: %v", err)
 		return
 	}
 	defer c.Close()
 
-	producer, err := c.NewProducer()
-	if err != nil {
-		b.Fatalf("Failed to create producer: %v", err)
-	}
+	producer := client.NewProducer(c)
 
 	topic := "bench-latency"
 	value := make([]byte, msgSize)
@@ -128,12 +120,7 @@ func benchmarkConsumeLatency(b *testing.B, msgSize int) {
 		b.Skip("Skipping integration benchmark in short mode")
 	}
 
-	cfg := &client.Config{
-		Brokers: []string{"localhost:9092"},
-		Timeout: 10 * time.Second,
-	}
-
-	c, err := client.NewClient(cfg)
+	c, err := newBenchClient([]string{"localhost:9092"}, 10*time.Second)
 	if err != nil {
 		b.Skipf("Cannot connect to broker: %v", err)
 		return
@@ -143,10 +130,7 @@ func benchmarkConsumeLatency(b *testing.B, msgSize int) {
 	topic := "bench-consume-latency"
 
 	// Pre-populate messages
-	producer, err := c.NewProducer()
-	if err != nil {
-		b.Fatalf("Failed to create producer: %v", err)
-	}
+	producer := client.NewProducer(c)
 
 	value := make([]byte, msgSize)
 	for i := range value {
@@ -167,13 +151,17 @@ func benchmarkConsumeLatency(b *testing.B, msgSize int) {
 	}
 
 	// Create consumer
-	consumer, err := c.NewConsumer("bench-latency-group")
+	gcConfig := client.DefaultGroupConsumerConfig()
+	gcConfig.GroupID = "bench-latency-group"
+	gcConfig.Topics = []string{topic}
+
+	consumer, err := client.NewGroupConsumer(c, gcConfig)
 	if err != nil {
 		b.Fatalf("Failed to create consumer: %v", err)
 	}
 	defer consumer.Close()
 
-	if err := consumer.Subscribe(topic); err != nil {
+	if err := consumer.Subscribe(ctx); err != nil {
 		b.Fatalf("Failed to subscribe: %v", err)
 	}
 
@@ -184,19 +172,25 @@ func benchmarkConsumeLatency(b *testing.B, msgSize int) {
 	consumed := 0
 	for consumed < b.N {
 		start := time.Now()
-		msgs, err := consumer.Poll(ctx, 100*time.Millisecond)
+		result, err := consumer.Poll(ctx)
 		if err != nil {
 			b.Fatalf("Poll failed: %v", err)
 		}
 
 		latency := time.Since(start)
-		if len(msgs) > 0 {
+		n := countMessages(result)
+		if n > 0 {
 			// Average latency per message in this poll
-			avgLatency := latency / time.Duration(len(msgs))
-			for range msgs {
+			avgLatency := latency / time.Duration(n)
+			for i := 0; i < n; i++ {
 				latencies = append(latencies, avgLatency)
 			}
-			consumed += len(msgs)
+			consumed += n
+		} else {
+			// GroupConsumer.Poll returns immediately regardless of whether
+			// anything was available, so back off before retrying instead of
+			// spinning the CPU waiting for the next message.
+			time.Sleep(pollBackoff)
 		}
 	}
 
@@ -233,40 +227,39 @@ func BenchmarkE2E_RoundTripLatency(b *testing.B) {
 		b.Skip("Skipping integration benchmark in short mode")
 	}
 
-	cfg := &client.Config{
-		Brokers: []string{"localhost:9092"},
-		Timeout: 10 * time.Second,
-	}
-
-	c, err := client.NewClient(cfg)
+	c, err := newBenchClient([]string{"localhost:9092"}, 10*time.Second)
 	if err != nil {
 		b.Skipf("Cannot connect to broker: %v", err)
 		return
 	}
 	defer c.Close()
 
-	producer, err := c.NewProducer()
-	if err != nil {
-		b.Fatalf("Failed to create producer: %v", err)
-	}
+	producer := client.NewProducer(c)
 
-	consumer, err := c.NewConsumer("bench-roundtrip-group")
+	topic := "bench-roundtrip"
+	ctx := context.Background()
+
+	gcConfig := client.DefaultGroupConsumerConfig()
+	gcConfig.GroupID = "bench-roundtrip-group"
+	gcConfig.Topics = []string{topic}
+
+	consumer, err := client.NewGroupConsumer(c, gcConfig)
 	if err != nil {
 		b.Fatalf("Failed to create consumer: %v", err)
 	}
 	defer consumer.Close()
 
-	topic := "bench-roundtrip"
-	if err := consumer.Subscribe(topic); err != nil {
+	if err := consumer.Subscribe(ctx); err != nil {
 		b.Fatalf("Failed to subscribe: %v", err)
 	}
 
-	ctx := context.Background()
 	value := []byte("roundtrip-test-message")
 
 	latencies := make([]time.Duration, 0, b.N)
 
 	b.ResetTimer()
+
+	const roundTripDeadline = 5 * time.Second
 
 	for i := 0; i < b.N; i++ {
 		key := fmt.Sprintf("key-%d", i)
@@ -277,13 +270,25 @@ func BenchmarkE2E_RoundTripLatency(b *testing.B) {
 			b.Fatalf("Send failed: %v", err)
 		}
 
-		// Consume
-		msgs, err := consumer.Poll(ctx, 5*time.Second)
-		if err != nil {
-			b.Fatalf("Poll failed: %v", err)
+		// Consume: GroupConsumer.Poll does one fetch pass and returns
+		// immediately rather than blocking for up to a given timeout, so wait
+		// for the message to show up by polling in a loop with our own
+		// deadline instead.
+		received := 0
+		deadline := start.Add(roundTripDeadline)
+		for time.Now().Before(deadline) {
+			result, err := consumer.Poll(ctx)
+			if err != nil {
+				b.Fatalf("Poll failed: %v", err)
+			}
+			received = countMessages(result)
+			if received > 0 {
+				break
+			}
+			time.Sleep(pollBackoff)
 		}
 
-		if len(msgs) > 0 {
+		if received > 0 {
 			latency := time.Since(start)
 			latencies = append(latencies, latency)
 		}

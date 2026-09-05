@@ -37,12 +37,7 @@ func benchmarkConcurrentProducers(b *testing.B, numProducers, msgSize int) {
 		b.Skip("Skipping integration benchmark in short mode")
 	}
 
-	cfg := &client.Config{
-		Brokers: []string{"localhost:9092"},
-		Timeout: 10 * time.Second,
-	}
-
-	c, err := client.NewClient(cfg)
+	c, err := newBenchClient([]string{"localhost:9092"}, 10*time.Second)
 	if err != nil {
 		b.Skipf("Cannot connect to broker: %v", err)
 		return
@@ -74,11 +69,7 @@ func benchmarkConcurrentProducers(b *testing.B, numProducers, msgSize int) {
 		go func(producerID int) {
 			defer wg.Done()
 
-			producer, err := c.NewProducer()
-			if err != nil {
-				errCh <- err
-				return
-			}
+			producer := client.NewProducer(c)
 
 			sent := 0
 			for i := 0; i < messagesPerProducer; i++ {
@@ -137,12 +128,7 @@ func benchmarkConcurrentConsumers(b *testing.B, numConsumers, msgSize, numMessag
 		b.Skip("Skipping integration benchmark in short mode")
 	}
 
-	cfg := &client.Config{
-		Brokers: []string{"localhost:9092"},
-		Timeout: 10 * time.Second,
-	}
-
-	c, err := client.NewClient(cfg)
+	c, err := newBenchClient([]string{"localhost:9092"}, 10*time.Second)
 	if err != nil {
 		b.Skipf("Cannot connect to broker: %v", err)
 		return
@@ -152,10 +138,7 @@ func benchmarkConcurrentConsumers(b *testing.B, numConsumers, msgSize, numMessag
 	topic := "bench-concurrent-consumers"
 
 	// Pre-populate messages
-	producer, err := c.NewProducer()
-	if err != nil {
-		b.Fatalf("Failed to create producer: %v", err)
-	}
+	producer := client.NewProducer(c)
 
 	value := make([]byte, msgSize)
 	for i := range value {
@@ -179,19 +162,23 @@ func benchmarkConcurrentConsumers(b *testing.B, numConsumers, msgSize, numMessag
 
 	groupName := "bench-concurrent-consumer-group"
 
-	for c := 0; c < numConsumers; c++ {
+	for i := 0; i < numConsumers; i++ {
 		wg.Add(1)
 		go func(consumerID int) {
 			defer wg.Done()
 
-			consumer, err := c.NewConsumer(groupName)
+			gcConfig := client.DefaultGroupConsumerConfig()
+			gcConfig.GroupID = groupName
+			gcConfig.Topics = []string{topic}
+
+			consumer, err := client.NewGroupConsumer(c, gcConfig)
 			if err != nil {
 				errCh <- err
 				return
 			}
 			defer consumer.Close()
 
-			if err := consumer.Subscribe(topic); err != nil {
+			if err := consumer.Subscribe(ctx); err != nil {
 				errCh <- err
 				return
 			}
@@ -200,16 +187,21 @@ func benchmarkConcurrentConsumers(b *testing.B, numConsumers, msgSize, numMessag
 			targetPerConsumer := numMessages / numConsumers
 
 			for consumed < targetPerConsumer {
-				msgs, err := consumer.Poll(ctx, 1*time.Second)
+				result, err := consumer.Poll(ctx)
 				if err != nil {
 					errCh <- err
 					return
 				}
-				consumed += len(msgs)
+				n := countMessages(result)
+				if n == 0 {
+					time.Sleep(pollBackoff)
+					continue
+				}
+				consumed += n
 			}
 
 			atomic.AddInt64(&totalConsumed, int64(consumed))
-		}(c)
+		}(i)
 	}
 
 	wg.Wait()
@@ -236,12 +228,7 @@ func BenchmarkConcurrent_MixedWorkload(b *testing.B) {
 		b.Skip("Skipping integration benchmark in short mode")
 	}
 
-	cfg := &client.Config{
-		Brokers: []string{"localhost:9092"},
-		Timeout: 10 * time.Second,
-	}
-
-	c, err := client.NewClient(cfg)
+	c, err := newBenchClient([]string{"localhost:9092"}, 10*time.Second)
 	if err != nil {
 		b.Skipf("Cannot connect to broker: %v", err)
 		return
@@ -277,11 +264,7 @@ func BenchmarkConcurrent_MixedWorkload(b *testing.B) {
 		go func(producerID int) {
 			defer wg.Done()
 
-			producer, err := c.NewProducer()
-			if err != nil {
-				errCh <- err
-				return
-			}
+			producer := client.NewProducer(c)
 
 			for i := 0; i < messagesPerProducer; i++ {
 				key := fmt.Sprintf("producer-%d-msg-%d", producerID, i)
@@ -295,19 +278,23 @@ func BenchmarkConcurrent_MixedWorkload(b *testing.B) {
 	}
 
 	// Start consumers
-	for c := 0; c < numConsumers; c++ {
+	for i := 0; i < numConsumers; i++ {
 		wg.Add(1)
 		go func(consumerID int) {
 			defer wg.Done()
 
-			consumer, err := c.NewConsumer(fmt.Sprintf("bench-mixed-group-%d", consumerID))
+			gcConfig := client.DefaultGroupConsumerConfig()
+			gcConfig.GroupID = fmt.Sprintf("bench-mixed-group-%d", consumerID)
+			gcConfig.Topics = []string{topic}
+
+			consumer, err := client.NewGroupConsumer(c, gcConfig)
 			if err != nil {
 				errCh <- err
 				return
 			}
 			defer consumer.Close()
 
-			if err := consumer.Subscribe(topic); err != nil {
+			if err := consumer.Subscribe(ctx); err != nil {
 				errCh <- err
 				return
 			}
@@ -316,15 +303,20 @@ func BenchmarkConcurrent_MixedWorkload(b *testing.B) {
 			consumed := 0
 
 			for consumed < targetMsgs {
-				msgs, err := consumer.Poll(ctx, 1*time.Second)
+				result, err := consumer.Poll(ctx)
 				if err != nil {
 					errCh <- err
 					return
 				}
-				consumed += len(msgs)
-				atomic.AddInt64(&totalConsumed, int64(len(msgs)))
+				n := countMessages(result)
+				if n == 0 {
+					time.Sleep(pollBackoff)
+					continue
+				}
+				consumed += n
+				atomic.AddInt64(&totalConsumed, int64(n))
 			}
-		}(c)
+		}(i)
 	}
 
 	wg.Wait()
@@ -366,12 +358,7 @@ func benchmarkProducerContention(b *testing.B, numProducers int) {
 		b.Skip("Skipping integration benchmark in short mode")
 	}
 
-	cfg := &client.Config{
-		Brokers: []string{"localhost:9092"},
-		Timeout: 10 * time.Second,
-	}
-
-	c, err := client.NewClient(cfg)
+	c, err := newBenchClient([]string{"localhost:9092"}, 10*time.Second)
 	if err != nil {
 		b.Skipf("Cannot connect to broker: %v", err)
 		return
@@ -399,11 +386,7 @@ func benchmarkProducerContention(b *testing.B, numProducers int) {
 		go func(producerID int) {
 			defer wg.Done()
 
-			producer, err := c.NewProducer()
-			if err != nil {
-				errCh <- err
-				return
-			}
+			producer := client.NewProducer(c)
 
 			for i := 0; i < messagesPerProducer; i++ {
 				key := fmt.Sprintf("key-%d", i)

@@ -221,3 +221,77 @@ func TestHandler_handleFetch_ReadCommittedAdvancesPastResolvedTransactionOnly(t 
 		t.Fatalf("Messages = %d, want 2 once both transactions are resolved", len(full.Messages))
 	}
 }
+
+// appendMarkerRecord writes a transaction-marker record through the same
+// wire-visible path a real fetch reads from, and returns the offset it
+// landed at.
+func appendMarkerRecord(t *testing.T, h *Handler, topic string, producerID int64, producerEpoch int16, commit bool) int64 {
+	t.Helper()
+
+	partition, err := h.TopicManager().GetPartition(topic, 0)
+	if err != nil {
+		t.Fatalf("GetPartition failed: %v", err)
+	}
+
+	offsets, err := partition.Log().Append(&storage.MessageBatch{
+		Messages: []storage.Message{{
+			Headers: protocol.TransactionMarkerHeaders(producerID, producerEpoch, commit),
+		}},
+		Timestamp: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("appending marker failed: %v", err)
+	}
+	return int64(offsets[0])
+}
+
+// TestHandler_handleFetch_ReadCommittedHidesOnlyTheAbortedProducersRecords
+// is the end-to-end case for this feature: once a transaction's own records
+// carry its producer identity, an aborted transaction's records must be
+// hidden even after its marker lifts the LastStableOffset barrier - while
+// another producer's records interleaved in the very same offset range stay
+// visible once that producer's own transaction resolves. Without per-record
+// producer identity there would be no way to tell these apart.
+func TestHandler_handleFetch_ReadCommittedHidesOnlyTheAbortedProducersRecords(t *testing.T) {
+	h := NewHandlerWithDataDir(t.TempDir())
+	defer h.Close()
+
+	const topic = "orders"
+	produceOne(t, h, topic, 1000, 0) // offset 0: producer A (aborts)
+	produceOne(t, h, topic, 2000, 0) // offset 1: producer B (commits), interleaved with A
+	produceOne(t, h, topic, 1000, 0) // offset 2: producer A again, same transaction
+
+	partition, err := h.TopicManager().GetPartition(topic, 0)
+	if err != nil {
+		t.Fatalf("GetPartition failed: %v", err)
+	}
+
+	abortMarkerOffset := appendMarkerRecord(t, h, topic, 1000, 0, false)
+	partition.AbortTransaction(1000, 0, abortMarkerOffset)
+
+	commitMarkerOffset := appendMarkerRecord(t, h, topic, 2000, 0, true)
+	partition.EndTransaction(2000, 0)
+
+	resp := fetch(t, h, topic, 0, protocol.IsolationReadCommitted)
+	if len(resp.Messages) != 1 || resp.Messages[0].Offset != 1 {
+		t.Fatalf("Messages = %+v, want only offset 1 (producer B's committed record)", resp.Messages)
+	}
+
+	hwm := commitMarkerOffset + 1
+	if resp.HighWaterMark != hwm {
+		t.Fatalf("HighWaterMark = %d, want %d", resp.HighWaterMark, hwm)
+	}
+	if resp.LastStableOffset != resp.HighWaterMark {
+		t.Errorf("LastStableOffset = %d, want %d; both transactions are resolved", resp.LastStableOffset, resp.HighWaterMark)
+	}
+	if resp.NextOffset != resp.HighWaterMark {
+		t.Errorf("NextOffset = %d, want %d", resp.NextOffset, resp.HighWaterMark)
+	}
+
+	// read_uncommitted is unaffected by the abort: all three data records are
+	// visible, only the two control records are hidden.
+	unblocked := fetch(t, h, topic, 0, protocol.IsolationReadUncommitted)
+	if len(unblocked.Messages) != 3 {
+		t.Fatalf("Messages = %d, want 3 under read_uncommitted", len(unblocked.Messages))
+	}
+}

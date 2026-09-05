@@ -72,12 +72,13 @@ func (w *logMarkerWriter) WriteMarker(topic string, partitionID int32, marker *t
 	}
 
 	log := partition.Log()
-	if _, err := log.Append(&storage.MessageBatch{
+	offsets, err := log.Append(&storage.MessageBatch{
 		Messages:      []storage.Message{record},
 		Timestamp:     timestamp,
 		ProducerID:    int64(marker.ProducerID),
 		ProducerEpoch: int16(marker.ProducerEpoch),
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("appending marker: %w", err)
 	}
 
@@ -92,7 +93,16 @@ func (w *logMarkerWriter) WriteMarker(topic string, partitionID int32, marker *t
 	// blocks read-committed fetches. Clearing this after the marker is
 	// durable (not before) means a fetch can never observe the barrier
 	// lifted for a transaction whose marker isn't actually on the log yet.
-	partition.EndTransaction(int64(marker.ProducerID), int16(marker.ProducerEpoch))
+	//
+	// An abort additionally hands the marker's own offset to
+	// AbortTransaction, which remembers [start, this offset) as the range a
+	// read-committed fetch must keep hiding even after the barrier lifts - a
+	// commit has nothing to hide, so EndTransaction alone is enough for it.
+	if marker.Commit {
+		partition.EndTransaction(int64(marker.ProducerID), int16(marker.ProducerEpoch))
+	} else {
+		partition.AbortTransaction(int64(marker.ProducerID), int16(marker.ProducerEpoch), int64(offsets[0]))
+	}
 
 	return nil
 }

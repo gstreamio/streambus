@@ -17,13 +17,14 @@ const (
 	// offset (see Partition.LastStableOffset in pkg/server), so a record
 	// from a transaction still in flight is never returned.
 	//
-	// It does not retroactively hide the records of a transaction that has
-	// already aborted. StreamBus's own TransactionalProducer buffers a
-	// transaction's records until commit, so an aborted transaction writes
-	// no records at all and there is nothing to hide; a producer that
-	// streams records as it goes would leave them visible once the abort
-	// marker lifts the barrier. Suppressing those would require the storage
-	// read path to carry each record's producer identity, which it does not.
+	// It also retroactively hides the records of a transaction that has
+	// already aborted: once the abort marker lifts the LastStableOffset
+	// barrier, Partition consults the aborted transaction's remembered
+	// offset range (see Partition.IsAborted) and its records' persisted
+	// producer identity (Message.ProducerID/ProducerEpoch, storage record
+	// format v3) to keep filtering them out of read-committed fetches
+	// specifically - the same records remain visible under
+	// IsolationReadUncommitted.
 	IsolationReadCommitted IsolationLevel = 1
 )
 
@@ -57,6 +58,34 @@ const (
 func IsControlRecord(headers map[string][]byte) bool {
 	value, ok := headers[ControlHeaderKey]
 	return ok && string(value) == ControlTypeTxnMarker
+}
+
+// ParseTransactionMarker extracts a transaction marker's producer identity
+// and outcome from its headers, inverting TransactionMarkerHeaders. ok is
+// false when headers is not a marker at all, or a header value fails to
+// parse - which should never happen for a marker this broker wrote itself,
+// but must not panic if it somehow does, since the one caller that needs
+// this (partition transaction-state recovery, see pkg/server) runs over
+// whatever is on disk at startup.
+func ParseTransactionMarker(headers map[string][]byte) (producerID int64, producerEpoch int16, commit bool, ok bool) {
+	if !IsControlRecord(headers) {
+		return 0, 0, false, false
+	}
+
+	pid, err := strconv.ParseInt(string(headers[TxnProducerIDHeaderKey]), 10, 64)
+	if err != nil {
+		return 0, 0, false, false
+	}
+	epoch, err := strconv.ParseInt(string(headers[TxnProducerEpochHeaderKey]), 10, 16)
+	if err != nil {
+		return 0, 0, false, false
+	}
+	commit, err = strconv.ParseBool(string(headers[TxnCommitHeaderKey]))
+	if err != nil {
+		return 0, 0, false, false
+	}
+
+	return pid, int16(epoch), commit, true
 }
 
 // TransactionMarkerHeaders builds the header set that identifies a

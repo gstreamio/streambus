@@ -273,17 +273,47 @@ var clusterStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show cluster status",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		adminAddr, _ := cmd.Flags().GetString("admin-addr")
+		verbose, _ := cmd.Flags().GetBool("verbose")
+
+		admin := newAdminClient(adminAddr)
+
+		// Fetch before printing anything: a broker that can't be reached
+		// must fail the command outright, never fall back to a header
+		// followed by plausible-looking zeros.
+		info, err := admin.ClusterInfo(cmd.Context())
+		if err != nil {
+			return fmt.Errorf("failed to get cluster status: %w", err)
+		}
+
 		fmt.Println("Cluster Status:")
 		fmt.Println()
+		fmt.Printf("  Cluster ID:  %s\n", info.ClusterID)
+		fmt.Printf("  Controller:  %d\n", info.ControllerID)
+		fmt.Printf("  Version:     %s\n", info.Version)
+		fmt.Printf("  Brokers:     %d active / %d total\n", info.ActiveBrokers, info.TotalBrokers)
+		fmt.Printf("  Topics:      %d\n", info.TotalTopics)
+		fmt.Printf("  Partitions:  %d\n", info.TotalPartitions)
+		fmt.Printf("  Uptime:      %s\n", info.Uptime)
 
-		// TODO: Implement cluster status
-		// client := streambus.NewClient(brokers)
-		// status, err := client.ClusterStatus()
+		if !verbose {
+			return nil
+		}
 
-		fmt.Println("  Brokers: 0")
-		fmt.Println("  Topics: 0")
-		fmt.Println("  Partitions: 0")
-		fmt.Println("  Status: Unknown")
+		brokers, err := admin.Brokers(cmd.Context())
+		if err != nil {
+			return fmt.Errorf("failed to get broker list: %w", err)
+		}
+
+		fmt.Printf("\nBrokers (%d):\n", len(brokers))
+		for _, b := range brokers {
+			leader := ""
+			if b.Leader {
+				leader = " (leader)"
+			}
+			fmt.Printf("  - [%d] %s:%d  status=%s  version=%s  uptime=%s%s\n",
+				b.ID, b.Host, b.Port, b.Status, b.Version, b.Uptime, leader)
+		}
 
 		return nil
 	},
@@ -301,11 +331,25 @@ var groupListCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println("Listing consumer groups...")
 
-		// TODO: Implement group listing
-		// client := streambus.NewClient(brokers)
-		// groups, err := client.ListGroups()
+		adminAddr, _ := cmd.Flags().GetString("admin-addr")
+		admin := newAdminClient(adminAddr)
 
-		fmt.Println("No consumer groups found")
+		groups, err := admin.ConsumerGroups(cmd.Context())
+		if err != nil {
+			return fmt.Errorf("failed to list consumer groups: %w", err)
+		}
+
+		if len(groups) == 0 {
+			fmt.Println("No consumer groups found")
+			return nil
+		}
+
+		fmt.Printf("\nFound %d consumer group(s):\n", len(groups))
+		for _, g := range groups {
+			fmt.Printf("  - %s (state: %s, protocol: %s, members: %d)\n",
+				g.GroupID, g.State, g.Protocol, len(g.Members))
+		}
+
 		return nil
 	},
 }
@@ -335,11 +379,13 @@ func init() {
 	rootCmd.AddCommand(consumeCmd)
 
 	// Cluster commands
-	clusterStatusCmd.Flags().BoolP("verbose", "v", false, "Verbose output")
+	clusterStatusCmd.Flags().BoolP("verbose", "v", false, "Also list individual brokers")
+	clusterCmd.PersistentFlags().String("admin-addr", "localhost:8080", "Admin HTTP API address (host:port)")
 	clusterCmd.AddCommand(clusterStatusCmd)
 	rootCmd.AddCommand(clusterCmd)
 
 	// Consumer group commands
+	groupCmd.PersistentFlags().String("admin-addr", "localhost:8080", "Admin HTTP API address (host:port)")
 	groupCmd.AddCommand(groupListCmd)
 	rootCmd.AddCommand(groupCmd)
 }

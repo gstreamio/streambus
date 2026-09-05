@@ -209,11 +209,17 @@ func (h *Handler) handleFetch(req *protocol.Request) *protocol.Response {
 	// read_committed must stop at the last stable offset instead, so it
 	// never returns a record from a transaction still in flight.
 	readLimit := highWaterMark
+	var aborted []abortedRange
 	if payload.IsolationLevel == protocol.IsolationReadCommitted {
 		readLimit = lastStableOffset
+		// Snapshot once per fetch rather than having visibleMessages call
+		// partition.IsAborted per record - see abortedRanges' doc comment.
+		// read_uncommitted skips this entirely: it never filters on
+		// abortedTxns, so there is nothing to snapshot.
+		aborted = partition.abortedRanges()
 	}
 
-	messages, nextOffset := visibleMessages(storageMessages, payload.Offset, readLimit)
+	messages, nextOffset := visibleMessages(storageMessages, payload.Offset, readLimit, aborted)
 
 	resp := &protocol.Response{
 		Header: protocol.ResponseHeader{
@@ -237,16 +243,24 @@ func (h *Handler) handleFetch(req *protocol.Request) *protocol.Response {
 // visibleMessages turns a raw log read into what a fetch response may
 // actually return to a consumer.
 //
-// Two things are filtered out here rather than left to the client: control
+// Three things are filtered out here rather than left to the client: control
 // records (transaction markers) are never returned regardless of isolation
-// level, and nothing at or past readLimit is returned (the caller has
-// already picked readLimit according to the request's isolation level).
+// level; nothing at or past readLimit is returned (the caller has already
+// picked readLimit according to the request's isolation level); and a record
+// whose producer identity and offset match one of aborted is skipped even
+// though it is before readLimit - the abort marker already lifted the
+// LastStableOffset barrier, so without this check the record would
+// otherwise be indistinguishable from ordinary committed data. aborted is a
+// snapshot from Partition.abortedRanges, taken once by the caller for the
+// whole fetch (see handleFetch) - checking it here never touches txnMu; a
+// read_uncommitted fetch passes nil, under which isAbortedInRanges always
+// reports false, so it never filters on aborts at all.
 //
 // nextOffset is not simply "the last returned message's offset + 1" - a
 // fetch window that contained only a filtered record returns zero messages,
 // but the client must still be told to resume past it, or it would re-fetch
 // the same apparently-empty window forever.
-func visibleMessages(storageMessages []*storage.Message, startOffset, readLimit int64) ([]protocol.Message, int64) {
+func visibleMessages(storageMessages []*storage.Message, startOffset, readLimit int64, aborted []abortedRange) ([]protocol.Message, int64) {
 	messages := make([]protocol.Message, 0, len(storageMessages))
 	nextOffset := startOffset
 
@@ -258,6 +272,9 @@ func visibleMessages(storageMessages []*storage.Message, startOffset, readLimit 
 		nextOffset = offset + 1
 
 		if protocol.IsControlRecord(msg.Headers) {
+			continue
+		}
+		if isAbortedInRanges(aborted, msg.ProducerID, msg.ProducerEpoch, offset) {
 			continue
 		}
 

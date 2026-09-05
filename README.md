@@ -8,7 +8,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/gstreamio/streambus.svg)](https://pkg.go.dev/github.com/gstreamio/streambus)
 [![CI](https://github.com/gstreamio/streambus/actions/workflows/ci.yml/badge.svg)](https://github.com/gstreamio/streambus/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Test Coverage](https://img.shields.io/badge/Coverage-81%25%20(target%2085%25)-green)](docs/TESTING.md)
+[![Test Coverage](https://img.shields.io/badge/Coverage-86.8%25%20(target%2085%25)-brightgreen)](docs/TESTING.md)
 [![Production Ready](https://img.shields.io/badge/Status-Beta-blue)](docs/PRODUCTION_READINESS.md)
 
 [Features](#key-capabilities) • [Performance](#performance) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Community](#community)
@@ -427,7 +427,7 @@ docker-compose up -d
 ### Development
 - [Contributing Guide](CONTRIBUTING.md) - How to contribute
 - [Development Setup](docs/development.md) - Local development environment
-- [Testing Guide](docs/TESTING.md) - Test strategy and coverage (81% current, 85%+ target)
+- [Testing Guide](docs/TESTING.md) - Test strategy and coverage (86.8% current, 85%+ target)
 - [Benchmarking](docs/BENCHMARKS.md) - Performance benchmarks and methodology
 
 ---
@@ -472,18 +472,16 @@ StreamBus is currently in **active development** with production-ready core comp
 
 - Kubernetes operator
 - Additional admin tooling
-- Extended test coverage (current: 81%, target: 85%+)
+- Extended test coverage (current: 86.8%, target: 85%+)
 
 ### Known Limitations ⚠️
 
-- **read_committed does not retroactively hide an aborted transaction's
-  records.** A fetch stops at the partition's last stable offset, so a record
-  from a transaction still in flight is never returned, and marker records are
-  hidden from every consumer. `TransactionalProducer` buffers a transaction's
-  records until commit, so an aborted transaction writes nothing to hide — but
-  a producer that streams records as it goes would leave them visible once the
-  abort marker lifts the barrier. Suppressing those needs the storage read
-  path to carry each record's producer identity, which it does not yet.
+- **Writing a record is a one-way upgrade.** This version writes record format
+  v3, which carries each record's producer identity. It reads v0–v3, so an
+  upgrade needs no migration — but an *older* broker cannot read a v3 record,
+  and nothing gates the write version. The first append on an upgraded broker
+  puts a v3 record on that partition, so a rolling deploy cannot cleanly roll
+  back past that point for partitions the upgraded broker has written to.
 - **Cross-cluster replication is at-least-once, not exactly-once.** A source
   offset advances only after a confirmed produce to the target, but
   checkpoints persist on a timer rather than per message, so a crash between a
