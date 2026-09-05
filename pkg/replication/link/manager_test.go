@@ -2,8 +2,12 @@ package link
 
 import (
 	"fmt"
+	"net"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/gstreamio/streambus/pkg/server"
 )
 
 func createTestLink(id, name string) *ReplicationLink {
@@ -604,14 +608,54 @@ func TestManager_StartLink_AlreadyActive(t *testing.T) {
 	manager := NewManager(storage)
 	defer manager.Close()
 
+	// StartLink verifies that both clusters are reachable, so this needs real
+	// StreamBus brokers; without them the second Start would fail on
+	// connectivity and the already-active guard would go untested.
 	link := createTestLink("active-link", "Active Link")
-	link.Status = ReplicationStatusActive
+	link.SourceCluster.Brokers = []string{startTestStreamBusBroker(t)}
+	link.TargetCluster.Brokers = []string{startTestStreamBusBroker(t)}
 	_ = manager.CreateLink(link)
+
+	if err := manager.StartLink("active-link"); err != nil {
+		t.Fatalf("First StartLink failed: %v", err)
+	}
 
 	err := manager.StartLink("active-link")
 	if err == nil {
-		t.Error("Expected error when starting already active link")
+		t.Fatal("Expected error when starting already active link")
 	}
+	if !strings.Contains(err.Error(), "already active") {
+		t.Errorf("Expected an already-active error, got: %v", err)
+	}
+}
+
+// startTestStreamBusBroker starts a real StreamBus broker on an ephemeral port
+// and returns its address.
+func startTestStreamBusBroker(t *testing.T) string {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to reserve a port: %v", err)
+	}
+	addr := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("Failed to release reserved port: %v", err)
+	}
+
+	config := server.DefaultConfig()
+	config.Address = addr
+
+	srv, err := server.New(config, server.NewHandlerWithDataDir(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Failed to create StreamBus server: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Failed to start StreamBus server: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Stop() })
+
+	return addr
 }
 
 // TestManager_StartLink_ConnectionFailure tests StartLink with connection failure

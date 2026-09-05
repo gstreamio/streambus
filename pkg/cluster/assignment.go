@@ -47,18 +47,26 @@ type AssignmentConstraints struct {
 	// RackAware enables rack-aware assignment (spread replicas across racks)
 	RackAware bool
 
-	// MaxPartitionsPerBroker limits partitions per broker.
+	// MaxPartitionsPerBroker limits how many partition replicas a single
+	// broker may hold. Zero means unlimited.
 	//
-	// Known limitation: this constraint is not currently enforced by any
-	// AssignmentStrategy. RoundRobinStrategy.selectReplicas reads it but
-	// never checks it (see the TODO there); RangeAssignor/StickyAssignor in
-	// pkg/consumer/group don't reference it at all. Setting a non-zero value
-	// does not raise an error - it is silently accepted and has no effect on
-	// the resulting assignment. Enforcing it properly would require passing
-	// each broker's already-assigned partition count (from state outside
-	// this package) into the strategy, which no current caller provides. See
-	// README.md's Known Limitations section.
+	// It is enforced by RoundRobinStrategy, RangeStrategy and StickyStrategy
+	// (including their rack-aware paths). BrokerInfo.Capacity acts as a
+	// per-broker override; when both are set, the tighter of the two applies.
+	// If every candidate broker is at its limit, Assign fails with an error
+	// rather than silently exceeding the limit.
+	//
+	// Counts accrued earlier in the same assignment pass are tracked
+	// automatically. To account for partitions a broker already holds from
+	// previous assignments, seed ExistingLoad below.
 	MaxPartitionsPerBroker int
+
+	// ExistingLoad seeds the per-broker partition counts used to enforce
+	// MaxPartitionsPerBroker and BrokerInfo.Capacity, keyed by broker ID.
+	// Callers that track assignments outside this package should supply the
+	// replica count each broker already holds; brokers absent from the map
+	// start at zero. Ignored when neither limit is set.
+	ExistingLoad map[int32]int
 
 	// PreferredLeaders maps partition keys to preferred leader broker IDs
 	PreferredLeaders map[string]int32

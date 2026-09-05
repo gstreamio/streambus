@@ -218,13 +218,24 @@ func (h *StreamHandler) connectToCluster(config *ClusterConfig) (*client.Client,
 		brokers = []string{config.BootstrapServers}
 	}
 
-	// Create client configuration
-	clientConfig := &client.Config{
-		Brokers:        brokers,
-		ConnectTimeout: config.ConnectionTimeout,
-		RequestTimeout: config.RequestTimeout,
-		RetryBackoff:   config.RetryBackoff,
-		MaxRetries:     config.MaxRetries,
+	// Start from the client defaults and override only what the cluster
+	// config actually specifies. Building a bare client.Config here would
+	// leave required fields such as MaxConnectionsPerBroker at zero, which
+	// client.New rejects - making every StartLink fail before it connected.
+	clientConfig := client.DefaultConfig()
+	clientConfig.Brokers = brokers
+
+	if config.ConnectionTimeout > 0 {
+		clientConfig.ConnectTimeout = config.ConnectionTimeout
+	}
+	if config.RequestTimeout > 0 {
+		clientConfig.RequestTimeout = config.RequestTimeout
+	}
+	if config.RetryBackoff > 0 {
+		clientConfig.RetryBackoff = config.RetryBackoff
+	}
+	if config.MaxRetries > 0 {
+		clientConfig.MaxRetries = config.MaxRetries
 	}
 
 	// Apply security configuration if present.
@@ -241,7 +252,43 @@ func (h *StreamHandler) connectToCluster(config *ClusterConfig) (*client.Client,
 		return nil, fmt.Errorf("failed to create client: %w", err)
 	}
 
+	// client.New does not dial, so verify the cluster is actually reachable
+	// before reporting the link as connected. Without this a link starts
+	// "active" and healthy against brokers that do not exist, and silently
+	// replicates nothing.
+	if err := verifyClusterReachable(c, brokers, clientConfig.ConnectTimeout); err != nil {
+		c.Close()
+		return nil, err
+	}
+
 	return c, nil
+}
+
+// verifyClusterReachable health-checks the cluster's brokers, succeeding as
+// soon as one responds. A cluster is usable if any of its brokers answers;
+// requiring all of them would make a single down broker fail the whole link.
+func verifyClusterReachable(c *client.Client, brokers []string, timeout time.Duration) error {
+	if len(brokers) == 0 {
+		return fmt.Errorf("no brokers configured")
+	}
+
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	var lastErr error
+	for _, broker := range brokers {
+		if err := c.HealthCheck(ctx, broker); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+
+	return fmt.Errorf("no reachable broker among %v: %w", brokers, lastErr)
 }
 
 // getTopicsToReplicate returns the list of topics to replicate

@@ -208,6 +208,44 @@ func (l *logImpl) Read(offset Offset, maxBytes int) ([]*Message, error) {
 	return messages, nil
 }
 
+// lookupOffset returns the raw serialized message stored at an offset,
+// checking the active memtable, then the immutable memtables, then the WAL.
+// The bool reports whether the offset was found anywhere.
+//
+// Callers must hold at least a read lock on l.mu.
+func (l *logImpl) lookupOffset(offset Offset) ([]byte, bool, error) {
+	key := offsetToKey(offset)
+
+	value, found, err := l.activeMemTable.Get(key)
+	if err != nil {
+		return nil, false, err
+	}
+	if found {
+		return value, true, nil
+	}
+
+	for _, mt := range l.immutableMemTables {
+		value, found, err = mt.Get(key)
+		if err != nil {
+			return nil, false, err
+		}
+		if found {
+			return value, true, nil
+		}
+	}
+
+	// Not in any memtable - the message may have been flushed, so fall back
+	// to the WAL. A read error here means the offset simply isn't present.
+	walData, err := l.wal.Read(offset)
+	if err != nil {
+		logger.Debug("offset not found in memtables or WAL",
+			zap.Int64("offset", int64(offset)), zap.Error(err))
+		return nil, false, nil
+	}
+
+	return walData, true, nil
+}
+
 func (l *logImpl) ReadRange(startOffset, endOffset Offset) ([]*Message, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
@@ -219,31 +257,20 @@ func (l *logImpl) ReadRange(startOffset, endOffset Offset) ([]*Message, error) {
 	messages := make([]*Message, 0)
 
 	for offset := startOffset; offset < endOffset; offset++ {
-		key := offsetToKey(offset)
-
-		// Check active memtable
-		value, found, err := l.activeMemTable.Get(key)
+		value, found, err := l.lookupOffset(offset)
 		if err != nil {
 			return nil, err
 		}
-
 		if !found {
-			// Check immutable memtables
-			for _, mt := range l.immutableMemTables {
-				value, found, err = mt.Get(key)
-				if err != nil {
-					return nil, err
-				}
-				if found {
-					break
-				}
-			}
+			continue
 		}
 
-		if found {
-			msg := l.deserializeMessage(value)
-			messages = append(messages, msg)
-		}
+		// Stamp the offset the message was read from. The serialized form
+		// does not carry it, so without this every message in the range comes
+		// back reporting offset 0.
+		msg := l.deserializeMessage(value)
+		msg.Offset = offset
+		messages = append(messages, msg)
 	}
 
 	return messages, nil

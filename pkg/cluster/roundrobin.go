@@ -47,6 +47,7 @@ func (rr *RoundRobinStrategy) Assign(
 
 	assignment := NewAssignment()
 	brokerIndex := 0
+	load := newBrokerLoad(availableBrokers, constraints)
 
 	// Assign each partition
 	for _, partition := range partitions {
@@ -55,12 +56,14 @@ func (rr *RoundRobinStrategy) Assign(
 			availableBrokers,
 			&brokerIndex,
 			constraints,
+			load,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to assign partition %s:%d: %w",
 				partition.Topic, partition.PartitionID, err)
 		}
 
+		load.addAll(replicas)
 		assignment.AddReplica(partition.Topic, partition.PartitionID, replicas)
 	}
 
@@ -78,6 +81,7 @@ func (rr *RoundRobinStrategy) selectReplicas(
 	brokers []BrokerInfo,
 	brokerIndex *int,
 	constraints *AssignmentConstraints,
+	load *brokerLoad,
 ) ([]int32, error) {
 	replicaCount := partition.Replicas
 	if replicaCount > len(brokers) {
@@ -93,7 +97,7 @@ func (rr *RoundRobinStrategy) selectReplicas(
 
 	// If rack-aware, group brokers by rack
 	if constraints.RackAware {
-		return rr.selectRackAwareReplicas(partition, brokers, brokerIndex, replicaCount)
+		return rr.selectRackAwareReplicas(partition, brokers, brokerIndex, replicaCount, load)
 	}
 
 	// Standard round-robin assignment
@@ -110,15 +114,20 @@ func (rr *RoundRobinStrategy) selectReplicas(
 			continue
 		}
 
-		// Check capacity constraint (not implemented yet)
-		// TODO: Track current load and enforce capacity limits when MaxPartitionsPerBroker > 0
-		_ = constraints.MaxPartitionsPerBroker
+		// Skip brokers that are at their partition limit
+		// (AssignmentConstraints.MaxPartitionsPerBroker / BrokerInfo.Capacity).
+		if !load.hasCapacity(broker.ID) {
+			continue
+		}
 
 		replicas = append(replicas, broker.ID)
 		selectedBrokers[broker.ID] = true
 	}
 
 	if len(replicas) < replicaCount {
+		if load.limited() {
+			return nil, load.capacityError(partition, replicaCount, len(replicas))
+		}
 		return nil, fmt.Errorf("could not find %d unique brokers (found %d)",
 			replicaCount, len(replicas))
 	}
@@ -132,6 +141,7 @@ func (rr *RoundRobinStrategy) selectRackAwareReplicas(
 	brokers []BrokerInfo,
 	brokerIndex *int,
 	replicaCount int,
+	load *brokerLoad,
 ) ([]int32, error) {
 	// Group brokers by rack
 	rackBrokers := make(map[string][]BrokerInfo)
@@ -167,7 +177,7 @@ func (rr *RoundRobinStrategy) selectRackAwareReplicas(
 		// Select first available broker from this rack
 		brokersInRack := rackBrokers[rack]
 		for _, broker := range brokersInRack {
-			if !selectedBrokers[broker.ID] {
+			if !selectedBrokers[broker.ID] && load.hasCapacity(broker.ID) {
 				replicas = append(replicas, broker.ID)
 				selectedBrokers[broker.ID] = true
 				selectedRacks[rack] = true
@@ -184,7 +194,7 @@ func (rr *RoundRobinStrategy) selectRackAwareReplicas(
 				if len(replicas) >= replicaCount {
 					break
 				}
-				if !selectedBrokers[broker.ID] {
+				if !selectedBrokers[broker.ID] && load.hasCapacity(broker.ID) {
 					replicas = append(replicas, broker.ID)
 					selectedBrokers[broker.ID] = true
 				}
@@ -195,6 +205,9 @@ func (rr *RoundRobinStrategy) selectRackAwareReplicas(
 	*brokerIndex++
 
 	if len(replicas) < replicaCount {
+		if load.limited() {
+			return nil, load.capacityError(partition, replicaCount, len(replicas))
+		}
 		return nil, fmt.Errorf("could not find %d unique brokers across racks (found %d)",
 			replicaCount, len(replicas))
 	}

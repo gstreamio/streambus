@@ -3,6 +3,7 @@ package broker
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,8 @@ import (
 	"github.com/gstreamio/streambus/pkg/cluster"
 	"github.com/gstreamio/streambus/pkg/logging"
 	"github.com/gstreamio/streambus/pkg/metadata"
+	"github.com/gstreamio/streambus/pkg/replication/link"
+	"github.com/gstreamio/streambus/pkg/server"
 )
 
 // mockClusterMetadataStore implements cluster.MetadataStore for testing
@@ -48,12 +51,18 @@ func newTestBrokerForAPI(t *testing.T) *Broker {
 	// Create broker registry
 	registry := cluster.NewBrokerRegistry(clusterMetaStore)
 
+	// Wire a real replication link manager so the replication endpoints
+	// exercise the real path rather than a not-available branch.
+	replicationManager := link.NewManager(link.NewMemoryStorage())
+	t.Cleanup(func() { _ = replicationManager.Close() })
+
 	broker := &Broker{
-		ctx:       ctx,
-		cancel:    cancel,
-		logger:    logger,
-		metaStore: nil, // Set to nil for now - the endpoints handle this
-		registry:  registry,
+		ctx:                ctx,
+		cancel:             cancel,
+		logger:             logger,
+		metaStore:          nil, // Set to nil for now - the endpoints handle this
+		registry:           registry,
+		replicationManager: replicationManager,
 		config: &Config{
 			BrokerID: 1,
 		},
@@ -291,14 +300,22 @@ func newTestBrokerWithMetaStore(t *testing.T) (*Broker, *metadata.Store) {
 	consensus := newMockConsensusNode(fsm)
 	metaStore := metadata.NewStore(fsm, consensus)
 
+	// Give the broker real storage in a temp dir so endpoints that read
+	// partition logs (messages, partition offsets) exercise the real path.
+	dataDir := t.TempDir()
+	topicManager := server.NewTopicManager(dataDir)
+	t.Cleanup(func() { _ = topicManager.Close() })
+
 	broker := &Broker{
-		ctx:       ctx,
-		cancel:    cancel,
-		logger:    logger,
-		metaStore: metaStore,
-		registry:  registry,
+		ctx:          ctx,
+		cancel:       cancel,
+		logger:       logger,
+		metaStore:    metaStore,
+		registry:     registry,
+		topicManager: topicManager,
 		config: &Config{
 			BrokerID: 1,
+			DataDir:  dataDir,
 		},
 		status: StatusRunning,
 	}
@@ -685,8 +702,88 @@ func TestHandleConsumerGroupOperations_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-// TestHandleReplicationLinks_List tests listing replication links
-func TestHandleReplicationLinks_List(t *testing.T) {
+// newReplicationLinkBody builds a valid create/update request body pointing at
+// the given broker addresses.
+func newReplicationLinkBody(name, sourceAddr, targetAddr string) string {
+	return `{
+		"name": "` + name + `",
+		"type": "active-passive",
+		"source_cluster": {"cluster_id": "dc1", "brokers": ["` + sourceAddr + `"]},
+		"target_cluster": {"cluster_id": "dc2", "brokers": ["` + targetAddr + `"]},
+		"topics": ["orders"]
+	}`
+}
+
+// unreachableLinkBody builds a link body whose clusters do not exist. Creating
+// such a link is fine; only starting it needs reachable brokers.
+func unreachableLinkBody(name string) string {
+	return newReplicationLinkBody(name, "dc1-a.invalid:9092", "dc2-a.invalid:9092")
+}
+
+// startTestStreamBusBroker starts a real StreamBus broker on an ephemeral port
+// and returns its address. Replication links verify that a cluster is
+// reachable before going active, so lifecycle tests need real listeners.
+func startTestStreamBusBroker(t *testing.T) string {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to reserve a port: %v", err)
+	}
+	addr := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("Failed to release reserved port: %v", err)
+	}
+
+	config := server.DefaultConfig()
+	config.Address = addr
+
+	srv, err := server.New(config, server.NewHandlerWithDataDir(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Failed to create StreamBus server: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Failed to start StreamBus server: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Stop() })
+
+	return addr
+}
+
+// createTestReplicationLink creates a link through the API and returns its ID.
+func createTestReplicationLink(t *testing.T, broker *Broker, name string) string {
+	t.Helper()
+	return createReplicationLinkFromBody(t, broker, unreachableLinkBody(name))
+}
+
+// createReplicationLinkFromBody creates a link from an explicit request body
+// and returns its ID.
+func createReplicationLinkFromBody(t *testing.T, broker *Broker, body string) string {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/replication/links",
+		strings.NewReader(body))
+	w := httptest.NewRecorder()
+
+	broker.handleReplicationLinks(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected status 201 creating link, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	var info ReplicationLinkInfo
+	if err := json.NewDecoder(w.Body).Decode(&info); err != nil {
+		t.Fatalf("Failed to decode created link: %v", err)
+	}
+	if info.ID == "" {
+		t.Fatal("Created link has no ID")
+	}
+	return info.ID
+}
+
+// TestHandleReplicationLinks_ListEmpty tests that a broker with no links
+// returns an empty list.
+func TestHandleReplicationLinks_ListEmpty(t *testing.T) {
 	broker := newTestBrokerForAPI(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/replication/links", nil)
@@ -695,16 +792,51 @@ func TestHandleReplicationLinks_List(t *testing.T) {
 	broker.handleReplicationLinks(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
+		t.Fatalf("Expected status 200, got %d", w.Code)
 	}
 
-	var links []interface{}
+	var links []ReplicationLinkInfo
 	if err := json.NewDecoder(w.Body).Decode(&links); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
-
 	if len(links) != 0 {
 		t.Errorf("Expected 0 links, got %d", len(links))
+	}
+}
+
+// TestHandleReplicationLinks_List tests that created links are listed.
+func TestHandleReplicationLinks_List(t *testing.T) {
+	broker := newTestBrokerForAPI(t)
+
+	createTestReplicationLink(t, broker, "link-one")
+	createTestReplicationLink(t, broker, "link-two")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/replication/links", nil)
+	w := httptest.NewRecorder()
+
+	broker.handleReplicationLinks(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+
+	var links []ReplicationLinkInfo
+	if err := json.NewDecoder(w.Body).Decode(&links); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+	if len(links) != 2 {
+		t.Fatalf("Expected 2 links, got %d", len(links))
+	}
+
+	names := map[string]bool{}
+	for _, l := range links {
+		names[l.Name] = true
+		if l.SourceCluster != "dc1" || l.TargetCluster != "dc2" {
+			t.Errorf("link %s has clusters %s->%s, want dc1->dc2", l.Name, l.SourceCluster, l.TargetCluster)
+		}
+	}
+	if !names["link-one"] || !names["link-two"] {
+		t.Errorf("Expected both links in the list, got %v", names)
 	}
 }
 
@@ -712,13 +844,56 @@ func TestHandleReplicationLinks_List(t *testing.T) {
 func TestHandleReplicationLinks_Create(t *testing.T) {
 	broker := newTestBrokerForAPI(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/replication/links", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/replication/links",
+		strings.NewReader(unreachableLinkBody("dc1-to-dc2")))
 	w := httptest.NewRecorder()
 
 	broker.handleReplicationLinks(w, req)
 
-	if w.Code != http.StatusNotImplemented {
-		t.Errorf("Expected status 501, got %d", w.Code)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("Expected status 201, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	var info ReplicationLinkInfo
+	if err := json.NewDecoder(w.Body).Decode(&info); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+	if info.Name != "dc1-to-dc2" {
+		t.Errorf("Name = %q, want dc1-to-dc2", info.Name)
+	}
+	if info.Status != "stopped" {
+		t.Errorf("Status = %q, want stopped for a newly created link", info.Status)
+	}
+}
+
+// TestHandleReplicationLinks_CreateInvalid tests that an invalid link is
+// rejected rather than silently accepted.
+func TestHandleReplicationLinks_CreateInvalid(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"missing name", `{"type":"active-passive","source_cluster":{"cluster_id":"dc1","brokers":["a:9092"]},"target_cluster":{"cluster_id":"dc2","brokers":["b:9092"]}}`},
+		{"same source and target", `{"name":"loop","type":"active-passive","source_cluster":{"cluster_id":"dc1","brokers":["a:9092"]},"target_cluster":{"cluster_id":"dc1","brokers":["b:9092"]}}`},
+		{"unknown type", `{"name":"x","type":"telepathy","source_cluster":{"cluster_id":"dc1","brokers":["a:9092"]},"target_cluster":{"cluster_id":"dc2","brokers":["b:9092"]}}`},
+		{"no brokers", `{"name":"x","type":"active-passive","source_cluster":{"cluster_id":"dc1"},"target_cluster":{"cluster_id":"dc2","brokers":["b:9092"]}}`},
+		{"malformed json", `{`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			broker := newTestBrokerForAPI(t)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/replication/links",
+				strings.NewReader(tt.body))
+			w := httptest.NewRecorder()
+
+			broker.handleReplicationLinks(w, req)
+
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("Expected status 400, got %d (%s)", w.Code, w.Body.String())
+			}
+		})
 	}
 }
 
@@ -739,42 +914,117 @@ func TestHandleReplicationLinks_MethodNotAllowed(t *testing.T) {
 // TestGetReplicationLink tests getting a specific replication link
 func TestGetReplicationLink(t *testing.T) {
 	broker := newTestBrokerForAPI(t)
+	linkID := createTestReplicationLink(t, broker, "dc1-to-dc2")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/replication/links/test-link", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/replication/links/"+linkID, nil)
 	w := httptest.NewRecorder()
 
 	broker.handleReplicationLinkOperations(w, req)
 
-	if w.Code != http.StatusNotImplemented {
-		t.Errorf("Expected status 501, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	var info ReplicationLinkInfo
+	if err := json.NewDecoder(w.Body).Decode(&info); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+	if info.ID != linkID {
+		t.Errorf("ID = %q, want %q", info.ID, linkID)
+	}
+}
+
+// TestGetReplicationLink_NotFound tests that an unknown link is a 404.
+func TestGetReplicationLink_NotFound(t *testing.T) {
+	broker := newTestBrokerForAPI(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/replication/links/no-such-link", nil)
+	w := httptest.NewRecorder()
+
+	broker.handleReplicationLinkOperations(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status 404, got %d", w.Code)
 	}
 }
 
 // TestUpdateReplicationLink tests updating a replication link
 func TestUpdateReplicationLink(t *testing.T) {
 	broker := newTestBrokerForAPI(t)
+	linkID := createTestReplicationLink(t, broker, "original-name")
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/replication/links/test-link", nil)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/replication/links/"+linkID,
+		strings.NewReader(unreachableLinkBody("renamed")))
 	w := httptest.NewRecorder()
 
 	broker.handleReplicationLinkOperations(w, req)
 
-	if w.Code != http.StatusNotImplemented {
-		t.Errorf("Expected status 501, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	var info ReplicationLinkInfo
+	if err := json.NewDecoder(w.Body).Decode(&info); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+	if info.Name != "renamed" {
+		t.Errorf("Name = %q, want renamed", info.Name)
+	}
+	if info.ID != linkID {
+		t.Errorf("ID changed on update: %q, want %q", info.ID, linkID)
+	}
+}
+
+// TestUpdateReplicationLink_NotFound tests updating an unknown link.
+func TestUpdateReplicationLink_NotFound(t *testing.T) {
+	broker := newTestBrokerForAPI(t)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/replication/links/no-such-link",
+		strings.NewReader(unreachableLinkBody("renamed")))
+	w := httptest.NewRecorder()
+
+	broker.handleReplicationLinkOperations(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status 404, got %d (%s)", w.Code, w.Body.String())
 	}
 }
 
 // TestDeleteReplicationLink tests deleting a replication link
 func TestDeleteReplicationLink(t *testing.T) {
 	broker := newTestBrokerForAPI(t)
+	linkID := createTestReplicationLink(t, broker, "doomed")
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/replication/links/test-link", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/replication/links/"+linkID, nil)
 	w := httptest.NewRecorder()
 
 	broker.handleReplicationLinkOperations(w, req)
 
-	if w.Code != http.StatusNotImplemented {
-		t.Errorf("Expected status 501, got %d", w.Code)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("Expected status 204, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	// The link must actually be gone.
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/replication/links/"+linkID, nil)
+	getW := httptest.NewRecorder()
+	broker.handleReplicationLinkOperations(getW, getReq)
+
+	if getW.Code != http.StatusNotFound {
+		t.Errorf("Expected 404 after delete, got %d", getW.Code)
+	}
+}
+
+// TestDeleteReplicationLink_NotFound tests deleting an unknown link.
+func TestDeleteReplicationLink_NotFound(t *testing.T) {
+	broker := newTestBrokerForAPI(t)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/replication/links/no-such-link", nil)
+	w := httptest.NewRecorder()
+
+	broker.handleReplicationLinkOperations(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status 404, got %d", w.Code)
 	}
 }
 
@@ -806,87 +1056,154 @@ func TestReplicationLinkOperations_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-// TestStartReplicationLink tests starting a replication link
-func TestStartReplicationLink(t *testing.T) {
+// TestReplicationLinkLifecycle drives a link through start, pause, resume and
+// stop, checking the reported status after each transition.
+func TestReplicationLinkLifecycle(t *testing.T) {
 	broker := newTestBrokerForAPI(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/replication/links/test-link/start", nil)
-	w := httptest.NewRecorder()
+	sourceAddr := startTestStreamBusBroker(t)
+	targetAddr := startTestStreamBusBroker(t)
+	linkID := createReplicationLinkFromBody(t, broker,
+		newReplicationLinkBody("lifecycle", sourceAddr, targetAddr))
 
-	broker.handleReplicationLinkOperations(w, req)
+	steps := []struct {
+		action     string
+		wantStatus string
+	}{
+		{"start", "active"},
+		{"pause", "paused"},
+		{"resume", "active"},
+		{"stop", "stopped"},
+	}
 
-	if w.Code != http.StatusNotImplemented {
-		t.Errorf("Expected status 501, got %d", w.Code)
+	for _, step := range steps {
+		req := httptest.NewRequest(http.MethodPost,
+			"/api/v1/replication/links/"+linkID+"/"+step.action, nil)
+		w := httptest.NewRecorder()
+
+		broker.handleReplicationLinkOperations(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: expected status 200, got %d (%s)", step.action, w.Code, w.Body.String())
+		}
+
+		var info ReplicationLinkInfo
+		if err := json.NewDecoder(w.Body).Decode(&info); err != nil {
+			t.Fatalf("%s: failed to decode response: %v", step.action, err)
+		}
+		if info.Status != step.wantStatus {
+			t.Errorf("after %s: status = %q, want %q", step.action, info.Status, step.wantStatus)
+		}
 	}
 }
 
-// TestStopReplicationLink tests stopping a replication link
-func TestStopReplicationLink(t *testing.T) {
+// TestStartReplicationLink_UnreachableCluster verifies a link whose clusters
+// cannot be reached fails to start rather than reporting itself active.
+func TestStartReplicationLink_UnreachableCluster(t *testing.T) {
 	broker := newTestBrokerForAPI(t)
+	linkID := createTestReplicationLink(t, broker, "unreachable")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/replication/links/test-link/stop", nil)
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/replication/links/"+linkID+"/start", nil)
 	w := httptest.NewRecorder()
 
 	broker.handleReplicationLinkOperations(w, req)
 
-	if w.Code != http.StatusNotImplemented {
-		t.Errorf("Expected status 501, got %d", w.Code)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Expected status 400, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	// The link must not be left claiming to be active.
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/replication/links/"+linkID, nil)
+	getW := httptest.NewRecorder()
+	broker.handleReplicationLinkOperations(getW, getReq)
+
+	var info ReplicationLinkInfo
+	if err := json.NewDecoder(getW.Body).Decode(&info); err != nil {
+		t.Fatalf("Failed to decode link: %v", err)
+	}
+	if info.Status == "active" {
+		t.Error("Link reports active despite failing to start")
 	}
 }
 
-// TestPauseReplicationLink tests pausing a replication link
-func TestPauseReplicationLink(t *testing.T) {
-	broker := newTestBrokerForAPI(t)
+// TestReplicationLinkActions_NotFound tests lifecycle actions on unknown links.
+func TestReplicationLinkActions_NotFound(t *testing.T) {
+	for _, action := range []string{"start", "stop", "pause", "resume", "failover"} {
+		t.Run(action, func(t *testing.T) {
+			broker := newTestBrokerForAPI(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/replication/links/test-link/pause", nil)
-	w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost,
+				"/api/v1/replication/links/no-such-link/"+action, nil)
+			w := httptest.NewRecorder()
 
-	broker.handleReplicationLinkOperations(w, req)
+			broker.handleReplicationLinkOperations(w, req)
 
-	if w.Code != http.StatusNotImplemented {
-		t.Errorf("Expected status 501, got %d", w.Code)
+			if w.Code != http.StatusNotFound {
+				t.Errorf("Expected status 404, got %d (%s)", w.Code, w.Body.String())
+			}
+		})
 	}
 }
 
-// TestResumeReplicationLink tests resuming a replication link
-func TestResumeReplicationLink(t *testing.T) {
+// TestReplicationLinkActions_MethodNotAllowed tests that lifecycle actions
+// reject non-POST requests.
+func TestReplicationLinkActions_MethodNotAllowed(t *testing.T) {
 	broker := newTestBrokerForAPI(t)
+	linkID := createTestReplicationLink(t, broker, "methods")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/replication/links/test-link/resume", nil)
-	w := httptest.NewRecorder()
+	for _, action := range []string{"start", "stop", "pause", "resume", "failover"} {
+		t.Run(action, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet,
+				"/api/v1/replication/links/"+linkID+"/"+action, nil)
+			w := httptest.NewRecorder()
 
-	broker.handleReplicationLinkOperations(w, req)
+			broker.handleReplicationLinkOperations(w, req)
 
-	if w.Code != http.StatusNotImplemented {
-		t.Errorf("Expected status 501, got %d", w.Code)
+			if w.Code != http.StatusMethodNotAllowed {
+				t.Errorf("Expected status 405, got %d", w.Code)
+			}
+		})
 	}
 }
 
 // TestGetReplicationLinkMetrics tests getting replication link metrics
 func TestGetReplicationLinkMetrics(t *testing.T) {
 	broker := newTestBrokerForAPI(t)
+	linkID := createTestReplicationLink(t, broker, "metrics-link")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/replication/links/test-link/metrics", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/replication/links/"+linkID+"/metrics", nil)
 	w := httptest.NewRecorder()
 
 	broker.handleReplicationLinkOperations(w, req)
 
-	if w.Code != http.StatusNotImplemented {
-		t.Errorf("Expected status 501, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	var metrics map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&metrics); err != nil {
+		t.Fatalf("Failed to decode metrics: %v", err)
 	}
 }
 
 // TestGetReplicationLinkHealth tests getting replication link health
 func TestGetReplicationLinkHealth(t *testing.T) {
 	broker := newTestBrokerForAPI(t)
+	linkID := createTestReplicationLink(t, broker, "health-link")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/replication/links/test-link/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/replication/links/"+linkID+"/health", nil)
 	w := httptest.NewRecorder()
 
 	broker.handleReplicationLinkOperations(w, req)
 
-	if w.Code != http.StatusNotImplemented {
-		t.Errorf("Expected status 501, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	var health map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&health); err != nil {
+		t.Fatalf("Failed to decode health: %v", err)
 	}
 }
 
@@ -894,13 +1211,59 @@ func TestGetReplicationLinkHealth(t *testing.T) {
 func TestFailoverReplicationLink(t *testing.T) {
 	broker := newTestBrokerForAPI(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/replication/links/test-link/failover", nil)
+	sourceAddr := startTestStreamBusBroker(t)
+	targetAddr := startTestStreamBusBroker(t)
+	linkID := createReplicationLinkFromBody(t, broker,
+		newReplicationLinkBody("failover-link", sourceAddr, targetAddr))
+
+	// Failover applies to a running link.
+	startReq := httptest.NewRequest(http.MethodPost,
+		"/api/v1/replication/links/"+linkID+"/start", nil)
+	startW := httptest.NewRecorder()
+	broker.handleReplicationLinkOperations(startW, startReq)
+	if startW.Code != http.StatusOK {
+		t.Fatalf("Failed to start link: %d (%s)", startW.Code, startW.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/replication/links/"+linkID+"/failover", nil)
 	w := httptest.NewRecorder()
 
 	broker.handleReplicationLinkOperations(w, req)
 
-	if w.Code != http.StatusNotImplemented {
-		t.Errorf("Expected status 501, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	var event map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&event); err != nil {
+		t.Fatalf("Failed to decode failover event: %v", err)
+	}
+}
+
+// TestReplicationEndpoints_NoManager tests that every replication endpoint
+// reports 503 when no replication manager is wired up, rather than pretending
+// there are no links.
+func TestReplicationEndpoints_NoManager(t *testing.T) {
+	broker := newTestBrokerForAPI(t)
+	broker.replicationManager = nil
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/replication/links", nil)
+	w := httptest.NewRecorder()
+	broker.handleReplicationLinks(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("list: expected status 503, got %d", w.Code)
+	}
+
+	for _, path := range []string{
+		"/api/v1/replication/links/x",
+		"/api/v1/replication/links/x/metrics",
+		"/api/v1/replication/links/x/health",
+	} {
+		w := httptest.NewRecorder()
+		broker.handleReplicationLinkOperations(w, httptest.NewRequest(http.MethodGet, path, nil))
+		if w.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s: expected status 503, got %d", path, w.Code)
+		}
 	}
 }
 

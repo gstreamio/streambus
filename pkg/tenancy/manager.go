@@ -9,14 +9,19 @@ import (
 type Manager struct {
 	store    *TenantStore
 	trackers map[TenantID]*QuotaTracker
-	mu       sync.RWMutex
+	// topicOwners maps a topic name to the tenant that created it, so
+	// per-tenant storage usage can attribute on-disk bytes to a tenant.
+	// See topic_ownership.go.
+	topicOwners map[string]TenantID
+	mu          sync.RWMutex
 }
 
 // NewManager creates a new tenant manager
 func NewManager() *Manager {
 	return &Manager{
-		store:    NewTenantStore(),
-		trackers: make(map[TenantID]*QuotaTracker),
+		store:       NewTenantStore(),
+		trackers:    make(map[TenantID]*QuotaTracker),
+		topicOwners: make(map[string]TenantID),
 	}
 }
 

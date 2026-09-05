@@ -157,7 +157,7 @@ func (m *manager) DeleteLink(linkID string) error {
 
 	link, exists := m.links[linkID]
 	if !exists {
-		return fmt.Errorf("replication link %s not found", linkID)
+		return fmt.Errorf("replication link %s: %w", linkID, ErrLinkNotFound)
 	}
 
 	// Don't allow deletion of active links
@@ -191,7 +191,7 @@ func (m *manager) UpdateLink(linkID string, config *ReplicationLink) error {
 
 	existingLink, exists := m.links[linkID]
 	if !exists {
-		return fmt.Errorf("replication link %s not found", linkID)
+		return fmt.Errorf("replication link %s: %w", linkID, ErrLinkNotFound)
 	}
 
 	// Don't allow updates to active links (they must be paused first)
@@ -227,7 +227,7 @@ func (m *manager) GetLink(linkID string) (*ReplicationLink, error) {
 
 	link, exists := m.links[linkID]
 	if !exists {
-		return nil, fmt.Errorf("replication link %s not found", linkID)
+		return nil, fmt.Errorf("replication link %s: %w", linkID, ErrLinkNotFound)
 	}
 
 	return link.Clone(), nil
@@ -253,7 +253,7 @@ func (m *manager) StartLink(linkID string) error {
 
 	link, exists := m.links[linkID]
 	if !exists {
-		return fmt.Errorf("replication link %s not found", linkID)
+		return fmt.Errorf("replication link %s: %w", linkID, ErrLinkNotFound)
 	}
 
 	if link.Status == ReplicationStatusActive {
@@ -311,7 +311,7 @@ func (m *manager) StopLink(linkID string) error {
 
 	link, exists := m.links[linkID]
 	if !exists {
-		return fmt.Errorf("replication link %s not found", linkID)
+		return fmt.Errorf("replication link %s: %w", linkID, ErrLinkNotFound)
 	}
 
 	if link.Status == ReplicationStatusStopped {
@@ -348,7 +348,7 @@ func (m *manager) PauseLink(linkID string) error {
 
 	link, exists := m.links[linkID]
 	if !exists {
-		return fmt.Errorf("replication link %s not found", linkID)
+		return fmt.Errorf("replication link %s: %w", linkID, ErrLinkNotFound)
 	}
 
 	if link.Status != ReplicationStatusActive {
@@ -376,7 +376,7 @@ func (m *manager) ResumeLink(linkID string) error {
 
 	link, exists := m.links[linkID]
 	if !exists {
-		return fmt.Errorf("replication link %s not found", linkID)
+		return fmt.Errorf("replication link %s: %w", linkID, ErrLinkNotFound)
 	}
 
 	if link.Status != ReplicationStatusPaused {
@@ -404,7 +404,7 @@ func (m *manager) GetMetrics(linkID string) (*ReplicationMetrics, error) {
 
 	link, exists := m.links[linkID]
 	if !exists {
-		return nil, fmt.Errorf("replication link %s not found", linkID)
+		return nil, fmt.Errorf("replication link %s: %w", linkID, ErrLinkNotFound)
 	}
 
 	if link.Metrics == nil {
@@ -455,7 +455,7 @@ func (m *manager) GetHealth(linkID string) (*ReplicationHealth, error) {
 
 	link, exists := m.links[linkID]
 	if !exists {
-		return nil, fmt.Errorf("replication link %s not found", linkID)
+		return nil, fmt.Errorf("replication link %s: %w", linkID, ErrLinkNotFound)
 	}
 
 	if link.Health == nil {
@@ -487,7 +487,7 @@ func (m *manager) Failover(linkID string) (*FailoverEvent, error) {
 
 	link, exists := m.links[linkID]
 	if !exists {
-		return nil, fmt.Errorf("replication link %s not found", linkID)
+		return nil, fmt.Errorf("replication link %s: %w", linkID, ErrLinkNotFound)
 	}
 
 	// Only allow failover for active-passive or active-active links
@@ -600,7 +600,7 @@ func (m *manager) Failback(linkID string) (*FailoverEvent, error) {
 
 	link, exists := m.links[linkID]
 	if !exists {
-		return nil, fmt.Errorf("replication link %s not found", linkID)
+		return nil, fmt.Errorf("replication link %s: %w", linkID, ErrLinkNotFound)
 	}
 
 	// Only allow failback for active-passive links
@@ -736,7 +736,7 @@ func (m *manager) SetCheckpoint(checkpoint *Checkpoint) error {
 
 	// Ensure the link exists
 	if _, exists := m.links[checkpoint.LinkID]; !exists {
-		return fmt.Errorf("replication link %s not found", checkpoint.LinkID)
+		return fmt.Errorf("replication link %s: %w", checkpoint.LinkID, ErrLinkNotFound)
 	}
 
 	// Initialize nested maps if needed
