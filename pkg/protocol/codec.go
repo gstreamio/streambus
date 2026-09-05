@@ -247,18 +247,18 @@ func (c *Codec) DecodeResponsePayload(resp *Response, reqType RequestType) error
 	switch reqType {
 	case RequestTypeProduce:
 		payload := &ProduceResponse{}
-		payload.BaseOffset = int64(binary.BigEndian.Uint64(data[offset:]))
+		payload.BaseOffset = int64(binary.BigEndian.Uint64(data[offset:])) // #nosec G115 -- same-width reinterpretation
 		offset += 8
 		payload.NumMessages = binary.BigEndian.Uint32(data[offset:])
 		offset += 4
-		payload.HighWaterMark = int64(binary.BigEndian.Uint64(data[offset:]))
+		payload.HighWaterMark = int64(binary.BigEndian.Uint64(data[offset:])) // #nosec G115 -- same-width reinterpretation
 		// offset += 8 // Not needed, returning immediately
 		resp.Payload = payload
 		return nil
 
 	case RequestTypeFetch:
 		payload := &FetchResponse{}
-		payload.HighWaterMark = int64(binary.BigEndian.Uint64(data[offset:]))
+		payload.HighWaterMark = int64(binary.BigEndian.Uint64(data[offset:])) // #nosec G115 -- same-width reinterpretation
 		offset += 8
 		numMessages := binary.BigEndian.Uint32(data[offset:])
 		offset += 4
@@ -295,11 +295,11 @@ func (c *Codec) DecodeResponsePayload(resp *Response, reqType RequestType) error
 		offset += int(topicLen)
 		payload.PartitionID = binary.BigEndian.Uint32(data[offset:])
 		offset += 4
-		payload.StartOffset = int64(binary.BigEndian.Uint64(data[offset:]))
+		payload.StartOffset = int64(binary.BigEndian.Uint64(data[offset:])) // #nosec G115 -- same-width reinterpretation
 		offset += 8
-		payload.EndOffset = int64(binary.BigEndian.Uint64(data[offset:]))
+		payload.EndOffset = int64(binary.BigEndian.Uint64(data[offset:])) // #nosec G115 -- same-width reinterpretation
 		offset += 8
-		payload.HighWaterMark = int64(binary.BigEndian.Uint64(data[offset:]))
+		payload.HighWaterMark = int64(binary.BigEndian.Uint64(data[offset:])) // #nosec G115 -- same-width reinterpretation
 		// offset += 8 // Not needed, returning immediately
 		resp.Payload = payload
 		return nil
@@ -348,7 +348,7 @@ func (c *Codec) DecodeResponsePayload(resp *Response, reqType RequestType) error
 		offset += 4
 		payload.Status = string(data[offset : offset+int(statusLen)])
 		offset += int(statusLen)
-		payload.Uptime = int64(binary.BigEndian.Uint64(data[offset:]))
+		payload.Uptime = int64(binary.BigEndian.Uint64(data[offset:])) // #nosec G115 -- same-width reinterpretation
 		// offset += 8 is not needed as we return immediately
 		resp.Payload = payload
 		return nil
@@ -485,7 +485,7 @@ func (c *Codec) encodeRequestPayload(buf []byte, offset int, req *Request) (int,
 	case RequestTypeProduce:
 		payload := req.Payload.(*ProduceRequest)
 		// Topic
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(payload.Topic)))
+		putWireLen(buf[offset:], len(payload.Topic))
 		offset += 4
 		copy(buf[offset:], payload.Topic)
 		offset += len(payload.Topic)
@@ -493,7 +493,7 @@ func (c *Codec) encodeRequestPayload(buf []byte, offset int, req *Request) (int,
 		binary.BigEndian.PutUint32(buf[offset:], payload.PartitionID)
 		offset += 4
 		// NumMessages
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(payload.Messages)))
+		putWireLen(buf[offset:], len(payload.Messages))
 		offset += 4
 		// Messages
 		for _, msg := range payload.Messages {
@@ -511,7 +511,7 @@ func (c *Codec) encodeRequestPayload(buf []byte, offset int, req *Request) (int,
 	case RequestTypeFetch:
 		payload := req.Payload.(*FetchRequest)
 		// Topic
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(payload.Topic)))
+		putWireLen(buf[offset:], len(payload.Topic))
 		offset += 4
 		copy(buf[offset:], payload.Topic)
 		offset += len(payload.Topic)
@@ -519,7 +519,7 @@ func (c *Codec) encodeRequestPayload(buf []byte, offset int, req *Request) (int,
 		binary.BigEndian.PutUint32(buf[offset:], payload.PartitionID)
 		offset += 4
 		// Offset
-		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.Offset))
+		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.Offset)) // #nosec G115 -- same-width reinterpretation
 		offset += 8
 		// MaxBytes
 		binary.BigEndian.PutUint32(buf[offset:], payload.MaxBytes)
@@ -532,7 +532,7 @@ func (c *Codec) encodeRequestPayload(buf []byte, offset int, req *Request) (int,
 	case RequestTypeGetOffset:
 		payload := req.Payload.(*GetOffsetRequest)
 		// Topic
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(payload.Topic)))
+		putWireLen(buf[offset:], len(payload.Topic))
 		offset += 4
 		copy(buf[offset:], payload.Topic)
 		offset += len(payload.Topic)
@@ -544,7 +544,7 @@ func (c *Codec) encodeRequestPayload(buf []byte, offset int, req *Request) (int,
 	case RequestTypeCreateTopic:
 		payload := req.Payload.(*CreateTopicRequest)
 		// Topic
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(payload.Topic)))
+		putWireLen(buf[offset:], len(payload.Topic))
 		offset += 4
 		copy(buf[offset:], payload.Topic)
 		offset += len(payload.Topic)
@@ -559,7 +559,7 @@ func (c *Codec) encodeRequestPayload(buf []byte, offset int, req *Request) (int,
 	case RequestTypeDeleteTopic:
 		payload := req.Payload.(*DeleteTopicRequest)
 		// Topic
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(payload.Topic)))
+		putWireLen(buf[offset:], len(payload.Topic))
 		offset += 4
 		copy(buf[offset:], payload.Topic)
 		offset += len(payload.Topic)
@@ -634,7 +634,7 @@ func (c *Codec) decodeRequestPayload(buf []byte, reqType RequestType) (interface
 		partitionID := binary.BigEndian.Uint32(buf[offset:])
 		offset += 4
 		// Offset
-		fetchOffset := int64(binary.BigEndian.Uint64(buf[offset:]))
+		fetchOffset := int64(binary.BigEndian.Uint64(buf[offset:])) // #nosec G115 -- same-width reinterpretation
 		offset += 8
 		// MaxBytes
 		maxBytes := binary.BigEndian.Uint32(buf[offset:])
@@ -708,7 +708,7 @@ func (c *Codec) decodeRequestPayload(buf []byte, reqType RequestType) (interface
 func (c *Codec) encodeResponsePayload(buf []byte, offset int, resp *Response) (int, error) {
 	if resp.Header.Status != StatusOK {
 		errorResp := resp.Payload.(*ErrorResponse)
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(errorResp.Message)))
+		putWireLen(buf[offset:], len(errorResp.Message))
 		offset += 4
 		copy(buf[offset:], errorResp.Message)
 		offset += len(errorResp.Message)
@@ -722,18 +722,18 @@ func (c *Codec) encodeResponsePayload(buf []byte, offset int, resp *Response) (i
 	// For success responses, encode based on type
 	switch payload := resp.Payload.(type) {
 	case *ProduceResponse:
-		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.BaseOffset))
+		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.BaseOffset)) // #nosec G115 -- same-width reinterpretation
 		offset += 8
 		binary.BigEndian.PutUint32(buf[offset:], payload.NumMessages)
 		offset += 4
-		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.HighWaterMark))
+		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.HighWaterMark)) // #nosec G115 -- same-width reinterpretation
 		offset += 8
 		return offset, nil
 
 	case *FetchResponse:
-		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.HighWaterMark))
+		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.HighWaterMark)) // #nosec G115 -- same-width reinterpretation
 		offset += 8
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(payload.Messages)))
+		putWireLen(buf[offset:], len(payload.Messages))
 		offset += 4
 		for _, msg := range payload.Messages {
 			offset = c.encodeMessage(buf, offset, &msg)
@@ -745,22 +745,22 @@ func (c *Codec) encodeResponsePayload(buf []byte, offset int, resp *Response) (i
 		return offset, nil
 
 	case *GetOffsetResponse:
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(payload.Topic)))
+		putWireLen(buf[offset:], len(payload.Topic))
 		offset += 4
 		copy(buf[offset:], payload.Topic)
 		offset += len(payload.Topic)
 		binary.BigEndian.PutUint32(buf[offset:], payload.PartitionID)
 		offset += 4
-		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.StartOffset))
+		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.StartOffset)) // #nosec G115 -- same-width reinterpretation
 		offset += 8
-		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.EndOffset))
+		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.EndOffset)) // #nosec G115 -- same-width reinterpretation
 		offset += 8
-		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.HighWaterMark))
+		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.HighWaterMark)) // #nosec G115 -- same-width reinterpretation
 		offset += 8
 		return offset, nil
 
 	case *CreateTopicResponse:
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(payload.Topic)))
+		putWireLen(buf[offset:], len(payload.Topic))
 		offset += 4
 		copy(buf[offset:], payload.Topic)
 		offset += len(payload.Topic)
@@ -773,7 +773,7 @@ func (c *Codec) encodeResponsePayload(buf []byte, offset int, resp *Response) (i
 		return offset, nil
 
 	case *DeleteTopicResponse:
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(payload.Topic)))
+		putWireLen(buf[offset:], len(payload.Topic))
 		offset += 4
 		copy(buf[offset:], payload.Topic)
 		offset += len(payload.Topic)
@@ -786,10 +786,10 @@ func (c *Codec) encodeResponsePayload(buf []byte, offset int, resp *Response) (i
 		return offset, nil
 
 	case *ListTopicsResponse:
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(payload.Topics)))
+		putWireLen(buf[offset:], len(payload.Topics))
 		offset += 4
 		for _, topic := range payload.Topics {
-			binary.BigEndian.PutUint32(buf[offset:], uint32(len(topic.Name)))
+			putWireLen(buf[offset:], len(topic.Name))
 			offset += 4
 			copy(buf[offset:], topic.Name)
 			offset += len(topic.Name)
@@ -799,11 +799,11 @@ func (c *Codec) encodeResponsePayload(buf []byte, offset int, resp *Response) (i
 		return offset, nil
 
 	case *HealthCheckResponse:
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(payload.Status)))
+		putWireLen(buf[offset:], len(payload.Status))
 		offset += 4
 		copy(buf[offset:], payload.Status)
 		offset += len(payload.Status)
-		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.Uptime))
+		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.Uptime)) // #nosec G115 -- same-width reinterpretation
 		offset += 8
 		return offset, nil
 
@@ -820,36 +820,36 @@ func (c *Codec) encodeResponsePayload(buf []byte, offset int, resp *Response) (i
 // encodeMessage encodes a single message
 func (c *Codec) encodeMessage(buf []byte, offset int, msg *Message) int {
 	// Offset
-	binary.BigEndian.PutUint64(buf[offset:], uint64(msg.Offset))
+	binary.BigEndian.PutUint64(buf[offset:], uint64(msg.Offset)) // #nosec G115 -- same-width reinterpretation
 	offset += 8
 	// Timestamp
-	binary.BigEndian.PutUint64(buf[offset:], uint64(msg.Timestamp))
+	binary.BigEndian.PutUint64(buf[offset:], uint64(msg.Timestamp)) // #nosec G115 -- same-width reinterpretation
 	offset += 8
 	// Key
-	binary.BigEndian.PutUint32(buf[offset:], uint32(len(msg.Key)))
+	putWireLen(buf[offset:], len(msg.Key))
 	offset += 4
 	if len(msg.Key) > 0 {
 		copy(buf[offset:], msg.Key)
 		offset += len(msg.Key)
 	}
 	// Value
-	binary.BigEndian.PutUint32(buf[offset:], uint32(len(msg.Value)))
+	putWireLen(buf[offset:], len(msg.Value))
 	offset += 4
 	if len(msg.Value) > 0 {
 		copy(buf[offset:], msg.Value)
 		offset += len(msg.Value)
 	}
 	// Headers
-	binary.BigEndian.PutUint32(buf[offset:], uint32(len(msg.Headers)))
+	putWireLen(buf[offset:], len(msg.Headers))
 	offset += 4
 	for k, v := range msg.Headers {
 		// Header key
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(k)))
+		putWireLen(buf[offset:], len(k))
 		offset += 4
 		copy(buf[offset:], k)
 		offset += len(k)
 		// Header value
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(v)))
+		putWireLen(buf[offset:], len(v))
 		offset += 4
 		copy(buf[offset:], v)
 		offset += len(v)
@@ -861,10 +861,10 @@ func (c *Codec) encodeMessage(buf []byte, offset int, msg *Message) int {
 func (c *Codec) decodeMessage(buf []byte, offset int) (Message, int) {
 	msg := Message{}
 	// Offset
-	msg.Offset = int64(binary.BigEndian.Uint64(buf[offset:]))
+	msg.Offset = int64(binary.BigEndian.Uint64(buf[offset:])) // #nosec G115 -- same-width reinterpretation
 	offset += 8
 	// Timestamp
-	msg.Timestamp = int64(binary.BigEndian.Uint64(buf[offset:]))
+	msg.Timestamp = int64(binary.BigEndian.Uint64(buf[offset:])) // #nosec G115 -- same-width reinterpretation
 	offset += 8
 	// Key
 	keyLen := binary.BigEndian.Uint32(buf[offset:])

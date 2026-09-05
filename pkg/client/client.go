@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -359,6 +360,12 @@ func (c *Client) Fetch(ctx context.Context, req *FetchRequest) (*FetchResponse, 
 		return nil, ErrInvalidOffset
 	}
 
+	// A negative MaxBytes would not merely be odd, it would wrap to an
+	// enormous unsigned limit on the wire and ask the broker for everything.
+	if req.MaxBytes < 0 {
+		return nil, ErrInvalidMaxBytes
+	}
+
 	protocolReq := &protocol.Request{
 		Header: protocol.RequestHeader{
 			Type:    protocol.RequestTypeFetch,
@@ -366,9 +373,11 @@ func (c *Client) Fetch(ctx context.Context, req *FetchRequest) (*FetchResponse, 
 			Flags:   protocol.FlagNone,
 		},
 		Payload: &protocol.FetchRequest{
-			Topic:          req.Topic,
-			PartitionID:    uint32(req.Partition),
-			Offset:         req.Offset,
+			Topic: req.Topic,
+			//nolint:gosec // #nosec G115 -- both are checked non-negative above
+			PartitionID: uint32(req.Partition),
+			Offset:      req.Offset,
+			//nolint:gosec // #nosec G115 -- checked non-negative above
 			MaxBytes:       uint32(req.MaxBytes),
 			IsolationLevel: req.IsolationLevel,
 		},
@@ -383,8 +392,17 @@ func (c *Client) Fetch(ctx context.Context, req *FetchRequest) (*FetchResponse, 
 
 	// Parse response
 	if fetchResp, ok := resp.Payload.(*protocol.FetchResponse); ok {
+		// The broker echoes back the partition it served. Trusting it blindly
+		// would let a malformed or hostile response wrap into a negative
+		// partition, so it is bounded before narrowing rather than assumed to
+		// match what was asked for.
+		if fetchResp.PartitionID > math.MaxInt32 {
+			return nil, fmt.Errorf("%w: broker returned partition %d", ErrInvalidResponse, fetchResp.PartitionID)
+		}
+
 		return &FetchResponse{
-			Topic:            fetchResp.Topic,
+			Topic: fetchResp.Topic,
+			//nolint:gosec // #nosec G115 -- bounded against MaxInt32 above
 			Partition:        int32(fetchResp.PartitionID),
 			Messages:         fetchResp.Messages,
 			HighWaterMark:    fetchResp.HighWaterMark,
