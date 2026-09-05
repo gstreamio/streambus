@@ -148,7 +148,7 @@ func (h *StreamHandler) Start() error {
 	// Connect to target cluster
 	targetClient, err := h.connectToCluster(&h.link.TargetCluster)
 	if err != nil {
-		h.sourceClient.Close()
+		_ = h.sourceClient.Close() // failing to close a client we are abandoning changes nothing
 		return fmt.Errorf("failed to connect to target cluster: %w", err)
 	}
 	h.targetClient = targetClient
@@ -156,8 +156,8 @@ func (h *StreamHandler) Start() error {
 	// Get topics to replicate
 	topics, err := h.getTopicsToReplicate()
 	if err != nil {
-		h.sourceClient.Close()
-		h.targetClient.Close()
+		_ = h.sourceClient.Close() // failing to close clients we are abandoning changes nothing
+		_ = h.targetClient.Close()
 		return fmt.Errorf("failed to get topics: %w", err)
 	}
 
@@ -192,18 +192,27 @@ func (h *StreamHandler) Stop() error {
 		return nil
 	}
 
-	// Cancel context to stop all workers
+	// Cancel the handler context, which cascades to every worker, then cancel
+	// each worker explicitly so a worker that never started still releases
+	// its context.
 	h.cancel()
+	for _, worker := range h.partitionWorkers {
+		if worker.cancel != nil {
+			worker.cancel()
+		}
+	}
 
 	// Wait for all workers to finish
 	h.wg.Wait()
 
-	// Close clients
+	// Close clients. A close error here has no recovery path - the stream is
+	// stopping either way - so it is dropped deliberately rather than
+	// masking the caller's own result.
 	if h.sourceClient != nil {
-		h.sourceClient.Close()
+		_ = h.sourceClient.Close()
 	}
 	if h.targetClient != nil {
-		h.targetClient.Close()
+		_ = h.targetClient.Close()
 	}
 
 	h.started = false
@@ -260,7 +269,7 @@ func (h *StreamHandler) connectToCluster(config *ClusterConfig) (*client.Client,
 	// "active" and healthy against brokers that do not exist, and silently
 	// replicates nothing.
 	if err := verifyClusterReachable(c, brokers, clientConfig.ConnectTimeout); err != nil {
-		c.Close()
+		_ = c.Close() // the connection is being discarded; a close error is moot
 		return nil, err
 	}
 
@@ -353,6 +362,11 @@ func (h *StreamHandler) startTopicReplication(topic string) error {
 // run is the main loop for a partition worker
 func (w *partitionWorker) run() {
 	defer w.handler.wg.Done()
+	// Release the worker's context regardless of why the loop exits.
+	// Without this, each worker's child context stays registered on the
+	// handler's context for the handler's whole lifetime, which leaks for a
+	// handler that starts replication for topics repeatedly.
+	defer w.cancel()
 
 	ticker := time.NewTicker(time.Duration(w.handler.link.Config.CheckpointIntervalMs) * time.Millisecond)
 	defer ticker.Stop()
