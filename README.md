@@ -482,13 +482,6 @@ docker-compose up -d
   it is selected a transactional produce is refused outright rather than
   written without the identity `read_committed` needs to hide it after an
   abort.
-- **Cross-cluster replication is at-least-once, not exactly-once.** A source
-  offset advances only after a confirmed produce to the target, but
-  checkpoints persist on a timer rather than per message, so a crash between a
-  successful produce and the next checkpoint replays those messages on
-  restart. Target offsets are inferred rather than reported: the target
-  partition is assumed to have no other writer, which is the standard mirror
-  topology but is an assumption, not something the code can verify.
 
 ---
 
