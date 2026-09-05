@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/gstreamio/streambus/pkg/logger"
+	"github.com/gstreamio/streambus/pkg/protocol"
 	"github.com/gstreamio/streambus/pkg/storage"
 	"go.uber.org/zap"
 )
@@ -33,12 +34,22 @@ type Partition struct {
 	id  uint32
 	log storage.Log
 
-	// txnMu protects openTxns, which backs LastStableOffset. It is its own
-	// lock rather than piggybacking on the topic/topic-manager locks because
-	// it is written on every transactional produce and read on every
-	// read-committed fetch - both far hotter paths than topic management.
+	// txnMu protects openTxns and abortedTxns, which back LastStableOffset
+	// and IsAborted respectively. It is its own lock rather than piggybacking
+	// on the topic/topic-manager locks because it is written on every
+	// transactional produce and read on every read-committed fetch - both far
+	// hotter paths than topic management.
 	txnMu    sync.Mutex
 	openTxns map[producerKey]int64
+
+	// abortedTxns holds the offset ranges of aborted transactions still
+	// within the partition's retained log, so a read-committed fetch keeps
+	// hiding their records even after LastStableOffset stops treating them as
+	// a barrier (AbortTransaction, like EndTransaction, clears the openTxns
+	// entry once the marker is durable). See IsAborted and pruneAbortedLocked
+	// for how this stays bounded rather than growing for the partition's
+	// entire lifetime.
+	abortedTxns []abortedRange
 }
 
 // producerKey identifies one producer epoch for open-transaction tracking on
@@ -48,6 +59,22 @@ type Partition struct {
 type producerKey struct {
 	producerID    int64
 	producerEpoch int16
+}
+
+// abortedRange is the offset span one aborted transaction occupied on a
+// partition: [start, end). start is the transaction's first record (the
+// value BeginTransaction recorded); end is its abort marker's own offset,
+// which is always past every record the transaction wrote, since the marker
+// is only written once the coordinator has heard the transaction is done.
+//
+// Producer identity is part of the range, not just the offsets, because
+// other producers can interleave records into the same span - only records
+// this producer epoch actually wrote should be hidden.
+type abortedRange struct {
+	producerID    int64
+	producerEpoch int16
+	start         int64
+	end           int64
 }
 
 // NewTopicManager creates a new topic manager
@@ -125,10 +152,7 @@ func (tm *TopicManager) loadExistingTopics() error {
 			}
 
 			logger.Debug("successfully loaded partition", zap.Uint32("partition", partitionID))
-			topic.partitions[partitionID] = &Partition{
-				id:  partitionID,
-				log: log,
-			}
+			topic.partitions[partitionID] = newRecoveredPartition(topicName, partitionID, log)
 		}
 
 		if len(topic.partitions) > 0 {
@@ -301,10 +325,30 @@ func (tm *TopicManager) createPartition(topic string, partitionID uint32) (*Part
 		return nil, fmt.Errorf("failed to create log: %w", err)
 	}
 
-	return &Partition{
-		id:  partitionID,
-		log: log,
-	}, nil
+	return newRecoveredPartition(topic, partitionID, log), nil
+}
+
+// newRecoveredPartition builds a Partition over an already-recovered log and
+// replays its retained records to rebuild the in-memory transaction state
+// that recovery itself does not carry: which transactions were still open,
+// and which aborted ones still have records in range that read-committed
+// fetches must keep hiding (see rebuildTransactionState).
+//
+// A replay failure does not stop the partition from loading - it falls back
+// to empty transaction state, the same as before this rebuild existed. That
+// is a deliberate fail-open: refusing to serve an otherwise-readable
+// partition because its transaction history didn't replay cleanly would be
+// a worse outcome than what this rebuild is trying to fix in the first
+// place.
+func newRecoveredPartition(topic string, partitionID uint32, log storage.Log) *Partition {
+	partition := &Partition{id: partitionID, log: log}
+
+	if err := partition.rebuildTransactionState(); err != nil {
+		logger.Warn("failed to rebuild transaction state for partition",
+			zap.String("topic", topic), zap.Uint32("partition", partitionID), zap.Error(err))
+	}
+
+	return partition
 }
 
 // Close closes all topic logs
@@ -383,13 +427,267 @@ func (p *Partition) EndTransaction(producerID int64, producerEpoch int16) {
 	delete(p.openTxns, key)
 }
 
+// AbortTransaction is EndTransaction for the abort case: it clears the
+// producer epoch's open-transaction entry exactly as EndTransaction does, and
+// additionally remembers the transaction's offset range so a read-committed
+// fetch keeps hiding its records once this clears the LastStableOffset
+// barrier (see IsAborted). markerOffset is the abort marker's own offset,
+// which becomes the range's exclusive end.
+//
+// Aborting a producer epoch with nothing tracked is a no-op beyond pruning,
+// matching EndTransaction - there is no start offset to remember a range
+// from, and nothing on the log needs hiding for a transaction this partition
+// never saw open.
+func (p *Partition) AbortTransaction(producerID int64, producerEpoch int16, markerOffset int64) {
+	key := producerKey{producerID: producerID, producerEpoch: producerEpoch}
+
+	p.txnMu.Lock()
+	defer p.txnMu.Unlock()
+
+	if start, tracked := p.openTxns[key]; tracked {
+		p.abortedTxns = append(p.abortedTxns, abortedRange{
+			producerID:    producerID,
+			producerEpoch: producerEpoch,
+			start:         start,
+			end:           markerOffset,
+		})
+	}
+	delete(p.openTxns, key)
+	p.pruneAbortedLocked()
+}
+
+// IsAborted reports whether the record at offset, written by the given
+// producer, belongs to a transaction this partition knows aborted. Only a
+// read-committed fetch needs this: an aborted marker already resolved the
+// transaction and lifted the LastStableOffset barrier, so without this check
+// its records would become visible under read-committed too, which is
+// exactly the gap this method closes.
+//
+// producerID 0 (the non-transactional sentinel) always returns false without
+// taking the lock, since no aborted range can ever be keyed by it - this
+// keeps the common, non-transactional fetch path off txnMu entirely.
+//
+// This checks live state under the lock, which is correct for a single
+// lookup but the wrong tool for checking every record in a fetch response:
+// see abortedRanges for the snapshot-once alternative visibleMessages uses.
+func (p *Partition) IsAborted(producerID int64, producerEpoch int16, offset int64) bool {
+	if producerID == 0 {
+		return false
+	}
+
+	p.txnMu.Lock()
+	defer p.txnMu.Unlock()
+
+	return isAbortedInRanges(p.abortedTxns, producerID, producerEpoch, offset)
+}
+
+// abortedRanges returns a snapshot of this partition's currently known
+// aborted ranges (pruning first, exactly as LastStableOffset does), for a
+// caller that needs to check many records against it. A read-committed
+// fetch calls this once per fetch and checks every record in the response
+// against the snapshot via isAbortedInRanges, rather than calling IsAborted
+// - and re-acquiring txnMu, and re-scanning abortedTxns - once per record; a
+// fetch returning a thousand records would otherwise pay a lock acquisition
+// and linear scan a thousand times over for what is, from the fetch's
+// perspective, one fact checked repeatedly.
+//
+// The snapshot can go stale if another abort resolves while this fetch is
+// still being assembled, but that is no different from every other value a
+// fetch reads once at the start and returns consistently throughout
+// (HighWaterMark, LastStableOffset itself): a fetch response is already a
+// snapshot of a single point in time, not a live view, and an abort landing
+// mid-fetch is racy regardless of how IsAborted is checked.
+func (p *Partition) abortedRanges() []abortedRange {
+	p.txnMu.Lock()
+	defer p.txnMu.Unlock()
+
+	p.pruneAbortedLocked()
+
+	ranges := make([]abortedRange, len(p.abortedTxns))
+	copy(ranges, p.abortedTxns)
+	return ranges
+}
+
+// isAbortedInRanges reports whether offset, written by (producerID,
+// producerEpoch), falls in any of ranges. Shared by IsAborted (checking live
+// state under txnMu) and visibleMessages (checking a snapshot from
+// abortedRanges taken once per fetch, no locking per record).
+func isAbortedInRanges(ranges []abortedRange, producerID int64, producerEpoch int16, offset int64) bool {
+	if producerID == 0 {
+		return false
+	}
+	for _, r := range ranges {
+		if r.producerID == producerID && r.producerEpoch == producerEpoch &&
+			offset >= r.start && offset < r.end {
+			return true
+		}
+	}
+	return false
+}
+
+// pruneAbortedLocked drops aborted ranges the log has already forgotten via
+// retention. Once the log's start offset has advanced past a range's end,
+// retention has deleted every record that range could ever have hidden, so
+// the entry has nothing left to do - keeping it anyway would grow
+// abortedTxns for the entire life of the partition, one entry per abort,
+// which is exactly the unbounded memory growth this bound exists to avoid.
+// Caller must hold txnMu.
+func (p *Partition) pruneAbortedLocked() {
+	logStart := int64(p.log.StartOffset())
+
+	kept := p.abortedTxns[:0]
+	for _, r := range p.abortedTxns {
+		if r.end > logStart {
+			kept = append(kept, r)
+		}
+	}
+	p.abortedTxns = kept
+}
+
+// rebuildReplayWindowBytes bounds how much of a partition's retained log
+// rebuildTransactionState reads into memory at once. Replaying a record only
+// needs its offset, headers and producer identity, but Read - like
+// ReadRange - hands back fully decoded messages, keys and values included.
+// Without a bound, rebuilding a heavily-retained partition's state at
+// startup would need memory proportional to everything that partition has
+// ever retained rather than a small constant; a broker with several such
+// partitions could exhaust memory before it ever finished coming up, on
+// exactly the data it needs to read to come up at all. 1MB matches the
+// default single-fetch size used elsewhere in this codebase (see
+// client.Config.MaxFetchBytes) - there is nothing special about replay that
+// calls for a different window.
+const rebuildReplayWindowBytes = 1024 * 1024
+
+// rebuildTransactionState replays this partition's retained log to
+// reconstruct openTxns and abortedTxns from scratch. Both live only in
+// memory, so without this a restart would silently lose them: an in-flight
+// transaction would stop blocking read-committed fetches it should still
+// block, and - the specific regression this rebuild exists to prevent - an
+// aborted transaction's records would become visible under read-committed
+// again, because abortedTxns forgot they were ever aborted.
+//
+// This is a single forward pass over [StartOffset, HighWaterMark), read in
+// bounded windows via Read rather than materialized all at once via
+// ReadRange, so peak memory is a function of the window rather than of how
+// much the partition retains. There is no shortcut here trading history for
+// memory: an abort near the start of a long, heavily-retained log must
+// still be found and hidden, so the fix for the memory cost is bounding how
+// much is held at once, never bounding how far back replay looks.
+//
+// For each record, a transactional record (nonzero ProducerID) not yet seen
+// for its producer epoch opens that epoch's tracking entry; a marker record
+// closes it, and additionally records an aborted range if the marker says so
+// and an entry was open (see replayRecord/replayMarker). Anything still open
+// once the pass ends is genuinely still open as of recovery and becomes
+// openTxns unchanged - not a leftover to clean up, since a real coordinator
+// that had actually resolved it would have written a marker for the log to
+// replay.
+func (p *Partition) rebuildTransactionState() error {
+	start := p.log.StartOffset()
+	end := p.log.HighWaterMark()
+	if start >= end {
+		return nil
+	}
+
+	open := make(map[producerKey]int64)
+	var aborted []abortedRange
+
+	for offset := start; offset < end; {
+		messages, err := p.log.Read(offset, rebuildReplayWindowBytes)
+		if err != nil {
+			return fmt.Errorf("replaying transaction state: %w", err)
+		}
+		if len(messages) == 0 {
+			// Read only returns nothing once offset has caught up to the
+			// log's live high water mark; offset < end <= that mark makes
+			// this unreachable today. Breaking here rather than looping
+			// forever means a future change to Read's contract turns into a
+			// truncated replay, not a hang.
+			break
+		}
+
+		for _, msg := range messages {
+			aborted = replayRecord(msg, open, aborted)
+			offset = msg.Offset + 1
+		}
+	}
+
+	p.txnMu.Lock()
+	p.openTxns = open
+	p.abortedTxns = aborted
+	p.txnMu.Unlock()
+
+	return nil
+}
+
+// replayRecord applies one log record to the in-progress rebuild in
+// rebuildTransactionState: a control record resolves (and, if it is an
+// abort, ranges) its producer epoch via replayMarker; an ordinary
+// transactional record not yet seen for its producer epoch opens that
+// epoch's tracking entry, mirroring BeginTransaction's "first call only"
+// rule. A non-transactional record (ProducerID 0) is not tracked, the same
+// sentinel BeginTransaction itself ignores.
+func replayRecord(msg *storage.Message, open map[producerKey]int64, aborted []abortedRange) []abortedRange {
+	if protocol.IsControlRecord(msg.Headers) {
+		return replayMarker(msg, open, aborted)
+	}
+
+	if msg.ProducerID == 0 {
+		return aborted
+	}
+	key := producerKey{producerID: msg.ProducerID, producerEpoch: msg.ProducerEpoch}
+	if _, tracked := open[key]; !tracked {
+		open[key] = int64(msg.Offset)
+	}
+	return aborted
+}
+
+// replayMarker applies one transaction-marker record to the in-progress
+// rebuild in rebuildTransactionState: it resolves the marker's producer
+// epoch in open (mirroring EndTransaction/AbortTransaction), and appends an
+// abortedRange for it when the marker is an abort and an entry was actually
+// open to resolve. A marker this broker itself could not have written -
+// unparseable headers, or resolving an epoch nothing tracked - is treated as
+// a no-op rather than an error, the same tolerance EndTransaction/
+// AbortTransaction already extend to a marker with no matching open entry.
+func replayMarker(msg *storage.Message, open map[producerKey]int64, aborted []abortedRange) []abortedRange {
+	producerID, producerEpoch, commit, ok := protocol.ParseTransactionMarker(msg.Headers)
+	if !ok {
+		return aborted
+	}
+
+	key := producerKey{producerID: producerID, producerEpoch: producerEpoch}
+	start, tracked := open[key]
+	delete(open, key)
+
+	if tracked && !commit {
+		aborted = append(aborted, abortedRange{
+			producerID:    producerID,
+			producerEpoch: producerEpoch,
+			start:         start,
+			end:           int64(msg.Offset),
+		})
+	}
+
+	return aborted
+}
+
 // LastStableOffset returns the offset a read-committed fetch must not read
 // past: the earliest start offset among this partition's still-open
 // transactions, or the high water mark if none are open. It is always
 // <= HighWaterMark, since a transaction cannot start beyond it.
+//
+// Every read-committed fetch calls this before consulting IsAborted, which
+// makes it a convenient place to also prune abortedTxns: retention advances
+// the log's start offset independently of any abort ever happening again on
+// this partition, so pruning only from AbortTransaction would let ranges
+// retention has already made irrelevant sit in memory until the next unlucky
+// abort, rather than being reclaimed as soon as retention passes them.
 func (p *Partition) LastStableOffset() int64 {
 	p.txnMu.Lock()
 	defer p.txnMu.Unlock()
+
+	p.pruneAbortedLocked()
 
 	lso := int64(p.log.HighWaterMark())
 	for _, firstOffset := range p.openTxns {

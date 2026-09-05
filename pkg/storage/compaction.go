@@ -352,8 +352,11 @@ func countEntries(t MemTable) int {
 // treats it as ineligible for age-based cleanup rather than deleting it as
 // infinitely old.
 func extractTimestamp(data []byte) time.Time {
-	// v2 records put the timestamp after the magic and version bytes.
-	if isRecordV2(data) {
+	// v2 and v3 both put the timestamp right after the magic and version
+	// bytes - v3's producer identity is appended after the body, so it
+	// doesn't move anything this function reads.
+	switch newFormatVersion(data) {
+	case recordVersionV2, recordVersionV3:
 		if len(data) < 5+8 {
 			return time.Time{}
 		}

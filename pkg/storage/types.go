@@ -16,6 +16,16 @@ type Message struct {
 	Headers   map[string][]byte // Message headers
 	Timestamp time.Time         // Message timestamp
 	CRC       uint32            // CRC32C checksum
+
+	// ProducerID and ProducerEpoch identify the producer that wrote this
+	// record, stamped from the batch it arrived in (see logImpl.Append).
+	// ProducerID 0 is the sentinel for a non-transactional record, matching
+	// the convention already used by Partition's open-transaction tracking.
+	// Persisted as part of the v3 record format so a reader - in particular
+	// a read-committed fetch - can tell which transaction a record belonged
+	// to without needing anything beyond the record itself.
+	ProducerID    int64
+	ProducerEpoch int16
 }
 
 // MessageBatch represents a batch of messages

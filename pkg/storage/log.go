@@ -84,6 +84,14 @@ func (l *logImpl) Append(batch *MessageBatch) ([]Offset, error) {
 		offsets[i] = Offset(currentOffset)
 		batch.Messages[i].Offset = Offset(currentOffset)
 
+		// Stamp each message with the batch's producer identity before it is
+		// serialized. Without this, ProducerID/ProducerEpoch never reach the
+		// record format at all: the batch carries them, but nothing before
+		// this point copies them onto the individual messages that actually
+		// get written.
+		batch.Messages[i].ProducerID = batch.ProducerID
+		batch.Messages[i].ProducerEpoch = batch.ProducerEpoch
+
 		// Serialize individual message for WAL
 		msgData := l.serializeMessage(&batch.Messages[i])
 
@@ -587,12 +595,13 @@ func (l *logImpl) deserializeBatch(data []byte) (*MessageBatch, error) {
 
 // Record formats used by serializeMessage / deserializeMessage.
 //
-// Three formats exist on disk and all three are readable:
+// Four formats exist on disk and all four are readable:
 //
 //	v0: [KeyLen:4][Key][ValueLen:4][Value]
 //	v1: [Timestamp:8][KeyLen:4][Key][ValueLen:4][Value]
 //	v2: [Magic:4][Version:1][Timestamp:8][KeyLen:4][Key][ValueLen:4][Value]
 //	    [HeaderCount:4]([NameLen:4][Name][ValueLen:4][Value])*
+//	v3: v2, followed by [ProducerID:8][ProducerEpoch:2]
 //
 // v2 exists for two reasons. v0 and v1 have nowhere to put Message.Headers,
 // so headers written through them were silently discarded on read. And
@@ -600,51 +609,96 @@ func (l *logImpl) deserializeBatch(data []byte) (*MessageBatch, error) {
 // the high half of a timestamp? - which is genuinely ambiguous: a record
 // timestamped at or near the Unix epoch has a first word of zero, reads as a
 // v0 record with a zero-length key, and comes back with its key and value
-// both silently empty. Every new record is therefore written in v2, whose
-// magic prefix removes the guesswork; the heuristic survives only to read
-// records written before this format existed.
+// both silently empty. v2's magic prefix removes that guesswork; the
+// heuristic survives only to read records written before the format existed.
+//
+// v3 exists because a read-committed fetch that must keep hiding an aborted
+// transaction's records needs to tell, from the record alone, which producer
+// wrote it - v2 has nowhere to put that either. The producer fields are
+// appended after the header section, rather than woven into v2's body, so a
+// v3 record's key/value/header layout is byte-identical to v2's and the two
+// share one parser (parseRecordBody) for everything but the trailing fields.
+//
+// Every new record is written in v3; v0, v1 and v2 survive only to read
+// records written before v3 existed.
 //
 // recordMagicV2 is chosen so it cannot be mistaken for either older format:
 // read as a v0 key length it is far above the 1 MB sanity bound, and read as
 // the high half of a v1 nanosecond timestamp it is a date hundreds of
-// thousands of years beyond the int64 nanosecond range.
+// thousands of years beyond the int64 nanosecond range. v3 reuses it rather
+// than minting a new one, since the version byte that already follows it is
+// what tells v2 and v3 apart.
 const (
 	recordMagicV2   uint32 = 0xFFFFFFFF
 	recordVersionV2 byte   = 2
+	recordVersionV3 byte   = 3
 	// maxSaneKeyLen is the v0/v1 key-length sanity bound used to tell the two
 	// apart. A first word above it cannot be a real key length.
 	maxSaneKeyLen uint32 = 1048576
-	// maxRecordFieldLen bounds any single length-prefixed field in a v2
+	// maxRecordFieldLen bounds any single length-prefixed field in a v2/v3
 	// record, matching the codec's own message ceiling.
 	maxRecordFieldLen = 1024 * 1024 * 10
 )
 
 // serializeMessage serializes a single message in the current record format.
 //
-// Everything is written as v2. The five extra framing bytes over v1 buy an
-// unambiguous format marker: without it a record timestamped at the Unix
-// epoch is indistinguishable from a v0 record and decodes to an empty key and
-// value. See the record format constants above.
+// Everything is written as v3. See the record format constants above for why
+// a magic-prefixed format is needed at all, and why v3 exists on top of v2.
 func (l *logImpl) serializeMessage(msg *Message) []byte {
-	return serializeMessageV2(msg)
+	return serializeMessageV3(msg)
 }
 
-// serializeMessageV2 writes a message in the header-carrying record format.
+// serializeMessageV2 writes a message in the header-carrying record format,
+// without producer identity. Still used for reading pre-v3 records back in
+// tests; production writes go through serializeMessageV3.
 func serializeMessageV2(msg *Message) []byte {
-	size := 4 + 1 + 8 + 4 + len(msg.Key) + 4 + len(msg.Value) + 4
 	names := sortedHeaderNames(msg.Headers)
+	buf := make([]byte, 5+recordBodySize(msg, names))
+
+	binary.BigEndian.PutUint32(buf, recordMagicV2)
+	buf[4] = recordVersionV2
+
+	writeRecordBody(buf, 5, msg, names)
+	return buf
+}
+
+// serializeMessageV3 writes a message in the current record format: v2's
+// body, plus the producer identity a read-committed fetch needs to keep
+// hiding an aborted transaction's records after the fact (see the format
+// comment above).
+func serializeMessageV3(msg *Message) []byte {
+	names := sortedHeaderNames(msg.Headers)
+	buf := make([]byte, 5+recordBodySize(msg, names)+8+2)
+
+	binary.BigEndian.PutUint32(buf, recordMagicV2)
+	buf[4] = recordVersionV3
+
+	offset := writeRecordBody(buf, 5, msg, names)
+	// #nosec G115 -- same-width reinterpretation of a signed producer ID
+	binary.BigEndian.PutUint64(buf[offset:], uint64(msg.ProducerID))
+	offset += 8
+	// #nosec G115 -- same-width reinterpretation of a signed producer epoch
+	binary.BigEndian.PutUint16(buf[offset:], uint16(msg.ProducerEpoch))
+
+	return buf
+}
+
+// recordBodySize returns the encoded size of the v2/v3 body (timestamp, key,
+// value, headers) for msg, given its sorted header names.
+func recordBodySize(msg *Message, names []string) int {
+	size := 8 + 4 + len(msg.Key) + 4 + len(msg.Value) + 4
 	for _, name := range names {
 		size += 4 + len(name) + 4 + len(msg.Headers[name])
 	}
+	return size
+}
 
-	buf := make([]byte, size)
-	offset := 0
-
-	binary.BigEndian.PutUint32(buf[offset:], recordMagicV2)
-	offset += 4
-	buf[offset] = recordVersionV2
-	offset++
-
+// writeRecordBody writes the v2/v3 body - timestamp, key, value, headers -
+// into buf starting at offset, and returns the offset immediately after it,
+// so a v3 writer can append its producer fields at that point. Headers are
+// written in name order so the same message always produces identical bytes,
+// which keeps CRCs and compaction comparisons stable.
+func writeRecordBody(buf []byte, offset int, msg *Message, names []string) int {
 	binary.BigEndian.PutUint64(buf[offset:], uint64(msg.Timestamp.UnixNano()))
 	offset += 8
 
@@ -658,8 +712,6 @@ func serializeMessageV2(msg *Message) []byte {
 	copy(buf[offset:], msg.Value)
 	offset += len(msg.Value)
 
-	// Headers are written in name order so the same message always produces
-	// identical bytes, which keeps CRCs and compaction comparisons stable.
 	putRecordLen(buf[offset:], len(names))
 	offset += 4
 	for _, name := range names {
@@ -674,7 +726,7 @@ func serializeMessageV2(msg *Message) []byte {
 		offset += len(value)
 	}
 
-	return buf
+	return offset
 }
 
 // putRecordLen writes a length prefix.
@@ -702,20 +754,59 @@ func sortedHeaderNames(headers map[string][]byte) []string {
 	return names
 }
 
-// isRecordV2 reports whether data starts with the v2 record prefix.
-func isRecordV2(data []byte) bool {
-	return len(data) >= 5 &&
-		binary.BigEndian.Uint32(data[0:4]) == recordMagicV2 &&
-		data[4] == recordVersionV2
+// newFormatVersion returns the version byte of a magic-prefixed record (v2,
+// v3, ...), or 0 if data does not start with the shared magic prefix at all.
+// 0 is never a real version, so callers can compare its result directly
+// against the recordVersionVN constants without a separate "present" flag.
+func newFormatVersion(data []byte) byte {
+	if len(data) >= 5 && binary.BigEndian.Uint32(data[0:4]) == recordMagicV2 {
+		return data[4]
+	}
+	return 0
 }
 
-// deserializeMessageV2 parses a header-carrying record. A truncated record
-// yields whatever parsed cleanly rather than panicking on a slice bound.
+// deserializeMessageV2 parses a header-carrying record, without producer
+// identity. A truncated record yields whatever parsed cleanly rather than
+// panicking on a slice bound.
 func deserializeMessageV2(data []byte) *Message {
-	offset := 5 // magic + version
+	msg, _ := parseRecordBody(data, 5)
+	return msg
+}
+
+// deserializeMessageV3 parses a header-carrying record that also carries the
+// identity of the producer that wrote it. Producer identity is appended
+// after the header section rather than woven into it, so parseRecordBody is
+// shared verbatim with v2; a truncated producer-identity tail is handled the
+// same way as every other truncation in this format - the field is simply
+// left at its zero value rather than erroring.
+func deserializeMessageV3(data []byte) *Message {
+	msg, offset := parseRecordBody(data, 5)
 
 	if offset+8 > len(data) {
-		return &Message{}
+		return msg
+	}
+	// #nosec G115 -- same-width reinterpretation of the stored producer ID
+	msg.ProducerID = int64(binary.BigEndian.Uint64(data[offset:]))
+	offset += 8
+
+	if offset+2 > len(data) {
+		return msg
+	}
+	// #nosec G115 -- same-width reinterpretation of the stored epoch
+	msg.ProducerEpoch = int16(binary.BigEndian.Uint16(data[offset:]))
+
+	return msg
+}
+
+// parseRecordBody parses the v2/v3 body - timestamp, key, value, headers -
+// starting at offset, returning the message parsed so far and the offset
+// immediately past the last field it could read. A truncated record yields a
+// partial message rather than panicking on a slice bound; the returned
+// offset lets a v3 caller continue parsing its trailing producer fields from
+// wherever the body actually ended.
+func parseRecordBody(data []byte, offset int) (*Message, int) {
+	if offset+8 > len(data) {
+		return &Message{}, offset
 	}
 	// #nosec G115 -- same-width reinterpretation of the stored nanoseconds
 	timestamp := time.Unix(0, int64(binary.BigEndian.Uint64(data[offset:])))
@@ -723,17 +814,17 @@ func deserializeMessageV2(data []byte) *Message {
 
 	key, offset, ok := readLengthPrefixed(data, offset)
 	if !ok {
-		return &Message{Timestamp: timestamp}
+		return &Message{Timestamp: timestamp}, offset
 	}
 	value, offset, ok := readLengthPrefixed(data, offset)
 	if !ok {
-		return &Message{Key: key, Timestamp: timestamp}
+		return &Message{Key: key, Timestamp: timestamp}, offset
 	}
 
 	msg := &Message{Key: key, Value: value, Timestamp: timestamp}
 
 	if offset+4 > len(data) {
-		return msg
+		return msg, offset
 	}
 	count := binary.BigEndian.Uint32(data[offset:])
 	offset += 4
@@ -742,7 +833,7 @@ func deserializeMessageV2(data []byte) *Message {
 	// length prefixes, so a larger count means the record is corrupt.
 	remaining := len(data) - offset
 	if remaining < 0 || count > uint32(remaining)/8 { // #nosec G115 -- remaining is non-negative, checked here
-		return msg
+		return msg, offset
 	}
 
 	headers := make(map[string][]byte, count)
@@ -763,7 +854,7 @@ func deserializeMessageV2(data []byte) *Message {
 		msg.Headers = headers
 	}
 
-	return msg
+	return msg, offset
 }
 
 // readLengthPrefixed reads a 4-byte length followed by that many bytes,
@@ -782,10 +873,13 @@ func readLengthPrefixed(data []byte, offset int) ([]byte, int, bool) {
 	return out, offset + int(length), true
 }
 
-// deserializeMessage deserializes a single message, reading any of the three
+// deserializeMessage deserializes a single message, reading any of the four
 // record formats described above the format constants.
 func (l *logImpl) deserializeMessage(data []byte) *Message {
-	if isRecordV2(data) {
+	switch newFormatVersion(data) {
+	case recordVersionV3:
+		return deserializeMessageV3(data)
+	case recordVersionV2:
 		return deserializeMessageV2(data)
 	}
 
