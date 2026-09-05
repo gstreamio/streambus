@@ -52,7 +52,7 @@ spec:
                       default: "streambus/broker"
                     tag:
                       type: string
-                      default: "latest"
+                      description: Image tag; overrides spec.version when set
                     pullPolicy:
                       type: string
                       enum: ["Always", "IfNotPresent", "Never"]

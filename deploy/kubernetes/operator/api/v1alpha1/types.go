@@ -72,8 +72,9 @@ type ImageSpec struct {
 	// +kubebuilder:default="streambus/broker"
 	Repository string `json:"repository,omitempty"`
 
-	// Tag is the image tag
-	// +kubebuilder:default="latest"
+	// Tag is the image tag. It overrides spec.version when set - leave it
+	// unset to deploy the release named by spec.version instead.
+	// +optional
 	Tag string `json:"tag,omitempty"`
 
 	// PullPolicy is the image pull policy

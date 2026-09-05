@@ -6,6 +6,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -524,5 +525,108 @@ func TestReconcile_ImmutableStorageChangeReturnsError(t *testing.T) {
 	wantSize := resource.MustParse("10Gi")
 	if gotSize.Cmp(wantSize) != 0 {
 		t.Errorf("expected StatefulSet volume claim template to remain at 10Gi, got %s", gotSize.String())
+	}
+}
+
+// TestBuildStatefulSet_SetsImagePullSecrets guards against spec.image.pullSecrets
+// being accepted by the API server and then read by nothing - the exact defect
+// that left a user pointed at a private registry with an unexplained
+// ImagePullBackOff.
+func TestBuildStatefulSet_SetsImagePullSecrets(t *testing.T) {
+	r := &StreamBusClusterReconciler{}
+	cluster := newTestCluster("demo", "default")
+	cluster.Spec.Image.PullSecrets = []string{"regcred", "other-registry"}
+
+	sts := r.buildStatefulSet(cluster)
+
+	got := sts.Spec.Template.Spec.ImagePullSecrets
+	want := []corev1.LocalObjectReference{{Name: "regcred"}, {Name: "other-registry"}}
+	if !equality.Semantic.DeepEqual(got, want) {
+		t.Errorf("ImagePullSecrets = %+v, want %+v", got, want)
+	}
+}
+
+func TestBuildStatefulSet_NoImagePullSecretsWhenUnset(t *testing.T) {
+	r := &StreamBusClusterReconciler{}
+	sts := r.buildStatefulSet(newTestCluster("demo", "default"))
+
+	if got := sts.Spec.Template.Spec.ImagePullSecrets; len(got) != 0 {
+		t.Errorf("expected no ImagePullSecrets when spec.image.pullSecrets is unset, got %+v", got)
+	}
+}
+
+// TestReconcile_PullSecretsChangePropagatesToStatefulSet mirrors
+// TestReconcile_ImageChangePropagatesToStatefulSet: pullSecrets must be one of
+// the fields Reconcile keeps converged, not just one it gets right on create.
+func TestReconcile_PullSecretsChangePropagatesToStatefulSet(t *testing.T) {
+	cluster := newTestCluster("demo", "default")
+	r, c := newReconciler(t, cluster)
+	ctx := context.Background()
+	req := reconcileRequest(cluster)
+	nn := types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}
+
+	if _, err := r.Reconcile(ctx, req); err != nil {
+		t.Fatalf("first reconcile failed: %v", err)
+	}
+
+	var current streambusv1alpha1.StreamBusCluster
+	if err := c.Get(ctx, nn, &current); err != nil {
+		t.Fatalf("get cluster: %v", err)
+	}
+	current.Spec.Image.PullSecrets = []string{"regcred"}
+	if err := c.Update(ctx, &current); err != nil {
+		t.Fatalf("update cluster spec: %v", err)
+	}
+
+	if _, err := r.Reconcile(ctx, req); err != nil {
+		t.Fatalf("second reconcile failed: %v", err)
+	}
+
+	var sts appsv1.StatefulSet
+	if err := c.Get(ctx, nn, &sts); err != nil {
+		t.Fatalf("get statefulset: %v", err)
+	}
+	want := []corev1.LocalObjectReference{{Name: "regcred"}}
+	if got := sts.Spec.Template.Spec.ImagePullSecrets; !equality.Semantic.DeepEqual(got, want) {
+		t.Errorf("expected StatefulSet ImagePullSecrets to be updated to %+v, got %+v", want, got)
+	}
+}
+
+// TestGetImage_TagOverridesVersion pins the precedence: spec.image.tag exists
+// specifically to override spec.version with a custom build, so it must win
+// when both are set.
+func TestGetImage_TagOverridesVersion(t *testing.T) {
+	r := &StreamBusClusterReconciler{}
+	cluster := newTestCluster("demo", "default")
+	cluster.Spec.Version = "v2.0.0"
+	cluster.Spec.Image.Tag = "v1"
+
+	if got, want := r.getImage(cluster), "streambus/broker:v1"; got != want {
+		t.Errorf("getImage() = %q, want %q", got, want)
+	}
+}
+
+// TestGetImage_VersionUsedWhenTagUnset is the core of the fix: before this,
+// spec.version was accepted by the API server, validated, and then read by
+// nothing - getImage() looked at spec.image.tag exclusively.
+func TestGetImage_VersionUsedWhenTagUnset(t *testing.T) {
+	r := &StreamBusClusterReconciler{}
+	cluster := newTestCluster("demo", "default")
+	cluster.Spec.Image.Tag = ""
+	cluster.Spec.Version = "v2.0.0"
+
+	if got, want := r.getImage(cluster), "streambus/broker:v2.0.0"; got != want {
+		t.Errorf("getImage() = %q, want %q", got, want)
+	}
+}
+
+func TestGetImage_DefaultsToLatestWhenTagAndVersionUnset(t *testing.T) {
+	r := &StreamBusClusterReconciler{}
+	cluster := newTestCluster("demo", "default")
+	cluster.Spec.Image.Tag = ""
+	cluster.Spec.Version = ""
+
+	if got, want := r.getImage(cluster), "streambus/broker:latest"; got != want {
+		t.Errorf("getImage() = %q, want %q", got, want)
 	}
 }
