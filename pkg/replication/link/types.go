@@ -273,12 +273,6 @@ type ReplicationConfig struct {
 
 	// HeartbeatIntervalMs is how often to send heartbeats
 	HeartbeatIntervalMs int64
-
-	// EnableExactlyOnce enables exactly-once semantics
-	EnableExactlyOnce bool
-
-	// EnableIdempotence enables idempotent producer
-	EnableIdempotence bool
 }
 
 // ReplicationMetrics contains replication metrics and statistics

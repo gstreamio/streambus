@@ -21,8 +21,6 @@ func DefaultReplicationConfig() ReplicationConfig {
 		CheckpointIntervalMs:    5000,
 		SyncIntervalMs:          30000,
 		HeartbeatIntervalMs:     3000,
-		EnableExactlyOnce:       false,
-		EnableIdempotence:       true,
 	}
 }
 
