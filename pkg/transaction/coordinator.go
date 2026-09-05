@@ -18,7 +18,11 @@ import (
 // phases, writes a transaction marker to every partition the transaction
 // touched via the configured MarkerWriter. A transaction is reported as
 // committed only once every marker is durable; a partial write leaves the
-// transaction in its prepare state so a retry can finish it.
+// transaction in its prepare state so a retry can finish it - calling EndTxn
+// again with the same outcome resumes exactly where the failed attempt left
+// off, rather than being rejected. If no retry ever comes, the expiry sweep
+// eventually reaps the stuck prepare itself, completing it according to the
+// outcome already recorded rather than leaving it wedged forever.
 //
 // Offsets sent through TxnOffsetCommit are held until the outcome is known
 // and published to the consumer group through the configured OffsetCommitter
@@ -293,10 +297,14 @@ func (tc *TransactionCoordinator) EndTxn(req *EndTxnRequest) (*EndTxnResponse, e
 		}, nil
 	}
 
-	// Verify transaction is ongoing
-	if txn.State != StateOngoing {
+	// A transaction already sitting in a prepare state here is a retry of a
+	// previous EndTxn whose phase 2 failed partway through. endTxnStateError
+	// resumes it rather than rejecting it, but only if the retry asks for
+	// the same outcome phase 1 already recorded: that outcome may already be
+	// durable on some partitions, so it must never be flipped.
+	if errCode := endTxnStateError(txn, req.Commit); errCode != ErrorNone {
 		return &EndTxnResponse{
-			ErrorCode: ErrorInvalidTransactionState,
+			ErrorCode: errCode,
 		}, nil
 	}
 
@@ -307,51 +315,30 @@ func (tc *TransactionCoordinator) EndTxn(req *EndTxnRequest) (*EndTxnResponse, e
 		}, nil
 	}
 
-	// Phase 1: Prepare. Recording the intended outcome before touching any
-	// partition is what lets a retry after a crash or partial failure finish
-	// the transaction the same way.
-	if req.Commit {
-		txn.State = StatePrepareCommit
-	} else {
-		txn.State = StatePrepareAbort
+	// Phase 1: Prepare, only the first time through. Recording the intended
+	// outcome before touching any partition is what lets a retry after a
+	// crash or partial failure finish the transaction the same way. A
+	// transaction already in a prepare state has already been through this
+	// step - endTxnStateError above confirmed the retry agrees with what was
+	// recorded - so it proceeds straight to phase 2.
+	if txn.State == StateOngoing {
+		if req.Commit {
+			txn.State = StatePrepareCommit
+		} else {
+			txn.State = StatePrepareAbort
+		}
+		txn.LastUpdateTime = tc.now()
+		tc.logTransaction(txn)
 	}
-	txn.LastUpdateTime = tc.now()
-	tc.logTransaction(txn)
 
-	// Phase 2: write a marker to every participating partition. The
-	// transaction stays in its prepare state if any marker fails, so the
-	// producer learns the outcome is unresolved rather than being told the
-	// records committed on partitions that never received a marker.
-	if err := tc.writeMarkers(txn, req.Commit); err != nil {
-		tc.logger.Error("Failed to write transaction markers", err, logging.Fields{
-			"transaction_id": string(req.TransactionID),
-			"producer_id":    int64(req.ProducerID),
-		})
+	// Phases 2 and 3: write markers, resolve pending offsets, and complete.
+	// Shared with the expiry sweep so a resumed retry and a reaped stuck
+	// prepare finish through exactly the same logic.
+	if err := tc.resolvePrepared(txn); err != nil {
 		return &EndTxnResponse{
 			ErrorCode: ErrorTransactionCoordinatorNotAvailable,
 		}, nil
 	}
-
-	// Publish or discard any offsets that were committed inside the
-	// transaction, now that its outcome is durable.
-	if err := tc.resolvePendingOffsets(txn, req.Commit); err != nil {
-		tc.logger.Error("Failed to publish transactional offsets", err, logging.Fields{
-			"transaction_id": string(req.TransactionID),
-			"group_id":       txn.GroupID,
-		})
-		return &EndTxnResponse{
-			ErrorCode: ErrorTransactionCoordinatorNotAvailable,
-		}, nil
-	}
-
-	// Phase 3: Complete
-	if req.Commit {
-		txn.State = StateCompleteCommit
-	} else {
-		txn.State = StateCompleteAbort
-	}
-	txn.LastUpdateTime = tc.now()
-	tc.logTransaction(txn)
 
 	action := "committed"
 	if !req.Commit {
@@ -370,6 +357,77 @@ func (tc *TransactionCoordinator) EndTxn(req *EndTxnRequest) (*EndTxnResponse, e
 	return &EndTxnResponse{
 		ErrorCode: ErrorNone,
 	}, nil
+}
+
+// endTxnStateError reports the error EndTxn should return for a transaction
+// in txn's current state, or ErrorNone if it may proceed.
+//
+// StateOngoing always proceeds: that is the normal, first call. A prepare
+// state may also proceed, but only if commit agrees with the outcome phase 1
+// already recorded there (StatePrepareCommit means commit, StatePrepareAbort
+// means abort) - that is a retry resuming phase 2, not a new decision. Any
+// other combination, including a prepare state asked for the opposite
+// outcome, is rejected: the outcome was decided once, and partitions may
+// already carry markers for it.
+func endTxnStateError(txn *TransactionMetadata, commit bool) ErrorCode {
+	switch txn.State {
+	case StateOngoing:
+		return ErrorNone
+	case StatePrepareCommit:
+		if commit {
+			return ErrorNone
+		}
+	case StatePrepareAbort:
+		if !commit {
+			return ErrorNone
+		}
+	}
+	return ErrorInvalidTransactionState
+}
+
+// resolvePrepared finishes a transaction already sitting in a prepare state:
+// it writes markers to every partition, then publishes or discards any
+// pending offsets, and advances the transaction to its terminal state. The
+// outcome (commit or abort) is taken from txn.State rather than passed in,
+// since that is the outcome phase 1 already recorded and this must never
+// resolve a transaction to anything else.
+//
+// It is shared by EndTxn (resuming a retried request) and the expiry sweep
+// (reaping a stuck prepare nothing ever retried), so both drive a partially
+// finished transaction through identical phase 2/3 logic. A non-nil error
+// leaves txn in its current prepare state for another retry: writeMarkers
+// and resolvePendingOffsets are both safe to call again on the same
+// transaction (see writeMarkers).
+func (tc *TransactionCoordinator) resolvePrepared(txn *TransactionMetadata) error {
+	commit := txn.State == StatePrepareCommit
+
+	if err := tc.writeMarkers(txn, commit); err != nil {
+		tc.logger.Error("Failed to write transaction markers", err, logging.Fields{
+			"transaction_id": string(txn.TransactionID),
+			"producer_id":    int64(txn.ProducerID),
+		})
+		return err
+	}
+
+	// Publish or discard any offsets that were committed inside the
+	// transaction, now that its outcome is durable.
+	if err := tc.resolvePendingOffsets(txn, commit); err != nil {
+		tc.logger.Error("Failed to publish transactional offsets", err, logging.Fields{
+			"transaction_id": string(txn.TransactionID),
+			"group_id":       txn.GroupID,
+		})
+		return err
+	}
+
+	if commit {
+		txn.State = StateCompleteCommit
+	} else {
+		txn.State = StateCompleteAbort
+	}
+	txn.LastUpdateTime = tc.now()
+	tc.logTransaction(txn)
+
+	return nil
 }
 
 // resolvePendingOffsets publishes a transaction's offsets on commit and drops
@@ -637,41 +695,53 @@ func (tc *TransactionCoordinator) checkExpiredTransactions() {
 
 	now := tc.now()
 	for txnID, txn := range tc.transactions {
-		if txn.State != StateOngoing || !txn.IsExpired() {
+		if !txn.IsExpired() {
 			continue
 		}
 
-		tc.logger.Warn("Transaction expired, aborting", logging.Fields{
-			"transaction_id": txnID,
-			"age":            now.Sub(txn.StartTime),
-		})
+		switch txn.State {
+		case StateOngoing:
+			tc.logger.Warn("Transaction expired, aborting", logging.Fields{
+				"transaction_id": txnID,
+				"age":            now.Sub(txn.StartTime),
+			})
 
-		// Abort expired transaction. This must write abort markers exactly
-		// as an explicit EndTxn does: a partition learns a transaction is
-		// resolved only from its marker, so skipping them would leave the
-		// transaction hanging there forever - pinning the partition's last
-		// stable offset and stalling every read-committed consumer on it.
-		txn.State = StatePrepareAbort
-		txn.LastUpdateTime = now
-		tc.logTransaction(txn)
+			// Move an abandoned transaction into prepare-abort so the code
+			// below - shared with a stuck prepare - resolves it exactly as
+			// an explicit EndTxn would: a partition learns a transaction is
+			// resolved only from its marker, so skipping that would leave
+			// the transaction hanging there forever, pinning the
+			// partition's last stable offset and stalling every
+			// read-committed consumer on it.
+			txn.State = StatePrepareAbort
+			txn.LastUpdateTime = now
+			tc.logTransaction(txn)
 
-		if err := tc.writeMarkers(txn, false); err != nil {
-			// Leave it in PrepareAbort so the next sweep retries. Advancing
-			// to CompleteAbort here would abandon partitions that never got
-			// a marker, with nothing left to drive a retry.
-			tc.logger.Error("Failed to write abort markers for expired transaction", err,
-				logging.Fields{"transaction_id": string(txnID)})
-			txn.State = StateOngoing
+		case StatePrepareCommit, StatePrepareAbort:
+			// A transaction whose EndTxn recorded an outcome but whose
+			// marker write then failed, with no retry ever arriving to
+			// resume it (see EndTxn/resolvePrepared). It must not sit here
+			// forever: complete it according to the outcome already
+			// recorded rather than reversing it - a prepare-commit finishes
+			// as a commit, a prepare-abort as an abort. "Resolving" a stuck
+			// prepare-commit by aborting it would silently lose data a
+			// producer was told nothing about.
+			tc.logger.Warn("Transaction stuck in prepare state past its timeout, completing", logging.Fields{
+				"transaction_id": txnID,
+				"state":          txn.State.String(),
+				"age":            now.Sub(txn.StartTime),
+			})
+
+		default:
+			// StateEmpty or a terminal state already awaiting cleanup:
+			// nothing for the expiry sweep to do.
 			continue
 		}
 
-		// An expired transaction never commits, so its pending offsets are
-		// discarded rather than published.
-		txn.PendingOffsets = nil
-
-		txn.State = StateCompleteAbort
-		txn.LastUpdateTime = now
-		tc.logTransaction(txn)
+		if err := tc.resolvePrepared(txn); err != nil {
+			// Left in its current prepare state; the next sweep retries.
+			continue
+		}
 
 		// Schedule cleanup
 		go tc.scheduleTransactionCleanup(txnID)
