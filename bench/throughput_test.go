@@ -43,12 +43,7 @@ func benchmarkProducerThroughput(b *testing.B, msgSize, batchSize, numThreads in
 		b.Skip("Skipping integration benchmark in short mode")
 	}
 
-	cfg := &client.Config{
-		Brokers: []string{"localhost:9092"},
-		Timeout: 10 * time.Second,
-	}
-
-	c, err := client.NewClient(cfg)
+	c, err := newBenchClient([]string{"localhost:9092"}, 10*time.Second)
 	if err != nil {
 		b.Skipf("Cannot connect to broker: %v", err)
 		return
@@ -79,11 +74,7 @@ func benchmarkProducerThroughput(b *testing.B, msgSize, batchSize, numThreads in
 		go func(threadID int) {
 			defer wg.Done()
 
-			producer, err := c.NewProducer()
-			if err != nil {
-				errCh <- err
-				return
-			}
+			producer := client.NewProducer(c)
 
 			for i := 0; i < messagesPerThread; i++ {
 				key := fmt.Sprintf("key-%d-%d", threadID, i)
@@ -141,12 +132,7 @@ func benchmarkConsumerThroughput(b *testing.B, msgSize, numMsgs, batchSize, numT
 		b.Skip("Skipping integration benchmark in short mode")
 	}
 
-	cfg := &client.Config{
-		Brokers: []string{"localhost:9092"},
-		Timeout: 10 * time.Second,
-	}
-
-	c, err := client.NewClient(cfg)
+	c, err := newBenchClient([]string{"localhost:9092"}, 10*time.Second)
 	if err != nil {
 		b.Skipf("Cannot connect to broker: %v", err)
 		return
@@ -156,10 +142,7 @@ func benchmarkConsumerThroughput(b *testing.B, msgSize, numMsgs, batchSize, numT
 	topic := "bench-consumer-throughput"
 
 	// Pre-populate messages
-	producer, err := c.NewProducer()
-	if err != nil {
-		b.Fatalf("Failed to create producer: %v", err)
-	}
+	producer := client.NewProducer(c)
 
 	value := make([]byte, msgSize)
 	for i := range value {
@@ -192,26 +175,35 @@ func benchmarkConsumerThroughput(b *testing.B, msgSize, numMsgs, batchSize, numT
 		go func(threadID int) {
 			defer wg.Done()
 
-			consumer, err := c.NewConsumer(fmt.Sprintf("bench-consumer-group-%d", threadID))
+			gcConfig := client.DefaultGroupConsumerConfig()
+			gcConfig.GroupID = fmt.Sprintf("bench-consumer-group-%d", threadID)
+			gcConfig.Topics = []string{topic}
+
+			consumer, err := client.NewGroupConsumer(c, gcConfig)
 			if err != nil {
 				errCh <- err
 				return
 			}
 			defer consumer.Close()
 
-			if err := consumer.Subscribe(topic); err != nil {
+			if err := consumer.Subscribe(ctx); err != nil {
 				errCh <- err
 				return
 			}
 
 			consumed := 0
 			for consumed < messagesPerThread {
-				msgs, err := consumer.Poll(ctx, 1*time.Second)
+				result, err := consumer.Poll(ctx)
 				if err != nil {
 					errCh <- err
 					return
 				}
-				consumed += len(msgs)
+				n := countMessages(result)
+				if n == 0 {
+					time.Sleep(pollBackoff)
+					continue
+				}
+				consumed += n
 			}
 
 			consumedMu.Lock()
