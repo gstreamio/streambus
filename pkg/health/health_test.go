@@ -218,32 +218,46 @@ func TestPeriodicChecker(t *testing.T) {
 	periodic := NewPeriodicChecker(underlying, 50*time.Millisecond)
 	assert.Equal(t, "test", periodic.Name())
 
-	// Start periodic checking
+	// Start periodic checking. Stop is called explicitly below, before the
+	// caching assertion; this deferred call covers an early t.Fatal.
 	periodic.Start()
 	defer periodic.Stop()
 
-	// Wait for a few checks
-	time.Sleep(150 * time.Millisecond)
-
-	// Should have run at least 2 times (initial + 2 intervals)
-	mu.Lock()
-	count := callCount
-	mu.Unlock()
-	assert.GreaterOrEqual(t, count, 2)
+	// Wait for the checker to have run a few times.
+	//
+	// Sleeping for three intervals and asserting afterwards was flaky: on a
+	// loaded runner fewer ticks fire in that window than the arithmetic
+	// suggests. Waiting for the condition keeps the fast path fast and only
+	// spends the longer budget when the scheduler is actually behind.
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return callCount >= 2
+	}, 5*time.Second, 10*time.Millisecond,
+		"periodic checker did not run at least twice")
 
 	// Check should return cached result
 	ctx := context.Background()
 	check := periodic.Check(ctx)
 	assert.Equal(t, StatusHealthy, check.Status)
 
-	// Call count shouldn't increase when getting cached result
+	// Stop the ticker before asserting that a cached Check does not re-run
+	// the underlying checker. While it is still running, a background tick
+	// landing between the two reads increments callCount on its own and the
+	// assertion fails for a reason that has nothing to do with caching -
+	// which is what made this test flaky even after its data race was fixed.
+	periodic.Stop()
+
 	mu.Lock()
 	previousCount := callCount
 	mu.Unlock()
+
 	periodic.Check(ctx)
+
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Equal(t, previousCount, callCount)
+	assert.Equal(t, previousCount, callCount,
+		"a cached Check must not re-run the underlying checker")
 }
 
 func TestPeriodicChecker_BeforeFirstRun(t *testing.T) {
@@ -426,4 +440,20 @@ func BenchmarkSimpleChecker_Check(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		checker.Check(ctx)
 	}
+}
+
+func TestPeriodicChecker_StopIsIdempotent(t *testing.T) {
+	checker := NewSimpleChecker("test", func(ctx context.Context) Check {
+		return Check{Status: StatusHealthy}
+	})
+
+	periodic := NewPeriodicChecker(checker, 10*time.Millisecond)
+	periodic.Start()
+
+	// Stop closes a channel. Without a guard the second call panics on
+	// "close of closed channel", which makes the natural pattern of stopping
+	// explicitly and also deferring a Stop for the error paths unusable.
+	periodic.Stop()
+	assert.NotPanics(t, periodic.Stop, "Stop must be safe to call twice")
+	assert.NotPanics(t, periodic.Stop, "Stop must stay safe on further calls")
 }
