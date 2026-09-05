@@ -112,23 +112,23 @@ Perfect for microservices, event sourcing, log aggregation, real-time analytics,
 
 ```
 ┌─────────────┐       ┌─────────────────────────────────┐       ┌─────────────┐
-│             │       │       StreamBus Cluster         │       │             │
-│  Producers  │──────▶│  ┌──────────┐  ┌──────────┐   │──────▶│  Consumers  │
-│             │       │  │ Broker 1 │  │ Broker 2 │   │       │             │
-└─────────────┘       │  │ (Leader) │  │(Follower)│   │       └─────────────┘
-                      │  └────┬─────┘  └─────┬────┘   │
-                      │       │              │         │
-                      │       └──────┬───────┘         │
-                      │              ▼                  │
-                      │      ┌───────────────┐         │
-                      │      │ Raft Consensus│         │
-                      │      │   (Metadata)  │         │
-                      │      └───────────────┘         │
+│             │       │        StreamBus Cluster        │       │             │
+│  Producers  │──────▶│   ┌──────────┐   ┌──────────┐   │──────▶│  Consumers  │
+│             │       │   │ Broker 1 │   │ Broker 2 │   │       │             │
+└─────────────┘       │   │ (Leader) │   │(Follower)│   │       └─────────────┘
+                      │   └────┬─────┘   └────┬─────┘   │
+                      │        │              │         │
+                      │        └──────┬───────┘         │
+                      │               ▼                 │
+                      │       ┌───────────────┐         │
+                      │       │ Raft Consensus│         │
+                      │       │   (Metadata)  │         │
+                      │       └───────────────┘         │
                       │                                 │
-                      │   ┌─────────────────────┐      │
-                      │   │  LSM Storage Engine │      │
-                      │   │   + Write-Ahead Log │      │
-                      │   └─────────────────────┘      │
+                      │    ┌─────────────────────┐      │
+                      │    │  LSM Storage Engine │      │
+                      │    │   + Write-Ahead Log │      │
+                      │    └─────────────────────┘      │
                       └─────────────────────────────────┘
 ```
 
@@ -434,7 +434,7 @@ docker-compose up -d
 
 ## Project Status
 
-StreamBus is currently in **active development** with production-ready core components.
+**Beta** — active development, with production-ready core components.
 
 ### Core Features ✅
 
@@ -451,7 +451,8 @@ StreamBus is currently in **active development** with production-ready core comp
   range/round-robin/sticky assignment, committed offsets persisted across
   restarts)
 - Transactional producers with commit/abort markers written durably to every
-  participating partition, and consumer offsets committed inside a transaction
+  participating partition, and consumer offsets committed inside a transaction,
+  giving exactly-once semantics within a cluster
 - read_committed consumer isolation: a fetch never returns a record from a
   transaction still in flight, and an aborted transaction's records stay
   hidden after its marker resolves
@@ -466,6 +467,7 @@ StreamBus is currently in **active development** with production-ready core comp
 - Audit logging
 
 **Production Reliability**
+- Multi-tenancy with per-tenant quotas and topic ownership
 - Circuit breakers and health checks
 - Prometheus metrics and OpenTelemetry tracing
 - Structured logging
@@ -579,32 +581,6 @@ go test ./...
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
-
----
-
-## Production Readiness
-
-**Current Status**: **Beta** - Active Development
-
-StreamBus has completed core distributed system features, advanced streaming capabilities, and enterprise security with production-grade reliability patterns.
-
-### What's Ready
-
-- Core distributed streaming platform with Raft consensus
-- Multi-broker replication and automatic failover
-- Consumer groups, transactions, and exactly-once semantics within a cluster
-- TLS/SASL authentication and ACL authorization
-- Prometheus metrics and OpenTelemetry tracing
-- Circuit breakers, health checks, and structured logging
-- Multi-tenancy with resource isolation
-- Cross-datacenter replication with a working data plane
-
-### What's Next
-
-- Kubernetes operator and tooling
-- Production hardening and documentation
-
-**Interested in contributing or testing?** Check out our [Contributing Guide](CONTRIBUTING.md).
 
 ---
 
