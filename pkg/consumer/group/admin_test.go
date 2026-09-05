@@ -1,6 +1,7 @@
 package group
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -234,5 +235,108 @@ func TestGroupCoordinator_ListGroups_ConcurrentSafety(t *testing.T) {
 	// Wait for all goroutines
 	for i := 0; i < 10; i++ {
 		<-done
+	}
+}
+
+func TestGroupCoordinator_DeleteGroup_NotFound(t *testing.T) {
+	offsetStorage := NewMemoryOffsetStorage()
+	config := DefaultCoordinatorConfig()
+	gc := NewGroupCoordinator(offsetStorage, config)
+	defer func() { _ = gc.Stop() }()
+
+	err := gc.DeleteGroup("does-not-exist")
+	if !errors.Is(err, ErrGroupNotFound) {
+		t.Fatalf("DeleteGroup(unknown) = %v, want ErrGroupNotFound", err)
+	}
+}
+
+// TestGroupCoordinator_DeleteGroup_RefusesActiveMembers covers Kafka's
+// NON_EMPTY_GROUP behavior: deleting a group with an active member would
+// discard offsets that member still depends on, so it must be refused
+// rather than performed.
+func TestGroupCoordinator_DeleteGroup_RefusesActiveMembers(t *testing.T) {
+	offsetStorage := NewMemoryOffsetStorage()
+	config := DefaultCoordinatorConfig()
+	gc := NewGroupCoordinator(offsetStorage, config)
+	defer func() { _ = gc.Stop() }()
+
+	req := &JoinGroupRequest{
+		GroupID:            "active-group",
+		SessionTimeoutMs:   30000,
+		RebalanceTimeoutMs: 60000,
+		ClientID:           "client-1",
+		ProtocolType:       "consumer",
+		Protocols: []ProtocolMetadata{
+			{Name: "range", Metadata: []byte("test")},
+		},
+	}
+	_, _ = gc.HandleJoinGroup(req)
+
+	err := gc.DeleteGroup("active-group")
+	var notEmpty *GroupNotEmptyError
+	if !errors.As(err, &notEmpty) {
+		t.Fatalf("DeleteGroup(group with a member) = %v, want *GroupNotEmptyError", err)
+	}
+	if notEmpty.MemberCount != 1 {
+		t.Errorf("MemberCount = %d, want 1", notEmpty.MemberCount)
+	}
+
+	// The group must still exist - refused, not partially deleted.
+	if gc.GetGroup("active-group") == nil {
+		t.Error("group was removed despite having an active member")
+	}
+}
+
+// TestGroupCoordinator_DeleteGroup_Success covers the happy path: a group
+// with no members left is deleted, and - asserted directly against the
+// offset store, not assumed from DeleteGroup returning nil - its committed
+// offsets are actually gone afterward.
+func TestGroupCoordinator_DeleteGroup_Success(t *testing.T) {
+	offsetStorage := NewMemoryOffsetStorage()
+	config := DefaultCoordinatorConfig()
+	gc := NewGroupCoordinator(offsetStorage, config)
+	defer func() { _ = gc.Stop() }()
+
+	req := &JoinGroupRequest{
+		GroupID:            "empty-group",
+		SessionTimeoutMs:   30000,
+		RebalanceTimeoutMs: 60000,
+		ClientID:           "client-1",
+		ProtocolType:       "consumer",
+		Protocols: []ProtocolMetadata{
+			{Name: "range", Metadata: []byte("test")},
+		},
+	}
+	joinResp, err := gc.HandleJoinGroup(req)
+	if err != nil {
+		t.Fatalf("HandleJoinGroup: %v", err)
+	}
+
+	// Commit an offset for the group before it goes empty, so deletion has
+	// something real to clean up.
+	if err := offsetStorage.StoreOffset("empty-group", "test-topic", 0, &OffsetAndMetadata{Offset: 42}); err != nil {
+		t.Fatalf("StoreOffset: %v", err)
+	}
+
+	// The member leaves, so the group stays registered (Empty state) but has
+	// zero members - the case DeleteGroup must accept.
+	if _, err := gc.HandleLeaveGroup(&LeaveGroupRequest{GroupID: "empty-group", MemberID: joinResp.MemberID}); err != nil {
+		t.Fatalf("HandleLeaveGroup: %v", err)
+	}
+
+	if err := gc.DeleteGroup("empty-group"); err != nil {
+		t.Fatalf("DeleteGroup: %v", err)
+	}
+
+	if gc.GetGroup("empty-group") != nil {
+		t.Error("group still present after DeleteGroup")
+	}
+
+	offset, err := offsetStorage.FetchOffset("empty-group", "test-topic", 0)
+	if err != nil {
+		t.Fatalf("FetchOffset after delete: %v", err)
+	}
+	if offset != nil {
+		t.Errorf("offset still present after DeleteGroup: %+v", offset)
 	}
 }

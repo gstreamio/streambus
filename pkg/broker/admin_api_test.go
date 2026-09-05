@@ -8,12 +8,15 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gstreamio/streambus/pkg/cluster"
+	"github.com/gstreamio/streambus/pkg/consumer/group"
 	"github.com/gstreamio/streambus/pkg/logging"
 	"github.com/gstreamio/streambus/pkg/metadata"
 	"github.com/gstreamio/streambus/pkg/replication/link"
 	"github.com/gstreamio/streambus/pkg/server"
+	"github.com/gstreamio/streambus/pkg/storage"
 )
 
 // mockClusterMetadataStore implements cluster.MetadataStore for testing
@@ -453,6 +456,67 @@ func TestGetTopic(t *testing.T) {
 	}
 }
 
+// TestGetTopic_RealOffsets guards against getTopic silently reporting
+// zeroed partition offsets: with real messages appended to storage, the
+// partitions embedded in its response must reflect them, the same way
+// handleTopicPartitions already does (they now share buildPartitionInfos).
+func TestGetTopic_RealOffsets(t *testing.T) {
+	broker, metaStore := newTestBrokerWithMetaStore(t)
+
+	ctx := context.Background()
+	_ = metaStore.CreateTopic(ctx, "test-topic", 1, 1, metadata.DefaultTopicConfig())
+
+	// CreateTopic only registers the topic itself; partition assignment
+	// (leader/replicas/ISR) normally comes from the cluster controller via
+	// ClusterMetadataStore.StorePartitionAssignment. This test's minimal
+	// harness has no controller running, so the assignment is created
+	// directly to give buildPartitionInfos something to find.
+	if err := metaStore.CreatePartition(ctx, &metadata.PartitionInfo{
+		Topic:     "test-topic",
+		Partition: 0,
+		Leader:    1,
+		Replicas:  []uint64{1},
+		ISR:       []uint64{1},
+	}); err != nil {
+		t.Fatalf("CreatePartition: %v", err)
+	}
+
+	writeTestMessages(t, broker, "test-topic", 1, []storage.Message{
+		{Key: []byte("k0"), Value: []byte("v0"), Timestamp: time.Now()},
+		{Key: []byte("k1"), Value: []byte("v1"), Timestamp: time.Now()},
+		{Key: []byte("k2"), Value: []byte("v2"), Timestamp: time.Now()},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/topics/test-topic", nil)
+	w := httptest.NewRecorder()
+
+	broker.handleTopicOperations(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp TopicResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if len(resp.Partitions) != 1 {
+		t.Fatalf("Expected 1 partition, got %d", len(resp.Partitions))
+	}
+
+	got := resp.Partitions[0]
+	if got.Leader != 1 {
+		t.Errorf("Leader = %d, want 1", got.Leader)
+	}
+	if got.EndOffset != 3 {
+		t.Errorf("EndOffset = %d, want 3 (getTopic must read real offsets, not report zero)", got.EndOffset)
+	}
+	if got.MessageCount != 3 {
+		t.Errorf("MessageCount = %d, want 3", got.MessageCount)
+	}
+}
+
 // TestGetTopic_NotFound tests getting a non-existent topic
 func TestGetTopic_NotFound(t *testing.T) {
 	broker, _ := newTestBrokerWithMetaStore(t)
@@ -688,8 +752,24 @@ func TestHandleConsumerGroupLag_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-// TestHandleConsumerGroupOperations_MethodNotAllowed tests group operations with wrong method
+// TestHandleConsumerGroupOperations_MethodNotAllowed tests group operations with wrong method.
+// DELETE is deliberately not used here - it's now a real operation (see the
+// DeleteConsumerGroup tests below), so PUT stands in as the still-unhandled method.
 func TestHandleConsumerGroupOperations_MethodNotAllowed(t *testing.T) {
+	broker := newTestBrokerForAPI(t)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/consumer-groups/test-group", nil)
+	w := httptest.NewRecorder()
+
+	broker.handleConsumerGroupOperations(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected status 405, got %d", w.Code)
+	}
+}
+
+// TestDeleteConsumerGroup_NilCoordinator tests deleting a consumer group with nil coordinator
+func TestDeleteConsumerGroup_NilCoordinator(t *testing.T) {
 	broker := newTestBrokerForAPI(t)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/consumer-groups/test-group", nil)
@@ -697,8 +777,95 @@ func TestHandleConsumerGroupOperations_MethodNotAllowed(t *testing.T) {
 
 	broker.handleConsumerGroupOperations(w, req)
 
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("Expected status 405, got %d", w.Code)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("Expected status 503, got %d", w.Code)
+	}
+}
+
+// TestDeleteConsumerGroup_Success tests that deleting an existing, empty
+// consumer group succeeds and actually removes it from the coordinator.
+func TestDeleteConsumerGroup_Success(t *testing.T) {
+	broker := newTestBrokerForAPI(t)
+	offsetStorage := group.NewMemoryOffsetStorage()
+	broker.groupCoordinator = group.NewGroupCoordinator(offsetStorage, group.DefaultCoordinatorConfig())
+	t.Cleanup(func() { _ = broker.groupCoordinator.Stop() })
+
+	joinResp, err := broker.groupCoordinator.HandleJoinGroup(&group.JoinGroupRequest{
+		GroupID:            "empty-group",
+		SessionTimeoutMs:   30000,
+		RebalanceTimeoutMs: 60000,
+		ClientID:           "client-1",
+		ProtocolType:       "consumer",
+		Protocols:          []group.ProtocolMetadata{{Name: "range", Metadata: []byte("test")}},
+	})
+	if err != nil {
+		t.Fatalf("HandleJoinGroup: %v", err)
+	}
+	if _, err := broker.groupCoordinator.HandleLeaveGroup(&group.LeaveGroupRequest{
+		GroupID:  "empty-group",
+		MemberID: joinResp.MemberID,
+	}); err != nil {
+		t.Fatalf("HandleLeaveGroup: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/consumer-groups/empty-group", nil)
+	w := httptest.NewRecorder()
+
+	broker.handleConsumerGroupOperations(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("Expected status 204, got %d: %s", w.Code, w.Body.String())
+	}
+	if broker.groupCoordinator.GetGroup("empty-group") != nil {
+		t.Error("group still present after delete")
+	}
+}
+
+// TestDeleteConsumerGroup_NotFound tests that deleting an unknown consumer
+// group returns 404, not a fabricated success.
+func TestDeleteConsumerGroup_NotFound(t *testing.T) {
+	broker := newTestBrokerForAPI(t)
+	broker.groupCoordinator = group.NewGroupCoordinator(group.NewMemoryOffsetStorage(), group.DefaultCoordinatorConfig())
+	t.Cleanup(func() { _ = broker.groupCoordinator.Stop() })
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/consumer-groups/does-not-exist", nil)
+	w := httptest.NewRecorder()
+
+	broker.handleConsumerGroupOperations(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected status 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestDeleteConsumerGroup_ActiveMembersRejected tests that deleting a group
+// with an active member is rejected (409), not performed anyway.
+func TestDeleteConsumerGroup_ActiveMembersRejected(t *testing.T) {
+	broker := newTestBrokerForAPI(t)
+	broker.groupCoordinator = group.NewGroupCoordinator(group.NewMemoryOffsetStorage(), group.DefaultCoordinatorConfig())
+	t.Cleanup(func() { _ = broker.groupCoordinator.Stop() })
+
+	if _, err := broker.groupCoordinator.HandleJoinGroup(&group.JoinGroupRequest{
+		GroupID:            "active-group",
+		SessionTimeoutMs:   30000,
+		RebalanceTimeoutMs: 60000,
+		ClientID:           "client-1",
+		ProtocolType:       "consumer",
+		Protocols:          []group.ProtocolMetadata{{Name: "range", Metadata: []byte("test")}},
+	}); err != nil {
+		t.Fatalf("HandleJoinGroup: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/consumer-groups/active-group", nil)
+	w := httptest.NewRecorder()
+
+	broker.handleConsumerGroupOperations(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Errorf("Expected status 409, got %d: %s", w.Code, w.Body.String())
+	}
+	if broker.groupCoordinator.GetGroup("active-group") == nil {
+		t.Error("group was removed despite having an active member")
 	}
 }
 

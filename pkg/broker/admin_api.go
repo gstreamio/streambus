@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/gstreamio/streambus/pkg/consumer/group"
 	"github.com/gstreamio/streambus/pkg/logging"
 	"github.com/gstreamio/streambus/pkg/metadata"
 	"github.com/gstreamio/streambus/pkg/replication/link"
@@ -379,28 +380,11 @@ func (b *Broker) getTopic(w http.ResponseWriter, r *http.Request, topicName stri
 		return
 	}
 
-	// Get partition details from metadata
-	partitions := make([]PartitionInfo, topic.NumPartitions)
-	for i := 0; i < topic.NumPartitions; i++ {
-		partInfo, exists := b.metaStore.GetPartition(topicName, i)
-		if exists {
-			partitions[i] = PartitionInfo{
-				ID:              int32(i),
-				Leader:          int32(partInfo.Leader),
-				Replicas:        convertUint64SliceToInt32(partInfo.Replicas),
-				ISR:             convertUint64SliceToInt32(partInfo.ISR),
-				BeginningOffset: 0,
-				EndOffset:       0, // TODO: Get from storage
-				MessageCount:    0, // TODO: Calculate from storage
-			}
-		}
-	}
-
 	resp := TopicResponse{
 		Name:              topic.Name,
 		NumPartitions:     topic.NumPartitions,
 		ReplicationFactor: topic.ReplicationFactor,
-		Partitions:        partitions,
+		Partitions:        b.buildPartitionInfos(topicName, topic.NumPartitions),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -448,8 +432,26 @@ func (b *Broker) handleTopicPartitions(w http.ResponseWriter, r *http.Request, t
 		return
 	}
 
-	partitions := make([]PartitionInfo, topic.NumPartitions)
-	for i := 0; i < topic.NumPartitions; i++ {
+	partitions := b.buildPartitionInfos(topicName, topic.NumPartitions)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(partitions)
+}
+
+// buildPartitionInfos builds per-partition detail for a topic: leader,
+// replicas, and ISR from cluster metadata, plus real beginning/end offsets
+// and message counts read from local storage via topicManager.PartitionOffsets.
+// This is the one place both getTopic and handleTopicPartitions get partition
+// detail from, so neither can drift back to reporting fabricated zero
+// offsets independently of the other.
+//
+// Offsets come from local storage, so they are only populated for partitions
+// this broker actually hosts (or when topicManager isn't wired up at all) -
+// a partition led elsewhere keeps its zero values, which is a real "unknown
+// here", not a fabricated one.
+func (b *Broker) buildPartitionInfos(topicName string, numPartitions int) []PartitionInfo {
+	partitions := make([]PartitionInfo, numPartitions)
+	for i := 0; i < numPartitions; i++ {
 		partInfo, exists := b.metaStore.GetPartition(topicName, i)
 		if !exists {
 			continue
@@ -462,13 +464,10 @@ func (b *Broker) handleTopicPartitions(w http.ResponseWriter, r *http.Request, t
 			ISR:      convertUint64SliceToInt32(partInfo.ISR),
 		}
 
-		// Offsets come from local storage, so they are only populated for
-		// partitions this broker actually hosts. A partition led elsewhere
-		// keeps its zero values.
 		if b.topicManager == nil {
 			continue
 		}
-		//nolint:gosec // partition IDs are bounded by topic.NumPartitions
+		//nolint:gosec // partition IDs are bounded by numPartitions
 		start, end, _, err := b.topicManager.PartitionOffsets(topicName, uint32(i))
 		if err != nil {
 			continue
@@ -477,9 +476,7 @@ func (b *Broker) handleTopicPartitions(w http.ResponseWriter, r *http.Request, t
 		partitions[i].EndOffset = end
 		partitions[i].MessageCount = end - start
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(partitions)
+	return partitions
 }
 
 // MessageInfo represents message metadata for browsing
@@ -725,8 +722,39 @@ func (b *Broker) handleConsumerGroupOperations(w http.ResponseWriter, r *http.Re
 	switch r.Method {
 	case http.MethodGet:
 		b.getConsumerGroup(w, r, groupID)
+	case http.MethodDelete:
+		b.deleteConsumerGroup(w, r, groupID)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// deleteConsumerGroup handles DELETE /api/v1/consumer-groups/:id.
+//
+// An unknown group is a plain 404. A group that still has active members is
+// rejected with 409 Conflict (mirroring Kafka's NON_EMPTY_GROUP) rather than
+// deleted out from under the consumers still relying on its offsets.
+func (b *Broker) deleteConsumerGroup(w http.ResponseWriter, r *http.Request, groupID string) {
+	if b.groupCoordinator == nil {
+		http.Error(w, "Group coordinator not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	err := b.groupCoordinator.DeleteGroup(groupID)
+	if err == nil {
+		b.logger.Info("Consumer group deleted via API", logging.Fields{"group_id": groupID})
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	var notEmpty *group.GroupNotEmptyError
+	switch {
+	case errors.Is(err, group.ErrGroupNotFound):
+		http.Error(w, err.Error(), http.StatusNotFound)
+	case errors.As(err, &notEmpty):
+		http.Error(w, err.Error(), http.StatusConflict)
+	default:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 

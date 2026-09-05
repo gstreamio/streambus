@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -111,6 +113,90 @@ var topicListCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+var topicDescribeCmd = &cobra.Command{
+	Use:   "describe <topic-name>",
+	Short: "Describe a topic",
+	Long:  "Show a topic's partition count, replication factor, and per-partition leader/replica/ISR/offset detail.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		topicName := args[0]
+		adminAddr, _ := cmd.Flags().GetString("admin-addr")
+		admin := newAdminClient(adminAddr)
+
+		// Fetch before printing anything: a broker that can't be reached, or
+		// a topic that doesn't exist, must fail the command rather than
+		// print a header followed by an empty partition list.
+		//
+		// A single call carries everything: GET /api/v1/topics/:name and
+		// GET /api/v1/topics/:name/partitions both build their partition
+		// detail through the broker's shared buildPartitionInfos helper, so
+		// there is no separate call left that would add real data.
+		topic, err := admin.Topic(cmd.Context(), topicName)
+		if err != nil {
+			return fmt.Errorf("failed to describe topic %q: %w", topicName, err)
+		}
+
+		printTopicDescribe(topic)
+		return nil
+	},
+}
+
+// printTopicDescribe renders a topic and its partition detail.
+func printTopicDescribe(topic *TopicInfo) {
+	fmt.Printf("Topic: %s\n", topic.Name)
+	fmt.Printf("  Partitions:         %d\n", topic.NumPartitions)
+	fmt.Printf("  Replication Factor: %d\n", topic.ReplicationFactor)
+	fmt.Println()
+	fmt.Printf("Partitions (%d):\n", len(topic.Partitions))
+	for _, p := range topic.Partitions {
+		fmt.Printf("  [%d] leader=%d replicas=%v isr=%v offsets=%d-%d (messages=%d)\n",
+			p.ID, p.Leader, p.Replicas, p.ISR, p.BeginningOffset, p.EndOffset, p.MessageCount)
+	}
+}
+
+var topicDeleteCmd = &cobra.Command{
+	Use:   "delete <topic-name>",
+	Short: "Delete a topic",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		topicName := args[0]
+		yes, _ := cmd.Flags().GetBool("yes")
+		adminAddr, _ := cmd.Flags().GetString("admin-addr")
+
+		prompt := fmt.Sprintf("This will permanently delete topic %q and all of its data.", topicName)
+		if !confirmDestructive(cmd.InOrStdin(), prompt, yes) {
+			fmt.Println("Aborted.")
+			return nil
+		}
+
+		admin := newAdminClient(adminAddr)
+		if err := admin.DeleteTopic(cmd.Context(), topicName); err != nil {
+			return fmt.Errorf("failed to delete topic %q: %w", topicName, err)
+		}
+
+		fmt.Printf("Topic %q deleted.\n", topicName)
+		return nil
+	},
+}
+
+// confirmDestructive prints what is about to happen and, unless skip is
+// true, asks the caller to confirm by reading a single line from in. It
+// returns true only when the answer is an explicit "y" or "yes" - anything
+// else (including a closed/empty input) is treated as "no", so a script
+// that forgets --yes fails safe instead of deleting on a read error.
+func confirmDestructive(in io.Reader, prompt string, skip bool) bool {
+	if skip {
+		return true
+	}
+	fmt.Printf("%s Continue? [y/N]: ", prompt)
+	scanner := bufio.NewScanner(in)
+	if !scanner.Scan() {
+		return false
+	}
+	answer := strings.ToLower(strings.TrimSpace(scanner.Text()))
+	return answer == "y" || answer == "yes"
 }
 
 var produceCmd = &cobra.Command{
@@ -354,6 +440,67 @@ var groupListCmd = &cobra.Command{
 	},
 }
 
+var groupDescribeCmd = &cobra.Command{
+	Use:   "describe <group-id>",
+	Short: "Describe a consumer group",
+	Long:  "Show a consumer group's state, protocol, coordinator, total lag, and per-member client id/host and assigned partitions.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		groupID := args[0]
+		adminAddr, _ := cmd.Flags().GetString("admin-addr")
+		admin := newAdminClient(adminAddr)
+
+		group, err := admin.ConsumerGroup(cmd.Context(), groupID)
+		if err != nil {
+			return fmt.Errorf("failed to describe consumer group %q: %w", groupID, err)
+		}
+
+		printGroupDescribe(group)
+		return nil
+	},
+}
+
+// printGroupDescribe renders a consumer group's detail and its members.
+func printGroupDescribe(g *ConsumerGroupInfo) {
+	fmt.Printf("Group: %s\n", g.GroupID)
+	fmt.Printf("  State:       %s\n", g.State)
+	fmt.Printf("  Protocol:    %s\n", g.Protocol)
+	fmt.Printf("  Coordinator: %d\n", g.Coordinator)
+	fmt.Printf("  Total Lag:   %d\n", g.TotalLag)
+	fmt.Println()
+	fmt.Printf("Members (%d):\n", len(g.Members))
+	for _, m := range g.Members {
+		fmt.Printf("  - %s  client_id=%s  client_host=%s  partitions=%v\n",
+			m.MemberID, m.ClientID, m.ClientHost, m.Partitions)
+	}
+}
+
+var groupDeleteCmd = &cobra.Command{
+	Use:   "delete <group-id>",
+	Short: "Delete a consumer group",
+	Long:  "Delete a consumer group and its committed offsets. Refuses groups that still have active members.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		groupID := args[0]
+		yes, _ := cmd.Flags().GetBool("yes")
+		adminAddr, _ := cmd.Flags().GetString("admin-addr")
+
+		prompt := fmt.Sprintf("This will permanently delete consumer group %q and its committed offsets.", groupID)
+		if !confirmDestructive(cmd.InOrStdin(), prompt, yes) {
+			fmt.Println("Aborted.")
+			return nil
+		}
+
+		admin := newAdminClient(adminAddr)
+		if err := admin.DeleteConsumerGroup(cmd.Context(), groupID); err != nil {
+			return fmt.Errorf("failed to delete consumer group %q: %w", groupID, err)
+		}
+
+		fmt.Printf("Consumer group %q deleted.\n", groupID)
+		return nil
+	},
+}
+
 func init() {
 	// Global flags
 	rootCmd.PersistentFlags().StringSliceP("brokers", "b", []string{"localhost:9092"},
@@ -362,8 +509,12 @@ func init() {
 	// Topic commands
 	topicCreateCmd.Flags().IntP("partitions", "p", 10, "Number of partitions")
 	topicCreateCmd.Flags().IntP("replication-factor", "r", 3, "Replication factor")
+	topicCmd.PersistentFlags().String("admin-addr", "localhost:8080", "Admin HTTP API address (host:port)")
+	topicDeleteCmd.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
 	topicCmd.AddCommand(topicCreateCmd)
 	topicCmd.AddCommand(topicListCmd)
+	topicCmd.AddCommand(topicDescribeCmd)
+	topicCmd.AddCommand(topicDeleteCmd)
 	rootCmd.AddCommand(topicCmd)
 
 	// Produce command
@@ -386,6 +537,9 @@ func init() {
 
 	// Consumer group commands
 	groupCmd.PersistentFlags().String("admin-addr", "localhost:8080", "Admin HTTP API address (host:port)")
+	groupDeleteCmd.Flags().BoolP("yes", "y", false, "Skip the confirmation prompt")
 	groupCmd.AddCommand(groupListCmd)
+	groupCmd.AddCommand(groupDescribeCmd)
+	groupCmd.AddCommand(groupDeleteCmd)
 	rootCmd.AddCommand(groupCmd)
 }
