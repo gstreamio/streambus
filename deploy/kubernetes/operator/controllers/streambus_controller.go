@@ -172,11 +172,13 @@ func (r *StreamBusClusterReconciler) reconcileHeadlessService(ctx context.Contex
 				{
 					Name:       "broker",
 					Port:       cluster.Spec.Config.Port,
+					Protocol:   corev1.ProtocolTCP,
 					TargetPort: intstr.FromString("broker"),
 				},
 				{
 					Name:       "raft",
 					Port:       7000,
+					Protocol:   corev1.ProtocolTCP,
 					TargetPort: intstr.FromString("raft"),
 				},
 			},
@@ -187,12 +189,7 @@ func (r *StreamBusClusterReconciler) reconcileHeadlessService(ctx context.Contex
 		return err
 	}
 
-	found := &corev1.Service{}
-	err := r.Get(ctx, types.NamespacedName{Name: service.Name, Namespace: service.Namespace}, found)
-	if err != nil && errors.IsNotFound(err) {
-		return r.Create(ctx, service)
-	}
-	return err
+	return r.reconcileService(ctx, service)
 }
 
 // reconcileClientService creates or updates the client service
@@ -210,11 +207,13 @@ func (r *StreamBusClusterReconciler) reconcileClientService(ctx context.Context,
 				{
 					Name:       "broker",
 					Port:       cluster.Spec.Config.Port,
+					Protocol:   corev1.ProtocolTCP,
 					TargetPort: intstr.FromString("broker"),
 				},
 				{
 					Name:       "http",
 					Port:       cluster.Spec.Config.HTTPPort,
+					Protocol:   corev1.ProtocolTCP,
 					TargetPort: intstr.FromString("http"),
 				},
 			},
@@ -225,37 +224,129 @@ func (r *StreamBusClusterReconciler) reconcileClientService(ctx context.Context,
 		return err
 	}
 
-	found := &corev1.Service{}
-	err := r.Get(ctx, types.NamespacedName{Name: service.Name, Namespace: service.Namespace}, found)
-	if err != nil && errors.IsNotFound(err) {
-		return r.Create(ctx, service)
-	}
-	return err
+	return r.reconcileService(ctx, service)
 }
 
-// reconcileStatefulSet creates or updates the StatefulSet
-func (r *StreamBusClusterReconciler) reconcileStatefulSet(ctx context.Context, cluster *streambusv1alpha1.StreamBusCluster) error {
-	statefulSet := r.buildStatefulSet(cluster)
-
-	if err := controllerutil.SetControllerReference(cluster, statefulSet, r.Scheme); err != nil {
+// reconcileService creates the desired Service if it doesn't exist yet, or
+// updates just the fields this operator owns (labels, selector, ports) on
+// the live object when they've drifted. It never submits desired wholesale:
+// ClusterIP and other fields are assigned by the API server and immutable
+// once set, so overwriting the object outright would blank them out (and,
+// for ClusterIP, be rejected).
+func (r *StreamBusClusterReconciler) reconcileService(ctx context.Context, desired *corev1.Service) error {
+	found := &corev1.Service{}
+	err := r.Get(ctx, types.NamespacedName{Name: desired.Name, Namespace: desired.Namespace}, found)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return r.Create(ctx, desired)
+		}
 		return err
 	}
 
-	found := &appsv1.StatefulSet{}
-	err := r.Get(ctx, types.NamespacedName{Name: statefulSet.Name, Namespace: statefulSet.Namespace}, found)
-	if err != nil && errors.IsNotFound(err) {
-		return r.Create(ctx, statefulSet)
-	} else if err != nil {
-		return err
-	}
-
-	// Update if replicas changed
-	if *found.Spec.Replicas != *statefulSet.Spec.Replicas {
-		found.Spec.Replicas = statefulSet.Spec.Replicas
+	if serviceNeedsUpdate(found, desired) {
+		found.Labels = desired.Labels
+		found.Spec.Selector = desired.Spec.Selector
+		found.Spec.Ports = desired.Spec.Ports
 		return r.Update(ctx, found)
 	}
 
 	return nil
+}
+
+// serviceNeedsUpdate reports whether the fields reconcileService owns have
+// drifted between the live and desired Service.
+func serviceNeedsUpdate(found, desired *corev1.Service) bool {
+	return !equality.Semantic.DeepEqual(found.Labels, desired.Labels) ||
+		!equality.Semantic.DeepEqual(found.Spec.Selector, desired.Spec.Selector) ||
+		!equality.Semantic.DeepEqual(found.Spec.Ports, desired.Spec.Ports)
+}
+
+// reconcileStatefulSet creates or updates the StatefulSet
+func (r *StreamBusClusterReconciler) reconcileStatefulSet(ctx context.Context, cluster *streambusv1alpha1.StreamBusCluster) error {
+	desired := r.buildStatefulSet(cluster)
+
+	if err := controllerutil.SetControllerReference(cluster, desired, r.Scheme); err != nil {
+		return err
+	}
+
+	found := &appsv1.StatefulSet{}
+	err := r.Get(ctx, types.NamespacedName{Name: desired.Name, Namespace: desired.Namespace}, found)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return r.Create(ctx, desired)
+		}
+		return err
+	}
+
+	if err := checkStatefulSetImmutableFields(found, desired); err != nil {
+		return err
+	}
+
+	if statefulSetNeedsUpdate(found, desired) {
+		applyStatefulSetUpdate(found, desired)
+		return r.Update(ctx, found)
+	}
+
+	return nil
+}
+
+// checkStatefulSetImmutableFields reports an error if converging to desired
+// would require changing a field the Kubernetes API server rejects on
+// Update (spec.serviceName, spec.selector, spec.volumeClaimTemplates).
+// Silently ignoring such drift would leave the cluster permanently out of
+// sync with its spec while Reconcile kept reporting success — the same
+// failure mode as never diffing at all, just one step further along.
+func checkStatefulSetImmutableFields(found, desired *appsv1.StatefulSet) error {
+	if found.Spec.ServiceName != desired.Spec.ServiceName {
+		return fmt.Errorf("cannot converge StatefulSet %s/%s: spec.serviceName is immutable", found.Namespace, found.Name)
+	}
+	if !equality.Semantic.DeepEqual(found.Spec.Selector, desired.Spec.Selector) {
+		return fmt.Errorf("cannot converge StatefulSet %s/%s: spec.selector is immutable", found.Namespace, found.Name)
+	}
+	if !equality.Semantic.DeepEqual(found.Spec.VolumeClaimTemplates, desired.Spec.VolumeClaimTemplates) {
+		return fmt.Errorf("cannot converge StatefulSet %s/%s: spec.volumeClaimTemplates is immutable, "+
+			"storage class/size cannot be changed after creation", found.Namespace, found.Name)
+	}
+	return nil
+}
+
+// statefulSetNeedsUpdate reports whether any field this operator keeps in
+// sync — replicas, the broker image, resources, container ports, and the
+// pod template's annotations/labels — has drifted from the live object.
+func statefulSetNeedsUpdate(found, desired *appsv1.StatefulSet) bool {
+	if *found.Spec.Replicas != *desired.Spec.Replicas {
+		return true
+	}
+	if !equality.Semantic.DeepEqual(found.Spec.Template.Annotations, desired.Spec.Template.Annotations) {
+		return true
+	}
+	if !equality.Semantic.DeepEqual(found.Spec.Template.Labels, desired.Spec.Template.Labels) {
+		return true
+	}
+
+	foundContainer := found.Spec.Template.Spec.Containers[0]
+	desiredContainer := desired.Spec.Template.Spec.Containers[0]
+	if foundContainer.Image != desiredContainer.Image {
+		return true
+	}
+	if !equality.Semantic.DeepEqual(foundContainer.Resources, desiredContainer.Resources) {
+		return true
+	}
+	return !equality.Semantic.DeepEqual(foundContainer.Ports, desiredContainer.Ports)
+}
+
+// applyStatefulSetUpdate copies the operator-owned fields from desired onto
+// found. It deliberately does not replace found.Spec.Template.Spec wholesale:
+// the API server can set fields this operator never does (e.g. a default
+// ServiceAccountName), and overwriting them every reconcile would make the
+// StatefulSet look perpetually out of sync, thrashing on every 30s loop.
+func applyStatefulSetUpdate(found, desired *appsv1.StatefulSet) {
+	found.Spec.Replicas = desired.Spec.Replicas
+	found.Spec.Template.Annotations = desired.Spec.Template.Annotations
+	found.Spec.Template.Labels = desired.Spec.Template.Labels
+	found.Spec.Template.Spec.Containers[0].Image = desired.Spec.Template.Spec.Containers[0].Image
+	found.Spec.Template.Spec.Containers[0].Resources = desired.Spec.Template.Spec.Containers[0].Resources
+	found.Spec.Template.Spec.Containers[0].Ports = desired.Spec.Template.Spec.Containers[0].Ports
 }
 
 // buildStatefulSet builds the StatefulSet specification
@@ -292,22 +383,30 @@ func (r *StreamBusClusterReconciler) buildStatefulSet(cluster *streambusv1alpha1
 							Name:            "streambus",
 							Image:           r.getImage(cluster),
 							ImagePullPolicy: cluster.Spec.Image.PullPolicy,
+							// Protocol is set explicitly (rather than left for the API
+							// server to default to TCP) so a fetched StatefulSet compares
+							// equal to a freshly built one in statefulSetNeedsUpdate instead
+							// of looking like permanent drift.
 							Ports: []corev1.ContainerPort{
 								{
 									Name:          "broker",
 									ContainerPort: cluster.Spec.Config.Port,
+									Protocol:      corev1.ProtocolTCP,
 								},
 								{
 									Name:          "http",
 									ContainerPort: cluster.Spec.Config.HTTPPort,
+									Protocol:      corev1.ProtocolTCP,
 								},
 								{
 									Name:          "grpc",
 									ContainerPort: cluster.Spec.Config.GRPCPort,
+									Protocol:      corev1.ProtocolTCP,
 								},
 								{
 									Name:          "raft",
 									ContainerPort: 7000,
+									Protocol:      corev1.ProtocolTCP,
 								},
 							},
 							Env: r.buildEnv(cluster),
