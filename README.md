@@ -479,12 +479,13 @@ docker-compose up -d
 
 ### Known Limitations ⚠️
 
-- **Writing a record is a one-way upgrade.** This version writes record format
-  v3, which carries each record's producer identity. It reads v0–v3, so an
-  upgrade needs no migration — but an *older* broker cannot read a v3 record,
-  and nothing gates the write version. The first append on an upgraded broker
-  puts a v3 record on that partition, so a rolling deploy cannot cleanly roll
-  back past that point for partitions the upgraded broker has written to.
+- **Pinning the record format to v2 disables transactions.** A rolling upgrade
+  can set `storage.message_format_version: v2` so an upgraded broker keeps
+  writing a format older brokers can read, then switch to v3 once the fleet is
+  fully upgraded. v2 has nowhere to carry producer identity, though, so while
+  it is selected a transactional produce is refused outright rather than
+  written without the identity `read_committed` needs to hide it after an
+  abort.
 - **Cross-cluster replication is at-least-once, not exactly-once.** A source
   offset advances only after a confirmed produce to the target, but
   checkpoints persist on a timer rather than per message, so a crash between a

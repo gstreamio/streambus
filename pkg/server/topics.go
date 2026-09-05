@@ -20,6 +20,13 @@ type TopicManager struct {
 	topics     map[string]*Topic
 	dataDir    string
 	storageDir string
+
+	// messageFormatVersion is the storage write-format override applied to
+	// every partition log this manager opens or creates (see
+	// storage.Config.MessageFormatVersion). storage.MessageFormatUnset - the
+	// zero value, and what NewTopicManager leaves it at - means "use
+	// storage.NewLog's own default (v3)".
+	messageFormatVersion storage.MessageFormatVersion
 }
 
 // Topic represents a topic with multiple partitions
@@ -77,15 +84,32 @@ type abortedRange struct {
 	end           int64
 }
 
-// NewTopicManager creates a new topic manager
+// NewTopicManager creates a new topic manager that writes partitions in
+// storage's default record format (v3). Existing callers that have no
+// opinion on write format keep using this unchanged; see
+// NewTopicManagerWithMessageFormatVersion for the override.
 func NewTopicManager(dataDir string) *TopicManager {
+	return NewTopicManagerWithMessageFormatVersion(dataDir, storage.MessageFormatUnset)
+}
+
+// NewTopicManagerWithMessageFormatVersion creates a new topic manager whose
+// partitions - both recovered on load and created afterward - write records
+// in the given format (see storage.Config.MessageFormatVersion). Passing
+// storage.MessageFormatUnset is equivalent to NewTopicManager: storage.NewLog
+// treats it as "use the default".
+//
+// This is the connection that lets storage.message_format_version
+// (cmd/broker -> broker.Config -> here) actually reach the write path,
+// rather than being validated at startup and then discarded.
+func NewTopicManagerWithMessageFormatVersion(dataDir string, messageFormatVersion storage.MessageFormatVersion) *TopicManager {
 	storageDir := filepath.Join(dataDir, "topics")
 	_ = os.MkdirAll(storageDir, 0750)
 
 	tm := &TopicManager{
-		topics:     make(map[string]*Topic),
-		dataDir:    dataDir,
-		storageDir: storageDir,
+		topics:               make(map[string]*Topic),
+		dataDir:              dataDir,
+		storageDir:           storageDir,
+		messageFormatVersion: messageFormatVersion,
 	}
 
 	// Load existing topics from disk
@@ -143,6 +167,7 @@ func (tm *TopicManager) loadExistingTopics() error {
 				zap.Uint32("partition", partitionID),
 				zap.String("dir", partitionDir))
 			config := storage.DefaultConfig()
+			config.MessageFormatVersion = tm.messageFormatVersion
 			log, err := storage.NewLog(partitionDir, *config)
 			if err != nil {
 				logger.Warn("failed to create log for partition",
@@ -318,6 +343,7 @@ func (tm *TopicManager) createPartition(topic string, partitionID uint32) (*Part
 
 	// Create log config
 	config := storage.DefaultConfig()
+	config.MessageFormatVersion = tm.messageFormatVersion
 
 	// Create new log for partition
 	log, err := storage.NewLog(partitionDir, *config)

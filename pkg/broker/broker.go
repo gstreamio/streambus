@@ -20,6 +20,7 @@ import (
 	"github.com/gstreamio/streambus/pkg/schema"
 	"github.com/gstreamio/streambus/pkg/security"
 	"github.com/gstreamio/streambus/pkg/server"
+	"github.com/gstreamio/streambus/pkg/storage"
 	"github.com/gstreamio/streambus/pkg/tenancy"
 	"github.com/gstreamio/streambus/pkg/transaction"
 )
@@ -37,6 +38,14 @@ type Config struct {
 
 	// Storage configuration
 	DataDir string
+
+	// MessageFormatVersion selects the on-disk record format the broker's
+	// partitions write new records in (see storage.Config.MessageFormatVersion
+	// for the full rationale and the transactional-isolation cost of v2).
+	// The zero value, storage.MessageFormatUnset, means "use the storage
+	// package's default (v3)" - unchanged behaviour for every caller that
+	// never sets this.
+	MessageFormatVersion storage.MessageFormatVersion
 
 	// Raft configuration
 	RaftDataDir string
@@ -344,7 +353,7 @@ func (b *Broker) initStorage() error {
 		"data_dir": b.config.DataDir,
 	})
 
-	b.topicManager = server.NewTopicManager(b.config.DataDir)
+	b.topicManager = server.NewTopicManagerWithMessageFormatVersion(b.config.DataDir, b.config.MessageFormatVersion)
 
 	topics := b.topicManager.ListTopics()
 	b.logger.Info("Storage engine initialized", logging.Fields{
@@ -709,7 +718,7 @@ func (b *Broker) initServer() error {
 	// first, so b.topicManager is set; fall back to opening one here only if a
 	// caller drove initServer directly (as some tests do).
 	if b.topicManager == nil {
-		b.topicManager = server.NewTopicManager(b.config.DataDir)
+		b.topicManager = server.NewTopicManagerWithMessageFormatVersion(b.config.DataDir, b.config.MessageFormatVersion)
 	}
 	baseHandler := server.NewHandlerWithTopicManager(b.topicManager)
 

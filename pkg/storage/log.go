@@ -76,6 +76,16 @@ func (l *logImpl) Append(batch *MessageBatch) ([]Offset, error) {
 		return nil, ErrLogClosed
 	}
 
+	// A transactional batch (nonzero ProducerID) cannot be downgraded to v2:
+	// v2 has nowhere to persist producer identity, so writing it anyway
+	// would silently drop what read_committed needs to keep hiding this
+	// transaction's records if it is later aborted. Refuse up front, before
+	// any message is serialized or written, rather than discovering this
+	// partway through the batch.
+	if l.config.MessageFormatVersion == MessageFormatV2 && batch.ProducerID != 0 {
+		return nil, fmt.Errorf("%w: producer %d epoch %d", ErrTransactionalRecordNeedsV3, batch.ProducerID, batch.ProducerEpoch)
+	}
+
 	// Assign offsets to messages and write them individually
 	offsets := make([]Offset, len(batch.Messages))
 	currentOffset := atomic.LoadInt64(&l.nextOffset)
@@ -619,8 +629,14 @@ func (l *logImpl) deserializeBatch(data []byte) (*MessageBatch, error) {
 // v3 record's key/value/header layout is byte-identical to v2's and the two
 // share one parser (parseRecordBody) for everything but the trailing fields.
 //
-// Every new record is written in v3; v0, v1 and v2 survive only to read
-// records written before v3 existed.
+// Every new record is written in v3 by default; v0 and v1 survive only to
+// read records written before v3 existed. v2 is the exception: it also
+// remains a live write path, selected via Config.MessageFormatVersion so a
+// rolling upgrade can hold a fleet on v2 output until every broker can read
+// v3, at the cost of losing producer identity (and therefore transactional
+// isolation) for whatever is written while pinned there - see
+// Config.MessageFormatVersion and Append's rejection of transactional
+// records under v2.
 //
 // recordMagicV2 is chosen so it cannot be mistaken for either older format:
 // read as a v0 key length it is far above the 1 MB sanity bound, and read as
@@ -640,17 +656,24 @@ const (
 	maxRecordFieldLen = 1024 * 1024 * 10
 )
 
-// serializeMessage serializes a single message in the current record format.
-//
-// Everything is written as v3. See the record format constants above for why
-// a magic-prefixed format is needed at all, and why v3 exists on top of v2.
+// serializeMessage serializes a single message in the log's configured
+// write format (Config.MessageFormatVersion): v3 by default, or v2 when an
+// operator has pinned the fleet there during a rolling upgrade. See the
+// record format constants above for why a magic-prefixed format is needed at
+// all, and why v3 exists on top of v2, and see Config.MessageFormatVersion
+// for why writing v2 is never reachable here for a transactional message -
+// Append rejects those before this is ever called.
 func (l *logImpl) serializeMessage(msg *Message) []byte {
+	if l.config.MessageFormatVersion == MessageFormatV2 {
+		return serializeMessageV2(msg)
+	}
 	return serializeMessageV3(msg)
 }
 
 // serializeMessageV2 writes a message in the header-carrying record format,
-// without producer identity. Still used for reading pre-v3 records back in
-// tests; production writes go through serializeMessageV3.
+// without producer identity. Used directly by tests exercising the pre-v3
+// format, and by production writes when Config.MessageFormatVersion pins the
+// log to v2 during a rolling upgrade (see serializeMessage).
 func serializeMessageV2(msg *Message) []byte {
 	names := sortedHeaderNames(msg.Headers)
 	buf := make([]byte, 5+recordBodySize(msg, names))
