@@ -287,6 +287,7 @@ type PeriodicChecker struct {
 	last     Check
 	stopCh   chan struct{}
 	doneCh   chan struct{}
+	stopOnce sync.Once
 }
 
 // NewPeriodicChecker creates a health checker that runs periodically
@@ -310,8 +311,14 @@ func (pc *PeriodicChecker) Start() {
 }
 
 // Stop stops periodic health checking
+// Stop halts periodic checking and waits for the background goroutine to
+// exit. It is safe to call more than once, which lets a caller stop the
+// checker at a chosen point and still defer a Stop for the error paths -
+// closing the channel twice would otherwise panic.
 func (pc *PeriodicChecker) Stop() {
-	close(pc.stopCh)
+	pc.stopOnce.Do(func() {
+		close(pc.stopCh)
+	})
 	<-pc.doneCh
 }
 
