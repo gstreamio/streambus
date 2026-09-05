@@ -3,9 +3,13 @@
 @tailwind utilities;
 
 @layer base {
-  * {
-    @apply border-border;
-  }
+  /* `* { @apply border-border; }` used to sit here. border-border is a
+     shadcn/ui idiom that needs a `border` colour token and a --border CSS
+     variable, neither of which this project defines - it was copied in
+     without the rest of that setup. Tailwind's preflight already gives every
+     element a sensible default border colour, and every rule below that draws
+     a border sets its own, so nothing depended on it. It only ever went
+     unnoticed because PostCSS was not wired up, so Tailwind never ran. */
   body {
     @apply bg-gray-50 text-gray-900;
   }

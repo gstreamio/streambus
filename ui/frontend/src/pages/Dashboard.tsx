@@ -1,7 +1,22 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { Activity, Database, Users, TrendingUp } from 'lucide-react'
-import { formatNumber, formatBytes } from '../lib/utils'
+import { formatNumber } from '../lib/utils'
+
+// Shape this page reads from the cluster endpoint.
+//
+// The API client is untyped, so without this the callback parameters below
+// are implicitly any and fail strict mode. It is deliberately local and
+// minimal: the broker's /api/v1/cluster response does not currently carry a
+// brokers array at all, so a shared type here would describe a contract that
+// does not exist. See the frontend notes in the pull request.
+interface DashboardBroker {
+  id: number
+  host: string
+  status: string
+  leader: boolean
+  uptime: string
+}
 
 export default function Dashboard() {
   const { data: cluster } = useQuery({
@@ -102,7 +117,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-600">Online Brokers</span>
               <span className="text-sm font-semibold">
-                {cluster?.brokers.filter(b => b.status === 'online').length} / {cluster?.brokers.length}
+                {cluster?.brokers.filter((b: DashboardBroker) => b.status === 'online').length} / {cluster?.brokers.length}
               </span>
             </div>
           </div>
@@ -162,7 +177,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {cluster?.brokers.map((broker) => (
+                {cluster?.brokers.map((broker: DashboardBroker) => (
                   <tr key={broker.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">
                       {broker.id}

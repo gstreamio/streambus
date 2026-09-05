@@ -12,7 +12,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts'
-import { formatNumber, formatBytes } from '../lib/utils'
+import { formatNumber } from '../lib/utils'
 
 export default function Metrics() {
   const { data: throughput } = useQuery({

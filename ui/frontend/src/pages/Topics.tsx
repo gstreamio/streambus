@@ -73,7 +73,7 @@ export default function Topics() {
                         key={key}
                         className="inline-flex items-center px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded"
                       >
-                        {key}: {value}
+                        {key}: {String(value)}
                       </span>
                     ))}
                   </div>

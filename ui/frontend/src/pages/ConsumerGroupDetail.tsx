@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useParams, Link } from 'react-router-dom'
 import { api } from '../lib/api'
-import { ArrowLeft, Users, AlertCircle } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { formatNumber } from '../lib/utils'
 
 export default function ConsumerGroupDetail() {

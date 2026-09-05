@@ -1,6 +1,8 @@
 # Multi-stage Dockerfile for StreamBus UI
 # Stage 1: Build frontend
-FROM node:18-alpine AS frontend-builder
+# Vite 8 requires Node ^20.19 || >=22.12; node:18 could not build the frontend
+# at all after the upgrade.
+FROM node:22-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
@@ -15,7 +17,9 @@ COPY ui/frontend ./
 RUN npm run build
 
 # Stage 2: Build backend
-FROM golang:1.21-alpine AS backend-builder
+# Matches the toolchain in go.mod. This was pinned at 1.21 long after the
+# module moved on, which would fail the build the moment it was exercised.
+FROM golang:1.26-alpine AS backend-builder
 
 WORKDIR /app
 
