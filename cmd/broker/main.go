@@ -65,6 +65,11 @@ func initConfig() {
 	}
 
 	viper.SetEnvPrefix("STREAMBUS")
+	// Without this replacer, AutomaticEnv looks up the nested key server.port
+	// as STREAMBUS_SERVER.PORT. A dot cannot appear in an environment variable
+	// name, so every nested setting - which is all of them - was silently
+	// unreachable from the environment. STREAMBUS_SERVER_PORT now works.
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {
@@ -230,6 +235,11 @@ func parseConfig() (*broker.Config, error) {
 		logLevel = "info"
 	}
 
+	securityConfig, err := parseSecurityConfig(viper.GetViper())
+	if err != nil {
+		return nil, err
+	}
+
 	return &broker.Config{
 		BrokerID:    brokerID,
 		Host:        host,
@@ -240,5 +250,6 @@ func parseConfig() (*broker.Config, error) {
 		RaftDataDir: raftDataDir,
 		RaftPeers:   raftPeers,
 		LogLevel:    logLevel,
+		Security:    securityConfig,
 	}, nil
 }

@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -24,6 +25,30 @@ import (
 
 const (
 	finalizerName = "streambus.io/finalizer"
+)
+
+const (
+	// raftPort is the port brokers use to reach each other for Raft. It is
+	// also published as a container port, and the peer list in the ConfigMap
+	// must agree with it - a broker binds its Raft transport to whatever
+	// address the peer list gives for its own id.
+	raftPort = 7000
+
+	// configMountPath is where the broker's ConfigMap is mounted. The image's
+	// default command points at /config/broker.yaml, which is not where this
+	// operator mounts anything, so the container command below passes an
+	// explicit --config rather than relying on that default.
+	configMountPath = "/etc/streambus"
+
+	// tlsMountPath and saslMountPath are where spec.security's Secrets are
+	// mounted. The broker reads certificates from the first and one file per
+	// user from the second.
+	tlsMountPath  = "/etc/streambus/tls"
+	saslMountPath = "/etc/streambus/sasl"
+
+	// brokerBinary is the image's entrypoint. The command below wraps it in a
+	// shell to derive the per-pod broker id, so it has to name the binary.
+	brokerBinary = "/app/streambus-broker"
 )
 
 // StreamBusClusterReconciler reconciles a StreamBusCluster object
@@ -409,22 +434,10 @@ func (r *StreamBusClusterReconciler) buildStatefulSet(cluster *streambusv1alpha1
 									Protocol:      corev1.ProtocolTCP,
 								},
 							},
-							Env: r.buildEnv(cluster),
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "data",
-									MountPath: "/data",
-								},
-								{
-									Name:      "raft-data",
-									MountPath: "/raft",
-								},
-								{
-									Name:      "config",
-									MountPath: "/etc/streambus",
-								},
-							},
-							Resources: cluster.Spec.Resources,
+							Command:      buildCommand(),
+							Env:          r.buildEnv(cluster),
+							VolumeMounts: buildVolumeMounts(cluster),
+							Resources:    cluster.Spec.Resources,
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
@@ -454,18 +467,7 @@ func (r *StreamBusClusterReconciler) buildStatefulSet(cluster *streambusv1alpha1
 					Affinity:     cluster.Spec.Affinity,
 					Tolerations:  cluster.Spec.Tolerations,
 					NodeSelector: cluster.Spec.NodeSelector,
-					Volumes: []corev1.Volume{
-						{
-							Name: "config",
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{
-										Name: cluster.Name + "-config",
-									},
-								},
-							},
-						},
-					},
+					Volumes:      buildVolumes(cluster),
 				},
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
@@ -560,23 +562,182 @@ func (r *StreamBusClusterReconciler) buildEnv(cluster *streambusv1alpha1.StreamB
 
 // generateConfig generates configuration for the cluster
 func (r *StreamBusClusterReconciler) generateConfig(cluster *streambusv1alpha1.StreamBusCluster) map[string]string {
-	config := map[string]string{
-		"broker.yaml": fmt.Sprintf(`
-log_level: %s
-port: %d
-http_port: %d
-grpc_port: %d
-data_dir: /data
-raft_data_dir: /raft
-multi_tenancy_enabled: %v
-`, cluster.Spec.Config.LogLevel,
-			cluster.Spec.Config.Port,
-			cluster.Spec.Config.HTTPPort,
-			cluster.Spec.Config.GRPCPort,
-			cluster.Spec.MultiTenancy.Enabled),
+	var b strings.Builder
+
+	// These keys are nested because that is what the broker actually reads
+	// (cmd/broker/main.go looks up server.port, storage.data_dir,
+	// cluster.raft.data_dir and observability.logging.level). An earlier
+	// version of this function emitted the same settings as flat top-level
+	// keys, which viper never matched, so every value here was silently
+	// ignored and the broker fell back to defaults - or, for the required
+	// ones, refused to start at all.
+	//
+	// server.broker_id is deliberately absent: every pod mounts this same
+	// ConfigMap, so the id has to be per-pod and is supplied through the
+	// environment instead (see buildCommand).
+	fmt.Fprintf(&b, "server:\n  host: 0.0.0.0\n  port: %d\n  http_port: %d\n  grpc_port: %d\n",
+		cluster.Spec.Config.Port, cluster.Spec.Config.HTTPPort, cluster.Spec.Config.GRPCPort)
+	b.WriteString("storage:\n  data_dir: /data\n")
+	b.WriteString("cluster:\n  raft:\n    data_dir: /raft\n  peers:\n")
+	for _, peer := range raftPeers(cluster) {
+		fmt.Fprintf(&b, "    - %q\n", peer)
+	}
+	fmt.Fprintf(&b, "observability:\n  logging:\n    level: %s\n", cluster.Spec.Config.LogLevel)
+	fmt.Fprintf(&b, "multi_tenancy_enabled: %v\n", cluster.Spec.MultiTenancy.Enabled)
+
+	writeSecurityConfig(&b, cluster)
+
+	return map[string]string{"broker.yaml": b.String()}
+}
+
+// raftPeers builds the peer list every broker in the cluster shares. Each
+// entry is "id:host:port" as the broker parses it, addressing pods through the
+// headless Service so a restarted pod keeps a stable name.
+//
+// Broker ids are the pod ordinal plus one, because the broker treats id 0 as
+// unset and refuses to start on it.
+func raftPeers(cluster *streambusv1alpha1.StreamBusCluster) []string {
+	peers := make([]string, 0, cluster.Spec.Replicas)
+	for i := int32(0); i < cluster.Spec.Replicas; i++ {
+		peers = append(peers, fmt.Sprintf("%d:%s-%d.%s-headless.%s.svc.cluster.local:%d",
+			i+1, cluster.Name, i, cluster.Name, cluster.Namespace, raftPort))
+	}
+	return peers
+}
+
+// writeSecurityConfig renders spec.security into the broker's security
+// section. Before this existed the whole spec.security block was inert: the
+// fields were accepted by the API server, validated, and then read by nothing,
+// so a cluster declaring TLS and SASL came up completely open.
+//
+// Nothing is written when security is disabled, so the broker keeps treating
+// an absent section as "no security" rather than receiving an empty block it
+// would reject.
+func writeSecurityConfig(b *strings.Builder, cluster *streambusv1alpha1.StreamBusCluster) {
+	sec := cluster.Spec.Security
+	if !sec.Enabled {
+		return
 	}
 
-	return config
+	b.WriteString("security:\n  enabled: true\n")
+
+	if sec.TLS.Enabled {
+		// Paths point at the mounted Secret, whose keys follow the convention
+		// of a kubernetes.io/tls Secret (tls.crt, tls.key) plus an optional
+		// ca.crt used to verify client certificates.
+		b.WriteString("  tls:\n    enabled: true\n")
+		fmt.Fprintf(b, "    cert_file: %s/tls.crt\n", tlsMountPath)
+		fmt.Fprintf(b, "    key_file: %s/tls.key\n", tlsMountPath)
+		fmt.Fprintf(b, "    ca_file: %s/ca.crt\n", tlsMountPath)
+	}
+
+	if sec.Authentication.Enabled {
+		b.WriteString("  sasl:\n    enabled: true\n")
+		fmt.Fprintf(b, "    mechanisms: [%q]\n", sec.Authentication.SASL.Mechanism)
+		fmt.Fprintf(b, "    users_dir: %s\n", saslMountPath)
+	}
+}
+
+// buildCommand wraps the broker binary in a shell so the per-pod Raft id can
+// be derived from the pod's own name.
+//
+// Every pod mounts the same ConfigMap, so server.broker_id cannot live there.
+// The downward API can supply the pod name but cannot do arithmetic, and the
+// broker rejects id 0 as "unset" - so the ordinal has to be incremented
+// somewhere, and a shell is the only place available without an init
+// container. STREAMBUS_SERVER_BROKER_ID reaches viper's nested server.broker_id
+// through the env key replacer installed in cmd/broker.
+//
+// The explicit --config matters too: the image's default command points at
+// /config/broker.yaml, which this operator does not mount, and the broker
+// exits non-zero when an explicitly named config file is missing.
+func buildCommand() []string {
+	return []string{
+		"/bin/sh",
+		"-c",
+		fmt.Sprintf(
+			"set -e; export STREAMBUS_SERVER_BROKER_ID=$(( ${POD_NAME##*-} + 1 )); "+
+				"exec %s --config=%s/broker.yaml",
+			brokerBinary, configMountPath),
+	}
+}
+
+// buildVolumeMounts returns the container's mounts, adding the TLS and SASL
+// Secret mounts only when spec.security actually asks for them.
+func buildVolumeMounts(cluster *streambusv1alpha1.StreamBusCluster) []corev1.VolumeMount {
+	mounts := []corev1.VolumeMount{
+		{Name: "data", MountPath: "/data"},
+		{Name: "raft-data", MountPath: "/raft"},
+		{Name: "config", MountPath: configMountPath},
+	}
+
+	if tlsSecretName(cluster) != "" {
+		mounts = append(mounts, corev1.VolumeMount{
+			Name: "tls", MountPath: tlsMountPath, ReadOnly: true,
+		})
+	}
+	if saslSecretName(cluster) != "" {
+		mounts = append(mounts, corev1.VolumeMount{
+			Name: "sasl", MountPath: saslMountPath, ReadOnly: true,
+		})
+	}
+	return mounts
+}
+
+// buildVolumes returns the pod's volumes, including the security Secrets when
+// they are configured.
+func buildVolumes(cluster *streambusv1alpha1.StreamBusCluster) []corev1.Volume {
+	volumes := []corev1.Volume{
+		{
+			Name: "config",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: cluster.Name + "-config",
+					},
+				},
+			},
+		},
+	}
+
+	if name := tlsSecretName(cluster); name != "" {
+		volumes = append(volumes, corev1.Volume{
+			Name: "tls",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{SecretName: name},
+			},
+		})
+	}
+	if name := saslSecretName(cluster); name != "" {
+		volumes = append(volumes, corev1.Volume{
+			Name: "sasl",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{SecretName: name},
+			},
+		})
+	}
+	return volumes
+}
+
+// tlsSecretName returns the Secret holding TLS material, or "" when TLS is not
+// enabled. The name is only meaningful when security and TLS are both on, so
+// the checks live here rather than at each call site.
+func tlsSecretName(cluster *streambusv1alpha1.StreamBusCluster) string {
+	sec := cluster.Spec.Security
+	if !sec.Enabled || !sec.TLS.Enabled {
+		return ""
+	}
+	return sec.TLS.SecretName
+}
+
+// saslSecretName returns the Secret holding SASL credentials, or "" when
+// authentication is not enabled.
+func saslSecretName(cluster *streambusv1alpha1.StreamBusCluster) string {
+	sec := cluster.Spec.Security
+	if !sec.Enabled || !sec.Authentication.Enabled {
+		return ""
+	}
+	return sec.Authentication.SASL.SecretName
 }
 
 // getImage returns the full image name
