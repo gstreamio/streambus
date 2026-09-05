@@ -5,6 +5,31 @@ All notable changes to StreamBus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0](https://github.com/gstreamio/streambus/compare/v1.1.0...v2.0.0) (2026-09-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* GroupConsumer.Subscribe/CommitSync and TransactionalProducer.CommitTransaction/SendOffsetsToTransaction now return errors where they previously returned nil.
+
+### Features
+
+* close the remaining README known limitations ([#27](https://github.com/gstreamio/streambus/issues/27)) ([9bda3df](https://github.com/gstreamio/streambus/commit/9bda3dfec80a5aaac12f0acc4b81a6b2e699b4a5))
+* implement all documented README known limitations ([#26](https://github.com/gstreamio/streambus/issues/26)) ([ce0c351](https://github.com/gstreamio/streambus/commit/ce0c351b6abb26daef4be98f1aae1715c4fe5fe0))
+
+
+### Bug Fixes
+
+* bound the unchecked wire conversions gosec flagged ([#28](https://github.com/gstreamio/streambus/issues/28)) ([4c11531](https://github.com/gstreamio/streambus/commit/4c115311e51ff22fbb96b75d85296a0357d40efb))
+* **client:** lazily resolve default -1 StartOffset to latest on first fetch ([#19](https://github.com/gstreamio/streambus/issues/19)) ([bbe8f50](https://github.com/gstreamio/streambus/commit/bbe8f50366ed7314a2f1e497e7393262e359e5f9))
+* **client:** Producer.Close no longer discards the final FlushAll error ([#18](https://github.com/gstreamio/streambus/issues/18)) ([de245b3](https://github.com/gstreamio/streambus/commit/de245b3fdddee94bff654c8dd43632931a17fb4a))
+* **consensus:** stop RaftNode.run() blocking Stop() forever on a full errorCh ([#22](https://github.com/gstreamio/streambus/issues/22)) ([f0bb244](https://github.com/gstreamio/streambus/commit/f0bb244dbd0b69b18e17ca15f8490bbf1cd4dfdd))
+* dependency footprint, honest failure modes, and ctx propagation across the client ([#16](https://github.com/gstreamio/streambus/issues/16)) ([42fea0c](https://github.com/gstreamio/streambus/commit/42fea0c6aaf2ce4ae89b323592bcae05e9584fff))
+* **deps:** bump Go toolchain to 1.26.6 and grpc to v1.83.0 for CVE remediation ([#21](https://github.com/gstreamio/streambus/issues/21)) ([019c525](https://github.com/gstreamio/streambus/commit/019c52597aaf07ca44d2b3020105ea39127eb3f6))
+* **health:** synchronize callCount read in TestPeriodicChecker ([#25](https://github.com/gstreamio/streambus/issues/25)) ([854b0c6](https://github.com/gstreamio/streambus/commit/854b0c6a88a3d06aebaa36519c66c9a76948e974))
+* **replication,security,cluster:** eliminate silent-failure and race bugs found in audit sweep ([#24](https://github.com/gstreamio/streambus/issues/24)) ([6f9dee2](https://github.com/gstreamio/streambus/commit/6f9dee254e3868513e05894c0068d90b6194ed5c))
+* **sdk,bench,ui-backend:** correct stale module paths to gstreamio/streambus ([#23](https://github.com/gstreamio/streambus/issues/23)) ([57dc299](https://github.com/gstreamio/streambus/commit/57dc299b9bdbaffd2418efb2069ffef380836c47))
+
 ## [1.1.0](https://github.com/gstreamio/streambus/compare/v1.0.1...v1.1.0) (2026-03-15)
 
 
