@@ -470,9 +470,6 @@ StreamBus is currently in **active development** with production-ready core comp
 
 ### In Development 🚧
 
-- Cross-datacenter replication data plane (link management, lifecycle and
-  persistence are implemented; the replication stream itself is still
-  maturing)
 - Kubernetes operator
 - Additional admin tooling
 - Extended test coverage (current: 81%, target: 85%+)
@@ -487,6 +484,13 @@ StreamBus is currently in **active development** with production-ready core comp
   a producer that streams records as it goes would leave them visible once the
   abort marker lifts the barrier. Suppressing those needs the storage read
   path to carry each record's producer identity, which it does not yet.
+- **Cross-cluster replication is at-least-once, not exactly-once.** A source
+  offset advances only after a confirmed produce to the target, but
+  checkpoints persist on a timer rather than per message, so a crash between a
+  successful produce and the next checkpoint replays those messages on
+  restart. Target offsets are inferred rather than reported: the target
+  partition is assumed to have no other writer, which is the standard mirror
+  topology but is an assumption, not something the code can verify.
 
 ---
 

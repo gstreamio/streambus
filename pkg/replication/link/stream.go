@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"sync"
 	"time"
 
 	"github.com/gstreamio/streambus/pkg/client"
+	"github.com/gstreamio/streambus/pkg/protocol"
 )
 
 // ErrTLSNotImplemented is returned when a replication link's cluster
@@ -17,6 +19,14 @@ import (
 // avoids silently replicating data across cluster boundaries in plaintext
 // when an operator explicitly configured encryption.
 var ErrTLSNotImplemented = errors.New("replication link: EnableTLS is set but TLS is not yet implemented for cross-cluster replication connections")
+
+// ErrTransformExpressionsNotImplemented is returned when a link's Transform
+// config sets KeyTransform or ValueTransform. Neither this package nor
+// anywhere else in this codebase implements an expression language for
+// these fields; silently ignoring them would replicate messages the
+// operator explicitly asked to have their key or value rewritten,
+// unrewritten. This fails the same way ErrTLSNotImplemented does, instead.
+var ErrTransformExpressionsNotImplemented = errors.New("replication link: Transform.KeyTransform and Transform.ValueTransform are not implemented; only header transforms (HeaderTransforms, AddHeaders, RemoveHeaders) are supported")
 
 // StreamHandler handles the replication stream for a single link
 type StreamHandler struct {
@@ -27,6 +37,11 @@ type StreamHandler struct {
 
 	// targetClient is the client for the target cluster
 	targetClient *client.Client
+
+	// targetProducer sends replicated messages to the target cluster.
+	// Batching is deliberately disabled (see Start): a produce must actually
+	// reach the broker before it is checkpointed.
+	targetProducer *client.Producer
 
 	// partitionWorkers tracks running partition workers
 	partitionWorkers map[string]*partitionWorker
@@ -72,27 +87,53 @@ type StreamHandler struct {
 		include []*regexp.Regexp
 		exclude []*regexp.Regexp
 	}
+
+	// startupIssues holds problems discovered once, at Start (such as a
+	// target topic with fewer partitions than the source). performHealthCheck
+	// re-seeds h.health.Issues with these on every run, since it otherwise
+	// resets Issues to nil each cycle and a startup-time problem does not go
+	// away on its own. Written only during Start, before healthCheckLoop
+	// starts reading it, so it needs no lock of its own.
+	startupIssues []string
+
+	// dataPlaneConfirmed is set once a real fetch against the source has
+	// succeeded - proof this link can actually move data, not just that it
+	// connected. Guarded by statsMu; performHealthCheck will not report
+	// "healthy" until this is true, however clean Issues/Warnings look.
+	dataPlaneConfirmed bool
 }
 
-// partitionWorker handles replication for a single partition
+// partitionWorker handles replication for a single partition. Its mutable
+// fields (sourceOffset, targetOffset, errors, pendingMappings) are owned by
+// the single goroutine running run() - the only synchronization they need
+// is ctx/cancel to stop that goroutine.
 type partitionWorker struct {
 	topic     string
 	partition int32
 	handler   *StreamHandler
 
+	// targetTopic is the topic this partition replicates into - the source
+	// topic name with TopicPrefix/TopicConfig applied. Resolved once, at
+	// creation, rather than recomputed on every batch.
+	targetTopic string
+
 	ctx    context.Context
 	cancel context.CancelFunc
-	wg     sync.WaitGroup //nolint:unused // Used to track partition worker goroutines
 
-	// Current offsets
+	// Current offsets. Source and target offsets are unrelated sequences -
+	// the target partition has its own offset numbering - so these are
+	// tracked and checkpointed independently; see recordOffsetMappings for
+	// how the two are tied together.
 	sourceOffset int64
 	targetOffset int64
 
-	// Metrics
-	messagesReplicated int64 //nolint:unused // Reserved for future use in metrics collection
-	bytesReplicated    int64 //nolint:unused // Reserved for future use in metrics collection
-	errors             int64
-	lastReplicatedAt   time.Time //nolint:unused // Reserved for tracking replication timestamp
+	errors int64
+
+	// pendingMappings accumulates source->target offset translations for
+	// messages produced since the last flush. It is written out alongside
+	// the periodic/final checkpoint in saveCheckpoint rather than on every
+	// batch, to keep offset-mapping persistence off the hot path.
+	pendingMappings map[int64]int64
 }
 
 // NewStreamHandler creates a new stream handler for a replication link
@@ -126,6 +167,12 @@ func NewStreamHandler(link *ReplicationLink, checkpointStore Storage) (*StreamHa
 		}
 	}
 
+	if link.Transform != nil && link.Transform.Enabled &&
+		(link.Transform.KeyTransform != "" || link.Transform.ValueTransform != "") {
+		cancel()
+		return nil, ErrTransformExpressionsNotImplemented
+	}
+
 	return handler, nil
 }
 
@@ -153,18 +200,29 @@ func (h *StreamHandler) Start() error {
 	}
 	h.targetClient = targetClient
 
+	// Batching is disabled here: replication only advances its in-memory
+	// offsets (and checkpoints them, see saveCheckpoint) after
+	// SendMessagesToPartition reports success, so that call must mean "the
+	// broker has it," not "it is queued." With the Producer's default
+	// batching, a "successful" call could just mean enqueued, and a crash
+	// before the batch flushed would silently drop messages this link
+	// believes it already replicated.
+	h.targetProducer = client.NewProducerWithConfig(h.targetClient, client.ProducerConfig{
+		RequireAck:          true,
+		MaxInFlightRequests: 5,
+	})
+
 	// Get topics to replicate
 	topics, err := h.getTopicsToReplicate()
 	if err != nil {
-		_ = h.sourceClient.Close() // failing to close clients we are abandoning changes nothing
-		_ = h.targetClient.Close()
+		h.stopLocked()
 		return fmt.Errorf("failed to get topics: %w", err)
 	}
 
 	// Start partition workers for each topic
 	for _, topic := range topics {
 		if err := h.startTopicReplication(topic); err != nil {
-			_ = h.Stop()
+			h.stopLocked()
 			return fmt.Errorf("failed to start replication for topic %s: %w", topic, err)
 		}
 	}
@@ -178,7 +236,12 @@ func (h *StreamHandler) Start() error {
 	go h.metricsUpdateLoop()
 
 	h.started = true
-	h.setHealthStatus("healthy")
+
+	// Not "healthy": Start has only proven the clusters are reachable, not
+	// that this link can actually move data. performHealthCheck promotes
+	// this to "healthy" once dataPlaneConfirmed is set by a real fetch
+	// cycle - see recordDataPlaneConfirmed.
+	h.setHealthStatus("unverified")
 
 	return nil
 }
@@ -192,6 +255,18 @@ func (h *StreamHandler) Stop() error {
 		return nil
 	}
 
+	h.stopLocked()
+	return nil
+}
+
+// stopLocked performs the actual shutdown; callers must already hold h.mu.
+//
+// Start's own failure paths call this directly rather than Stop(): Stop()
+// re-acquires h.mu, which Start already holds, so calling it from inside
+// Start would deadlock; and Stop()'s "not started" guard would skip cleanup
+// entirely for a Start that failed partway through, leaking whatever clients
+// and workers it had already brought up.
+func (h *StreamHandler) stopLocked() {
 	// Cancel the handler context, which cascades to every worker, then cancel
 	// each worker explicitly so a worker that never started still releases
 	// its context.
@@ -205,9 +280,13 @@ func (h *StreamHandler) Stop() error {
 	// Wait for all workers to finish
 	h.wg.Wait()
 
-	// Close clients. A close error here has no recovery path - the stream is
+	// Close the producer before the client it produces through, and close
+	// clients last. A close error here has no recovery path - the stream is
 	// stopping either way - so it is dropped deliberately rather than
 	// masking the caller's own result.
+	if h.targetProducer != nil {
+		_ = h.targetProducer.Close()
+	}
 	if h.sourceClient != nil {
 		_ = h.sourceClient.Close()
 	}
@@ -217,18 +296,11 @@ func (h *StreamHandler) Stop() error {
 
 	h.started = false
 	h.setHealthStatus("stopped")
-
-	return nil
 }
 
 // connectToCluster creates a client connection to a cluster
 func (h *StreamHandler) connectToCluster(config *ClusterConfig) (*client.Client, error) {
-	// Build broker addresses
-	brokers := config.Brokers
-	if len(brokers) == 0 && config.BootstrapServers != "" {
-		// Parse bootstrap servers
-		brokers = []string{config.BootstrapServers}
-	}
+	brokers := resolveBrokers(config)
 
 	// Start from the client defaults and override only what the cluster
 	// config actually specifies. Building a bare client.Config here would
@@ -276,6 +348,18 @@ func (h *StreamHandler) connectToCluster(config *ClusterConfig) (*client.Client,
 	return c, nil
 }
 
+// resolveBrokers returns the broker addresses configured for a cluster,
+// falling back to BootstrapServers when Brokers is empty.
+func resolveBrokers(config *ClusterConfig) []string {
+	if len(config.Brokers) > 0 {
+		return config.Brokers
+	}
+	if config.BootstrapServers != "" {
+		return []string{config.BootstrapServers}
+	}
+	return nil
+}
+
 // verifyClusterReachable health-checks the cluster's brokers, succeeding as
 // soon as one responds. A cluster is usable if any of its brokers answers;
 // requiring all of them would make a single down broker fail the whole link.
@@ -321,42 +405,139 @@ func (h *StreamHandler) getTopicsToReplicate() ([]string, error) {
 	return topics, nil
 }
 
-// startTopicReplication starts replication for a topic
+// startTopicReplication starts a worker for each partition of topic that
+// this link can actually replicate: the source's real partition count, not
+// the previous placeholder that assumed exactly one, clamped to whatever
+// partitions the target topic actually has once ensureTargetTopic tries to
+// create it with a matching count.
 func (h *StreamHandler) startTopicReplication(topic string) error {
-	// Get topic metadata from source
-	// TODO: Implement when client has GetTopicMetadata method
-	// For now, assume 1 partition for simplicity
-	numPartitions := 1
+	if cfg, ok := h.link.TopicConfig[topic]; ok && !cfg.Enabled {
+		return nil
+	}
 
-	// Start a worker for each partition
-	for partition := 0; partition < numPartitions; partition++ {
-		workerKey := fmt.Sprintf("%s-%d", topic, partition)
+	targetTopic := h.targetTopicName(topic)
 
-		worker := &partitionWorker{
-			topic:     topic,
-			partition: int32(partition),
-			handler:   h,
-		}
+	sourcePartitions, err := h.sourcePartitionCount(topic)
+	if err != nil {
+		return fmt.Errorf("get source partition count for %s: %w", topic, err)
+	}
 
-		worker.ctx, worker.cancel = context.WithCancel(h.ctx)
+	workerPartitions := h.ensureTargetTopic(topic, targetTopic, sourcePartitions)
 
-		// Load checkpoint if available
-		if h.checkpointStore != nil {
-			checkpoint, err := h.checkpointStore.LoadCheckpoint(h.link.ID, topic, int32(partition))
-			if err == nil {
-				worker.sourceOffset = checkpoint.SourceOffset
-				worker.targetOffset = checkpoint.TargetOffset
-			}
-		}
-
-		h.partitionWorkers[workerKey] = worker
-
-		// Start worker goroutine
-		h.wg.Add(1)
-		go worker.run()
+	for partition := int32(0); partition < workerPartitions; partition++ {
+		h.startPartitionWorker(topic, targetTopic, partition)
 	}
 
 	return nil
+}
+
+// targetTopicName resolves the topic a source topic replicates into: an
+// explicit per-topic TargetTopic wins (Validate defaults it to the source
+// topic name whenever a TopicConfig entry exists but leaves it blank),
+// otherwise TopicPrefix is applied.
+func (h *StreamHandler) targetTopicName(topic string) string {
+	if cfg, ok := h.link.TopicConfig[topic]; ok && cfg.TargetTopic != "" {
+		return cfg.TargetTopic
+	}
+	return h.link.TopicPrefix + topic
+}
+
+// sourcePartitionCount returns how many partitions topic has on the source
+// cluster. A topic that does not exist there yet - a replication link is
+// often created before the topic it will mirror - is not an error: it falls
+// back to a single partition, the same assumption the broker itself makes
+// when auto-creating a topic on first produce/fetch.
+func (h *StreamHandler) sourcePartitionCount(topic string) (int32, error) {
+	counts, err := h.sourceClient.TopicPartitionCounts(context.Background(), []string{topic})
+	if err != nil {
+		return 0, err
+	}
+
+	n := counts[topic]
+	if n == 0 {
+		return 1, nil
+	}
+	if n > math.MaxInt32 {
+		n = math.MaxInt32
+	}
+	return int32(n), nil //nolint:gosec // bounded against MaxInt32 above
+}
+
+// ensureTargetTopic creates the target topic with the same partition count
+// as the source, and returns how many of those partitions this link can
+// actually replicate.
+//
+// Replication assumes a straight 1:1 partition mapping (source partition N
+// -> target partition N), so if the target topic already exists with fewer
+// partitions than the source - CreateTopic is idempotent when the counts
+// already match, and errors otherwise - only the partitions present on both
+// sides are replicated. The remainder is recorded as a standing health issue
+// rather than failing the whole link over one topic.
+func (h *StreamHandler) ensureTargetTopic(sourceTopic, targetTopic string, sourcePartitions int32) int32 {
+	ctx := context.Background()
+
+	if sourcePartitions < 0 {
+		h.startupIssues = append(h.startupIssues,
+			fmt.Sprintf("topic %s: invalid negative source partition count %d", sourceTopic, sourcePartitions))
+		return 0
+	}
+
+	createErr := h.targetClient.CreateTopic(ctx, targetTopic, uint32(sourcePartitions), 1)
+	if createErr == nil {
+		return sourcePartitions
+	}
+
+	counts, countErr := h.targetClient.TopicPartitionCounts(ctx, []string{targetTopic})
+	rawCount := counts[targetTopic]
+	if rawCount > math.MaxInt32 {
+		rawCount = math.MaxInt32
+	}
+	targetPartitions := int32(rawCount) //nolint:gosec // bounded against MaxInt32 above
+	if countErr != nil || targetPartitions == 0 {
+		// Could not create the topic, and cannot find out what it already
+		// has: nothing can be replicated into it, but that must not take
+		// every other topic on this link down too.
+		h.startupIssues = append(h.startupIssues,
+			fmt.Sprintf("target topic %s could not be created or inspected: %v", targetTopic, createErr))
+		return 0
+	}
+
+	if targetPartitions < sourcePartitions {
+		h.startupIssues = append(h.startupIssues, fmt.Sprintf(
+			"topic %s: target %s has %d partitions vs source %d; only replicating the first %d",
+			sourceTopic, targetTopic, targetPartitions, sourcePartitions, targetPartitions))
+		return targetPartitions
+	}
+
+	return sourcePartitions
+}
+
+// startPartitionWorker creates and runs the worker for one partition,
+// resuming from its last checkpoint when one exists.
+func (h *StreamHandler) startPartitionWorker(topic, targetTopic string, partition int32) {
+	workerKey := fmt.Sprintf("%s-%d", topic, partition)
+
+	worker := &partitionWorker{
+		topic:       topic,
+		targetTopic: targetTopic,
+		partition:   partition,
+		handler:     h,
+	}
+
+	worker.ctx, worker.cancel = context.WithCancel(h.ctx)
+
+	if h.checkpointStore != nil {
+		checkpoint, err := h.checkpointStore.LoadCheckpoint(h.link.ID, topic, partition)
+		if err == nil {
+			worker.sourceOffset = checkpoint.SourceOffset
+			worker.targetOffset = checkpoint.TargetOffset
+		}
+	}
+
+	h.partitionWorkers[workerKey] = worker
+
+	h.wg.Add(1)
+	go worker.run()
 }
 
 // run is the main loop for a partition worker
@@ -388,8 +569,9 @@ func (w *partitionWorker) run() {
 				w.errors++
 				w.handler.recordReplicationFailure()
 
-				// Backoff on error
-				time.Sleep(time.Duration(w.handler.link.Config.FetchWaitMaxMs) * time.Millisecond)
+				// Backoff on error, but wake up immediately on shutdown
+				// rather than blocking Stop() for the rest of the backoff.
+				w.waitForNextPoll()
 				continue
 			}
 
@@ -398,19 +580,171 @@ func (w *partitionWorker) run() {
 	}
 }
 
-// replicateBatch fetches and replicates a batch of messages
+// replicateBatch fetches one round of messages from the source partition and
+// produces the surviving ones (after filtering and transformation) to the
+// target. It returns nil for an empty fetch - catching up to an idle source
+// partition is the normal steady state, not a failure.
+//
+// Offsets only advance here, in memory, after a produce this function
+// confirms succeeded; saveCheckpoint (on its own ticker, and on shutdown)
+// persists whatever the offsets currently are. That gap is deliberate: this
+// link gives at-least-once delivery, not exactly-once. A crash between a
+// successful produce and the next periodic checkpoint save resumes from the
+// older checkpoint and replays the messages already produced.
 func (w *partitionWorker) replicateBatch() error {
-	// TODO: Implement actual fetch and produce logic
-	// This is a placeholder that will be implemented when client supports
-	// the necessary methods for cross-cluster replication
+	fetched, err := w.fetchFromSource()
+	if err != nil {
+		return fmt.Errorf("fetch from source %s/%d: %w", w.topic, w.partition, err)
+	}
 
-	// For now, just simulate some work
-	time.Sleep(100 * time.Millisecond)
+	// A real fetch just completed, whether or not it returned anything - the
+	// pipeline works, even if there is nothing to move right now.
+	w.handler.recordDataPlaneConfirmed()
 
+	if len(fetched.Messages) == 0 {
+		w.waitForNextPoll()
+		return nil
+	}
+
+	toProduce, bytes := w.prepareMessages(fetched.Messages)
+	if len(toProduce) > 0 {
+		if err := w.produceToTarget(toProduce); err != nil {
+			return fmt.Errorf("produce to target %s/%d: %w", w.targetTopic, w.partition, err)
+		}
+
+		startTarget := w.targetOffset
+		w.recordOffsetMappings(toProduce, startTarget)
+		w.targetOffset = startTarget + int64(len(toProduce))
+		w.handler.recordBatchReplicated(w.topic, w.partition, len(toProduce), bytes,
+			w.sourceOffset, w.targetOffset, toProduce[len(toProduce)-1].Timestamp)
+	}
+
+	// Advance past this fetch on the source side regardless of how many
+	// messages survived filtering - a filtered-out message still consumed
+	// its offset and must not be re-fetched next time.
+	w.sourceOffset = fetched.NextOffset
 	return nil
 }
 
-// saveCheckpoint saves the current offset checkpoint
+// fetchFromSource requests the next batch starting at this worker's current
+// source offset, bounded by the link's configured MaxBytes.
+func (w *partitionWorker) fetchFromSource() (*client.FetchResponse, error) {
+	maxBytes := w.handler.link.Config.MaxBytes
+	if maxBytes > math.MaxInt32 {
+		maxBytes = math.MaxInt32
+	}
+
+	return w.handler.sourceClient.Fetch(w.ctx, &client.FetchRequest{
+		Topic:     w.topic,
+		Partition: w.partition,
+		Offset:    w.sourceOffset,
+		MaxBytes:  int32(maxBytes), //nolint:gosec // bounded against MaxInt32 above
+	})
+}
+
+// prepareMessages applies the link's filter and header-transform rules to a
+// fetched batch, returning only the messages that should reach the target
+// and their total key+value size.
+func (w *partitionWorker) prepareMessages(fetched []protocol.Message) ([]protocol.Message, int64) {
+	out := make([]protocol.Message, 0, len(fetched))
+	var bytes int64
+
+	for _, msg := range fetched {
+		if w.handler.shouldFilterMessage(msg.Key, msg.Value, msg.Headers, time.Unix(0, msg.Timestamp)) {
+			continue
+		}
+		transformed := w.handler.applyTransform(msg)
+		out = append(out, transformed)
+		bytes += int64(len(transformed.Key) + len(transformed.Value))
+	}
+
+	return out, bytes
+}
+
+// produceToTarget writes a batch to the target partition, at the same
+// partition index as the source (see ensureTargetTopic: no hash-based
+// repartitioning, a straight 1:1 mapping).
+func (w *partitionWorker) produceToTarget(messages []protocol.Message) error {
+	if w.partition < 0 {
+		return fmt.Errorf("invalid negative partition %d for topic %s", w.partition, w.targetTopic)
+	}
+	return w.handler.targetProducer.SendMessagesToPartition(w.ctx, w.targetTopic, uint32(w.partition), messages)
+}
+
+// waitForNextPoll backs off before the next fetch of an idle partition,
+// waking up immediately if the worker is stopped instead of blocking Stop()
+// for the rest of the wait.
+func (w *partitionWorker) waitForNextPoll() {
+	select {
+	case <-w.ctx.Done():
+	case <-time.After(w.handler.fetchBackoff()):
+	}
+}
+
+// fetchBackoff returns how long a worker should wait before polling an idle
+// partition again. FetchWaitMaxMs is optional cluster tuning - Validate does
+// not require it - so a link that leaves it unset gets a conservative
+// default rather than a zero-duration hot loop.
+func (h *StreamHandler) fetchBackoff() time.Duration {
+	ms := h.link.Config.FetchWaitMaxMs
+	if ms <= 0 {
+		ms = 500
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+// recordOffsetMappings queues source->target offset translations for a
+// produced batch; flushOffsetMappings persists them.
+//
+// Target offsets are inferred, not read back from the broker:
+// SendMessagesToPartition does not return the offsets it assigned. This
+// assumes the worker is the exclusive writer to the target partition - the
+// normal replication topology, since a mirrored topic is meant to be
+// read-only at the target - so offsets are assigned contiguously starting
+// at startTarget. A producer other than this link writing to the target
+// partition concurrently would make this mapping wrong.
+func (w *partitionWorker) recordOffsetMappings(produced []protocol.Message, startTarget int64) {
+	if w.pendingMappings == nil {
+		w.pendingMappings = make(map[int64]int64, len(produced))
+	}
+	target := startTarget
+	for _, msg := range produced {
+		w.pendingMappings[msg.Offset] = target
+		target++
+	}
+}
+
+// flushOffsetMappings persists pendingMappings, merging them into whatever
+// mapping is already stored rather than overwriting it.
+func (w *partitionWorker) flushOffsetMappings() {
+	if len(w.pendingMappings) == 0 {
+		return
+	}
+
+	store := w.handler.checkpointStore
+	mapping, err := store.LoadOffsetMapping(w.handler.link.ID, w.topic, w.partition)
+	if err != nil || mapping == nil {
+		mapping = &OffsetMapping{
+			LinkID:    w.handler.link.ID,
+			Topic:     w.topic,
+			Partition: w.partition,
+			Mappings:  make(map[int64]int64, len(w.pendingMappings)),
+		}
+	}
+	for src, tgt := range w.pendingMappings {
+		mapping.Mappings[src] = tgt
+	}
+	mapping.LastUpdated = time.Now()
+
+	if err := store.SaveOffsetMapping(mapping); err != nil {
+		w.errors++
+		return
+	}
+	w.pendingMappings = nil
+}
+
+// saveCheckpoint saves the current offset checkpoint and flushes any
+// pending offset mappings alongside it.
 func (w *partitionWorker) saveCheckpoint() {
 	if w.handler.checkpointStore == nil {
 		return
@@ -429,7 +763,11 @@ func (w *partitionWorker) saveCheckpoint() {
 	if err := w.handler.checkpointStore.SaveCheckpoint(checkpoint); err != nil {
 		// Log error but don't fail
 		w.errors++
+	} else {
+		w.handler.recordCheckpointSaved(checkpoint.Timestamp)
 	}
+
+	w.flushOffsetMappings()
 }
 
 // healthCheckLoop periodically checks health status
@@ -455,15 +793,14 @@ func (h *StreamHandler) performHealthCheck() {
 	defer h.statsMu.Unlock()
 
 	h.health.LastHealthCheck = time.Now()
-	h.health.Issues = nil
+	// Issues resets every cycle, but a problem found once at Start (see
+	// ensureTargetTopic) does not go away on its own - re-seed it here
+	// instead of only reporting it for the one cycle right after startup.
+	h.health.Issues = append([]string(nil), h.startupIssues...)
 	h.health.Warnings = nil
 
-	// Check source cluster connectivity
-	// TODO: Implement ping when client supports it
-	h.health.SourceClusterReachable = true
-
-	// Check target cluster connectivity
-	h.health.TargetClusterReachable = true
+	h.health.SourceClusterReachable = h.checkReachable(h.sourceClient, &h.link.SourceCluster, "source")
+	h.health.TargetClusterReachable = h.checkReachable(h.targetClient, &h.link.TargetCluster, "target")
 
 	// Check replication lag
 	if h.metrics.ReplicationLag > 60000 { // 60 seconds
@@ -490,14 +827,37 @@ func (h *StreamHandler) performHealthCheck() {
 		h.health.CheckpointHealthy = true
 	}
 
-	// Determine overall health status
-	if len(h.health.Issues) > 0 {
+	// Determine overall health status. dataPlaneConfirmed takes priority over
+	// Warnings but not Issues: a real problem is a real problem regardless of
+	// whether replication has ever run, but absent one, "no data has moved
+	// yet" must not be reported as merely a warning-level "degraded" -
+	// that's still one step short of the honest "healthy" claim.
+	switch {
+	case len(h.health.Issues) > 0:
 		h.health.Status = "unhealthy"
-	} else if len(h.health.Warnings) > 0 {
+	case !h.dataPlaneConfirmed:
+		h.health.Status = "unverified"
+	case len(h.health.Warnings) > 0:
 		h.health.Status = "degraded"
-	} else {
+	default:
 		h.health.Status = "healthy"
 	}
+}
+
+// checkReachable pings a cluster and records an Issue when it cannot be
+// reached, replacing what used to be an unconditional true regardless of
+// whether the cluster was actually reachable. Callers must hold statsMu (it
+// appends to h.health.Issues). A nil client means Start has not run yet -
+// not itself something to report as an issue.
+func (h *StreamHandler) checkReachable(c *client.Client, cfg *ClusterConfig, label string) bool {
+	if c == nil {
+		return false
+	}
+	if err := verifyClusterReachable(c, resolveBrokers(cfg), cfg.ConnectionTimeout); err != nil {
+		h.health.Issues = append(h.health.Issues, fmt.Sprintf("%s cluster unreachable: %v", label, err))
+		return false
+	}
+	return true
 }
 
 // metricsUpdateLoop periodically updates metrics
@@ -594,6 +954,77 @@ func (h *StreamHandler) recordReplicationSuccess() {
 	h.metrics.ConsecutiveFailures = 0
 }
 
+// recordCheckpointSaved records that a checkpoint was just written, so
+// performHealthCheck's "no checkpoint in 5 minutes" check reflects reality.
+// Before this, h.metrics.LastCheckpoint never left its zero value even
+// though saveCheckpoint was writing checkpoints on schedule, which tripped
+// that check permanently regardless of the truth.
+func (h *StreamHandler) recordCheckpointSaved(at time.Time) {
+	h.statsMu.Lock()
+	defer h.statsMu.Unlock()
+	h.metrics.LastCheckpoint = at
+}
+
+// recordDataPlaneConfirmed marks that a real fetch against the source has
+// succeeded at least once. See the dataPlaneConfirmed field comment.
+func (h *StreamHandler) recordDataPlaneConfirmed() {
+	h.statsMu.Lock()
+	defer h.statsMu.Unlock()
+	h.dataPlaneConfirmed = true
+}
+
+// recordBatchReplicated updates aggregate and per-partition metrics after a
+// batch is durably produced to the target.
+func (h *StreamHandler) recordBatchReplicated(
+	topic string, partition int32, count int, bytes int64,
+	sourceOffset, targetOffset, lastMessageTimestampNanos int64,
+) {
+	h.statsMu.Lock()
+	defer h.statsMu.Unlock()
+
+	now := time.Now()
+	h.metrics.TotalMessagesReplicated += int64(count)
+	h.metrics.TotalBytesReplicated += bytes
+	h.metrics.LastSuccessfulReplication = now
+
+	// End-to-end lag: how long ago the last message actually replicated was
+	// originally produced at the source, not an offset-count difference -
+	// source and target offsets are different, unrelated sequences.
+	lagMs := now.UnixNano()/int64(time.Millisecond) - lastMessageTimestampNanos/int64(time.Millisecond)
+	if lagMs < 0 {
+		lagMs = 0
+	}
+	h.metrics.ReplicationLag = lagMs
+	if lagMs > h.metrics.MaxReplicationLag {
+		h.metrics.MaxReplicationLag = lagMs
+	}
+
+	h.updatePartitionMetrics(topic, partition, count, bytes, sourceOffset, targetOffset, lagMs, now)
+}
+
+// updatePartitionMetrics updates the per-partition metrics map. Called with
+// statsMu already held by recordBatchReplicated.
+func (h *StreamHandler) updatePartitionMetrics(
+	topic string, partition int32, count int, bytes int64,
+	sourceOffset, targetOffset, lagMs int64, at time.Time,
+) {
+	if h.metrics.PartitionMetrics == nil {
+		h.metrics.PartitionMetrics = make(map[string]*PartitionReplicationMetrics)
+	}
+	key := fmt.Sprintf("%s-%d", topic, partition)
+	pm := h.metrics.PartitionMetrics[key]
+	if pm == nil {
+		pm = &PartitionReplicationMetrics{Topic: topic, Partition: partition}
+		h.metrics.PartitionMetrics[key] = pm
+	}
+	pm.SourceOffset = sourceOffset
+	pm.TargetOffset = targetOffset
+	pm.MessagesReplicated += int64(count)
+	pm.BytesReplicated += bytes
+	pm.LastReplicatedAt = at
+	pm.Lag = lagMs
+}
+
 // ResetFailureStats clears failure counters and health issues, used when a
 // link is (re)started.
 func (h *StreamHandler) ResetFailureStats() {
@@ -601,7 +1032,10 @@ func (h *StreamHandler) ResetFailureStats() {
 	defer h.statsMu.Unlock()
 
 	h.metrics.ConsecutiveFailures = 0
-	h.health.Status = "healthy"
+	// Not "healthy": (re)starting a link does not itself prove it can move
+	// data. performHealthCheck promotes this once the data plane confirms
+	// that, the same as a fresh Start does.
+	h.health.Status = "unverified"
 	h.health.Issues = nil
 	h.health.Warnings = nil
 }
@@ -644,9 +1078,40 @@ func (h *StreamHandler) compileFilterPatterns() error {
 	return nil
 }
 
+// applyTransform applies the link's configured header transformations to a
+// message. KeyTransform/ValueTransform have no expression engine anywhere in
+// this codebase; NewStreamHandler refuses to construct a handler for a link
+// that sets them, so this only ever has header rules to apply.
+func (h *StreamHandler) applyTransform(msg protocol.Message) protocol.Message {
+	if h.link.Transform == nil || !h.link.Transform.Enabled {
+		return msg
+	}
+
+	t := h.link.Transform
+	if len(msg.Headers) == 0 && len(t.AddHeaders) == 0 {
+		return msg
+	}
+
+	headers := make(map[string][]byte, len(msg.Headers)+len(t.AddHeaders))
+	for k, v := range msg.Headers {
+		newKey := k
+		if renamed, ok := t.HeaderTransforms[k]; ok {
+			newKey = renamed
+		}
+		headers[newKey] = v
+	}
+	for _, k := range t.RemoveHeaders {
+		delete(headers, k)
+	}
+	for k, v := range t.AddHeaders {
+		headers[k] = []byte(v)
+	}
+	msg.Headers = headers
+
+	return msg
+}
+
 // shouldFilterMessage determines if a message should be filtered out
-//
-//nolint:unused // Reserved for future use when message filtering is fully implemented
 func (h *StreamHandler) shouldFilterMessage(key, value []byte, headers map[string][]byte, timestamp time.Time) bool {
 	if h.link.Filter == nil || !h.link.Filter.Enabled {
 		return false
