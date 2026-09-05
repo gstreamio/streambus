@@ -246,6 +246,10 @@ func (p *ConnectionPool) buildTLSConfig() (*tls.Config, error) {
 	}
 
 	config := &tls.Config{
+		// Never leave MinVersion unset: the zero value lets the standard
+		// library pick, which on older toolchains can admit TLS 1.0.
+		// TLS 1.2 is the floor every caller of this client gets.
+		MinVersion:         tls.VersionTLS12,
 		InsecureSkipVerify: tlsConf.InsecureSkipVerify,
 		ServerName:         tlsConf.ServerName,
 	}

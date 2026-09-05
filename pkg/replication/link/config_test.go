@@ -274,6 +274,18 @@ func TestSecurityConfig_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			// Server-authentication-only TLS: verify the broker via
+			// TLSCAFile, but present no client certificate. This must be
+			// valid - requiring cert+key unconditionally whenever TLS is
+			// enabled would make one-way TLS impossible to configure.
+			name: "TLS enabled with CA only (one-way TLS, no client cert)",
+			config: &SecurityConfig{
+				EnableTLS: true,
+				TLSCAFile: "/path/to/ca",
+			},
+			wantErr: false,
+		},
+		{
 			name: "valid SASL config",
 			config: &SecurityConfig{
 				SASLMechanism: "PLAIN",

@@ -493,9 +493,6 @@ docker-compose up -d
   restart. Target offsets are inferred rather than reported: the target
   partition is assumed to have no other writer, which is the standard mirror
   topology but is an assumption, not something the code can verify.
-- **A replication link cannot use TLS.** Setting `EnableTLS` on a link's
-  cluster config is rejected outright rather than silently ignored, so
-  cross-cluster traffic is plaintext until this is implemented.
 - **Some Kubernetes operator spec fields are still inert.**
   `spec.image.pullSecrets`, `spec.version` and `spec.observability.metrics` are
   accepted and have no effect. `spec.security` is implemented.

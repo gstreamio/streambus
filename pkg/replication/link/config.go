@@ -130,11 +130,15 @@ func (cc *ClusterConfig) Validate() error {
 // Validate validates the security configuration
 func (sc *SecurityConfig) Validate() error {
 	if sc.EnableTLS {
-		if sc.TLSCertFile == "" {
-			return fmt.Errorf("TLS cert file must be specified when TLS is enabled")
-		}
-		if sc.TLSKeyFile == "" {
-			return fmt.Errorf("TLS key file must be specified when TLS is enabled")
+		// TLSCertFile/TLSKeyFile configure mutual TLS and are optional -
+		// server-authentication-only TLS (verifying the broker via
+		// TLSCAFile, presenting no client certificate) is a valid,
+		// common configuration. But the pair must be complete or absent:
+		// one without the other is a configuration mistake, not a
+		// request for one-way TLS, so it must fail loudly rather than
+		// silently drop the half-configured client certificate.
+		if (sc.TLSCertFile == "") != (sc.TLSKeyFile == "") {
+			return fmt.Errorf("TLS cert file and key file must both be specified, or neither, for mutual TLS")
 		}
 	}
 
@@ -351,6 +355,7 @@ func (cc *ClusterConfig) Clone() ClusterConfig {
 			TLSKeyFile:    cc.Security.TLSKeyFile,
 			TLSCAFile:     cc.Security.TLSCAFile,
 			TLSSkipVerify: cc.Security.TLSSkipVerify,
+			TLSServerName: cc.Security.TLSServerName,
 			SASLMechanism: cc.Security.SASLMechanism,
 			SASLUsername:  cc.Security.SASLUsername,
 			SASLPassword:  cc.Security.SASLPassword,
