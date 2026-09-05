@@ -13,19 +13,12 @@ import (
 	"github.com/gstreamio/streambus/pkg/protocol"
 )
 
-// ErrTLSNotImplemented is returned when a replication link's cluster
-// security config requests EnableTLS but this package does not yet apply any
-// TLS settings to the underlying client connection. Failing loudly here
-// avoids silently replicating data across cluster boundaries in plaintext
-// when an operator explicitly configured encryption.
-var ErrTLSNotImplemented = errors.New("replication link: EnableTLS is set but TLS is not yet implemented for cross-cluster replication connections")
-
 // ErrTransformExpressionsNotImplemented is returned when a link's Transform
 // config sets KeyTransform or ValueTransform. Neither this package nor
 // anywhere else in this codebase implements an expression language for
 // these fields; silently ignoring them would replicate messages the
 // operator explicitly asked to have their key or value rewritten,
-// unrewritten. This fails the same way ErrTLSNotImplemented does, instead.
+// unrewritten. This fails loudly instead.
 var ErrTransformExpressionsNotImplemented = errors.New("replication link: Transform.KeyTransform and Transform.ValueTransform are not implemented; only header transforms (HeaderTransforms, AddHeaders, RemoveHeaders) are supported")
 
 // StreamHandler handles the replication stream for a single link
@@ -322,13 +315,11 @@ func (h *StreamHandler) connectToCluster(config *ClusterConfig) (*client.Client,
 		clientConfig.MaxRetries = config.MaxRetries
 	}
 
-	// Apply security configuration if present.
-	// TODO: Configure TLS settings when Security.EnableTLS is true.
-	// Until that's implemented, refuse to silently fall back to a plaintext
-	// connection when TLS was explicitly requested.
-	if config.Security != nil && config.Security.EnableTLS {
-		return nil, ErrTLSNotImplemented
-	}
+	// Apply security configuration if present. buildClientSecurityConfig
+	// returns nil when TLS is not enabled, which leaves clientConfig.Security
+	// nil and the connection plaintext - the same behavior as before TLS
+	// support existed for links that never asked for it.
+	clientConfig.Security = buildClientSecurityConfig(config.Security)
 
 	// Create and connect client
 	c, err := client.New(clientConfig)

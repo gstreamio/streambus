@@ -140,8 +140,19 @@ type SecurityConfig struct {
 	// TLSCAFile is the path to the CA certificate file
 	TLSCAFile string
 
-	// TLSSkipVerify skips TLS certificate verification (insecure)
+	// TLSSkipVerify disables verification of the peer's certificate chain
+	// and hostname. This is INSECURE and must only be used against
+	// test/dev brokers with self-signed certificates the operator cannot
+	// otherwise validate - never set it to make a production link "just
+	// connect".
 	TLSSkipVerify bool
+
+	// TLSServerName overrides the hostname used to verify the server's
+	// certificate. Leave empty to use the hostname each broker address is
+	// dialed with; set it when brokers are reached through an address
+	// (e.g. an IP or a load balancer) that does not match the name on the
+	// certificate.
+	TLSServerName string
 
 	// SASLMechanism is the SASL authentication mechanism (PLAIN, SCRAM-SHA-256, etc.)
 	SASLMechanism string
