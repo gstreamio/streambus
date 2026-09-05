@@ -142,12 +142,17 @@ func loadConfig(path string) (*Config, error) {
 
 // newMirrorMaker creates a new mirror maker instance
 func newMirrorMaker(config *Config, logger *logging.Logger) (*mirrorMaker, error) {
-	// Create storage
+	// A configured storage path means the operator wants replication links
+	// (and their checkpoints/offset mappings) to survive a restart, so it
+	// must map onto persistent storage rather than silently falling back to
+	// memory-only storage that forgets everything on exit.
 	var storage link.Storage
 	if config.StoragePath != "" {
-		// TODO: Implement file-based storage
-		// For now, use memory storage
-		storage = link.NewMemoryStorage()
+		fileStorage, err := link.NewFileStorage(config.StoragePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open file storage at %q: %w", config.StoragePath, err)
+		}
+		storage = fileStorage
 	} else {
 		storage = link.NewMemoryStorage()
 	}
