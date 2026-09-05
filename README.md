@@ -448,11 +448,14 @@ StreamBus is currently in **active development** with production-ready core comp
 - Schema registry (Avro/Protobuf/JSON Schema)
 - Idempotent producers
 - Consumer groups with broker-side coordination (join/sync/heartbeat,
-  range/round-robin/sticky assignment, committed offsets)
+  range/round-robin/sticky assignment, committed offsets persisted across
+  restarts)
 - Transactional producers with commit/abort markers written durably to every
   participating partition, and consumer offsets committed inside a transaction
+- read_committed consumer isolation, so a fetch never returns a record from a
+  transaction still in flight
 - Cross-datacenter replication links (create, start/stop/pause/resume,
-  failover, metrics and health via the admin API)
+  failover, metrics and health via the admin API), persisted across restarts
 
 **Enterprise Security**
 - TLS encryption and SASL authentication
@@ -467,34 +470,23 @@ StreamBus is currently in **active development** with production-ready core comp
 
 ### In Development 🚧
 
-- Cross-datacenter replication data plane (link management and lifecycle are
-  implemented; the replication stream itself is still maturing)
+- Cross-datacenter replication data plane (link management, lifecycle and
+  persistence are implemented; the replication stream itself is still
+  maturing)
 - Kubernetes operator
 - Additional admin tooling
 - Extended test coverage (current: 81%, target: 85%+)
-- Read-committed consumer isolation: transaction markers are written to
-  partitions, but consumers do not yet filter records by transaction outcome
 
 ### Known Limitations ⚠️
 
-- **Consumer group coordination is single-coordinator.** There is no
-  `FindCoordinator` request yet, so the first configured broker acts as
-  coordinator for every group and every transactional ID. Group and offset
-  state lives in memory and does not survive a broker restart.
-- **Transactional reads are not isolated.** `EndTxn` writes commit and abort
-  markers durably to every participating partition, but `Consumer`,
-  `PartitionConsumer` and `GroupConsumer` all read uncommitted records: a
-  consumer sees records from a transaction that later aborted, and sees the
-  marker records themselves. `TransactionalProducer` buffers a transaction's
-  messages until commit, so an aborted transaction writes no user records —
-  but a consumer reading a partition mid-commit can still observe a partial
-  transaction.
-- **Replication link definitions are not persistent.** The broker's link
-  manager keeps them in memory, so links must be recreated after a restart.
-- **`MaxPartitionsPerBroker` counts only what the assignment pass knows.**
-  The limit is enforced across a single `Assign`/`Rebalance` call and against
-  any counts the caller supplies through `AssignmentConstraints.ExistingLoad`;
-  the package does not itself track partitions assigned by earlier calls.
+- **read_committed does not retroactively hide an aborted transaction's
+  records.** A fetch stops at the partition's last stable offset, so a record
+  from a transaction still in flight is never returned, and marker records are
+  hidden from every consumer. `TransactionalProducer` buffers a transaction's
+  records until commit, so an aborted transaction writes nothing to hide — but
+  a producer that streams records as it goes would leave them visible once the
+  abort marker lifts the barrier. Suppressing those needs the storage read
+  path to carry each record's producer identity, which it does not yet.
 
 ---
 

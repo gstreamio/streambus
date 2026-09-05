@@ -27,6 +27,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **read_committed consumer isolation.** Fetches carry an isolation level;
+  `read_committed` stops at the partition's last stable offset so a record
+  from a transaction still in flight is never returned. Transaction marker
+  records are now hidden from every consumer regardless of isolation level,
+  and the fetch response carries an explicit next offset so a window
+  containing only a filtered marker still advances the consumer.
+- **Committed consumer offsets and replication link definitions survive a
+  broker restart**, snapshotted under the broker's data directory with an
+  atomic write (`group.NewFileOffsetStorage`, `link.NewFileStorage`).
+- `AssignmentConstraints.MaxPartitionsPerBroker` is enforced across successive
+  assignment calls, not only within one, and is carried into rebalances the
+  coordinator triggers itself.
 - **Consumer group coordination end to end.** `JoinGroup`, `SyncGroup`,
   `Heartbeat`, `LeaveGroup`, `OffsetCommit` and `OffsetFetch` now have wire
   formats in `pkg/protocol`, are routed to the broker's
@@ -99,6 +111,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Config` literal directly instead of starting from `DefaultConfig()`.
 
 ### Fixed
+- `storage`: a record timestamped at or near the Unix epoch was silently
+  corrupted, returning an empty key and value. Distinguishing the two older
+  record formats needed a heuristic on the first word, and an epoch timestamp
+  reads as a plausible zero-length key. Every new record is now written in the
+  self-describing format introduced for headers.
+- `transaction`: an expired transaction advanced to CompleteAbort without ever
+  writing abort markers, so the partitions it had touched never learned it had
+  ended - which would pin their last stable offset permanently once
+  read-committed isolation depends on it.
+- `replication/link`: `StreamHandler` shared its Metrics and Health pointers
+  with the link struct and mutated them from worker goroutines under no lock,
+  while the manager touched the same objects under its own. Also removes a
+  latent deadlock: Stop held mu while waiting for goroutines that took mu.
+- `replication/link`: partition worker contexts were created and never
+  cancelled.
 - `storage`: `Message.Headers` were silently discarded on write - the record
   format had nowhere to put them, so every header set by a producer (including
   the `tenant_id` header the tenancy handler reads) was lost on read. A third
