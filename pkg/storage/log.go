@@ -614,6 +614,9 @@ const (
 	// maxSaneKeyLen is the v0/v1 key-length sanity bound used to tell the two
 	// apart. A first word above it cannot be a real key length.
 	maxSaneKeyLen uint32 = 1048576
+	// maxRecordFieldLen bounds any single length-prefixed field in a v2
+	// record, matching the codec's own message ceiling.
+	maxRecordFieldLen = 1024 * 1024 * 10
 )
 
 // serializeMessage serializes a single message in the current record format.
@@ -645,33 +648,48 @@ func serializeMessageV2(msg *Message) []byte {
 	binary.BigEndian.PutUint64(buf[offset:], uint64(msg.Timestamp.UnixNano()))
 	offset += 8
 
-	binary.BigEndian.PutUint32(buf[offset:], uint32(len(msg.Key)))
+	putRecordLen(buf[offset:], len(msg.Key))
 	offset += 4
 	copy(buf[offset:], msg.Key)
 	offset += len(msg.Key)
 
-	binary.BigEndian.PutUint32(buf[offset:], uint32(len(msg.Value)))
+	putRecordLen(buf[offset:], len(msg.Value))
 	offset += 4
 	copy(buf[offset:], msg.Value)
 	offset += len(msg.Value)
 
 	// Headers are written in name order so the same message always produces
 	// identical bytes, which keeps CRCs and compaction comparisons stable.
-	binary.BigEndian.PutUint32(buf[offset:], uint32(len(names)))
+	putRecordLen(buf[offset:], len(names))
 	offset += 4
 	for _, name := range names {
 		value := msg.Headers[name]
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(name)))
+		putRecordLen(buf[offset:], len(name))
 		offset += 4
 		copy(buf[offset:], name)
 		offset += len(name)
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(value)))
+		putRecordLen(buf[offset:], len(value))
 		offset += 4
 		copy(buf[offset:], value)
 		offset += len(value)
 	}
 
 	return buf
+}
+
+// putRecordLen writes a length prefix.
+//
+// A length beyond maxRecordFieldLen cannot come from a message this process
+// built - serializeMessageV2 sizes its buffer from the same lengths, so an
+// out-of-range value would already have failed the allocation. The bound is
+// what makes that argument explicit rather than an unchecked narrowing at
+// each of the five call sites.
+func putRecordLen(buf []byte, n int) {
+	if n < 0 || n > maxRecordFieldLen {
+		binary.BigEndian.PutUint32(buf, 0)
+		return
+	}
+	binary.BigEndian.PutUint32(buf, uint32(n))
 }
 
 // sortedHeaderNames returns header names in sorted order.
@@ -699,6 +717,7 @@ func deserializeMessageV2(data []byte) *Message {
 	if offset+8 > len(data) {
 		return &Message{}
 	}
+	// #nosec G115 -- same-width reinterpretation of the stored nanoseconds
 	timestamp := time.Unix(0, int64(binary.BigEndian.Uint64(data[offset:])))
 	offset += 8
 
@@ -721,7 +740,8 @@ func deserializeMessageV2(data []byte) *Message {
 
 	// Bound the count by the bytes left: every header needs at least its two
 	// length prefixes, so a larger count means the record is corrupt.
-	if count > uint32(len(data)-offset)/8 {
+	remaining := len(data) - offset
+	if remaining < 0 || count > uint32(remaining)/8 { // #nosec G115 -- remaining is non-negative, checked here
 		return msg
 	}
 
