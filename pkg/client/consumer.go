@@ -78,10 +78,11 @@ func (c *Consumer) FetchN(ctx context.Context, maxMessages int) ([]protocol.Mess
 			Flags:   protocol.FlagNone,
 		},
 		Payload: &protocol.FetchRequest{
-			Topic:       c.topic,
-			PartitionID: c.partitionID,
-			Offset:      c.offset,
-			MaxBytes:    c.config.MaxFetchBytes,
+			Topic:          c.topic,
+			PartitionID:    c.partitionID,
+			Offset:         c.offset,
+			MaxBytes:       c.config.MaxFetchBytes,
+			IsolationLevel: c.config.IsolationLevel,
 		},
 	}
 
@@ -102,14 +103,32 @@ func (c *Consumer) FetchN(ctx context.Context, maxMessages int) ([]protocol.Mess
 	// message count, so it can return more than maxMessages when enough
 	// messages fit in that budget. Truncate here rather than advancing the
 	// offset past (and discarding) messages the caller never received.
+	truncated := maxMessages > 0 && len(fetchResp.Messages) > maxMessages
 	messages := fetchResp.Messages
-	if maxMessages > 0 && len(messages) > maxMessages {
+	if truncated {
 		messages = messages[:maxMessages]
 	}
 
-	// Update offset for next fetch
-	if len(messages) > 0 {
-		// Set offset to the last message's offset + 1 for the next fetch
+	// Update offset for next fetch.
+	//
+	// A truncated response must resume from the last message we actually
+	// handed back, never from NextOffset: NextOffset accounts for the whole
+	// broker-side window, which can reach past messages this call withheld.
+	//
+	// Otherwise, NextOffset is what accounts for control records the broker
+	// filtered out before we ever saw them - without it, a window that held
+	// only a filtered marker would leave len(messages) == 0 and this offset
+	// would never move, so the same empty-looking window would be re-fetched
+	// forever. A server that predates NextOffset sends the -1 sentinel, in
+	// which case the old last-message rule still applies (correct against a
+	// server that never filtered anything).
+	switch {
+	case truncated:
+		lastMessage := messages[len(messages)-1]
+		c.offset = lastMessage.Offset + 1
+	case fetchResp.NextOffset >= 0:
+		c.offset = fetchResp.NextOffset
+	case len(messages) > 0:
 		lastMessage := messages[len(messages)-1]
 		c.offset = lastMessage.Offset + 1
 	}

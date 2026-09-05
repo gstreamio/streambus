@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -476,8 +477,19 @@ func (b *Broker) initCluster() error {
 func (b *Broker) initConsumerGroups() error {
 	b.logger.Info("Initializing consumer group coordinator")
 
-	// Create offset storage (using memory storage for now)
-	offsetStorage := group.NewMemoryOffsetStorage()
+	// Persist offsets under the broker's data directory so committed offsets
+	// survive a restart. Some tests construct a Broker struct literal with
+	// no DataDir, so fall back to memory storage rather than failing.
+	var offsetStorage group.OffsetStorage
+	if b.config.DataDir == "" {
+		offsetStorage = group.NewMemoryOffsetStorage()
+	} else {
+		fileStorage, err := group.NewFileOffsetStorage(filepath.Join(b.config.DataDir, "consumer-offsets"))
+		if err != nil {
+			return fmt.Errorf("failed to initialize offset storage: %w", err)
+		}
+		offsetStorage = fileStorage
+	}
 
 	// Create coordinator configuration
 	coordinatorConfig := group.DefaultCoordinatorConfig()
@@ -517,13 +529,25 @@ func (b *Broker) initTransactions() error {
 // initReplication initializes the cross-datacenter replication link manager
 // that backs the /api/v1/replication/links admin endpoints.
 //
-// Link definitions live in memory for now, so they do not survive a restart;
-// swapping in a persistent link.Storage implementation is all that is needed
-// to change that.
+// Link definitions, checkpoints and offset mappings are persisted under the
+// broker's data directory so links survive a restart instead of having to be
+// recreated. Some tests construct a Broker struct literal with no DataDir,
+// so fall back to in-memory storage rather than failing in that case.
 func (b *Broker) initReplication() error {
 	b.logger.Info("Initializing replication link manager")
 
-	b.replicationManager = link.NewManager(link.NewMemoryStorage())
+	var linkStorage link.Storage
+	if b.config.DataDir == "" {
+		linkStorage = link.NewMemoryStorage()
+	} else {
+		fileStorage, err := link.NewFileStorage(filepath.Join(b.config.DataDir, "replication-links"))
+		if err != nil {
+			return fmt.Errorf("failed to initialize replication link storage: %w", err)
+		}
+		linkStorage = fileStorage
+	}
+
+	b.replicationManager = link.NewManager(linkStorage)
 
 	b.logger.Info("Replication link manager initialized")
 

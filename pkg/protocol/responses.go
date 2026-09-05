@@ -24,6 +24,20 @@ type FetchResponse struct {
 	PartitionID   uint32
 	HighWaterMark int64
 	Messages      []Message
+	// LastStableOffset is the offset up to which a read-committed fetch is
+	// allowed to read: the start of the earliest transaction on this
+	// partition that has not yet had its marker written, or HighWaterMark if
+	// none is open. A server predating this field is decoded as reporting
+	// HighWaterMark here, i.e. no additional constraint.
+	LastStableOffset int64
+	// NextOffset is the offset the client should fetch from next. It is not
+	// always LastMessage.Offset+1: control records are filtered out of
+	// Messages before the client ever sees them, so a fetch window that
+	// contained only a marker returns no messages but must still advance
+	// the client past it. A server predating this field is decoded as -1,
+	// a sentinel telling the client to fall back to the legacy
+	// last-message-plus-one rule, which was correct before filtering existed.
+	NextOffset int64
 }
 
 // GetOffsetResponse represents a get offset response

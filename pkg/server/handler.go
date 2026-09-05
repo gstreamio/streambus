@@ -113,8 +113,10 @@ func (h *Handler) handleProduce(req *protocol.Request) *protocol.Response {
 
 	// Create batch and append to log
 	batch := &storage.MessageBatch{
-		Messages:  storageMessages,
-		Timestamp: time.Now(),
+		Messages:      storageMessages,
+		Timestamp:     time.Now(),
+		ProducerID:    payload.ProducerID,
+		ProducerEpoch: payload.ProducerEpoch,
 	}
 	offsets, err := partition.log.Append(batch)
 	if err != nil {
@@ -125,6 +127,12 @@ func (h *Handler) handleProduce(req *protocol.Request) *protocol.Response {
 	// Get base offset and high water mark
 	baseOffset := int64(offsets[0])
 	highWaterMark := int64(partition.log.HighWaterMark())
+
+	// A transactional batch opens (or extends) an in-flight transaction on
+	// this partition: read-committed fetches must not read past its first
+	// record until the coordinator's marker resolves it (see
+	// transaction_bridge.go's logMarkerWriter, which calls EndTransaction).
+	partition.BeginTransaction(payload.ProducerID, payload.ProducerEpoch, baseOffset)
 
 	// TODO: When replication is implemented, validate LeaderEpoch from request
 	// against current partition leader epoch. If mismatch, return ErrFencedLeaderEpoch.
@@ -194,16 +202,18 @@ func (h *Handler) handleFetch(req *protocol.Request) *protocol.Response {
 		return h.errorResponse(req.Header.RequestID, protocol.ErrStorageError, err.Error())
 	}
 
-	// Convert storage messages to protocol messages
-	messages := make([]protocol.Message, len(storageMessages))
-	for i, msg := range storageMessages {
-		messages[i] = protocol.Message{
-			Offset:    int64(msg.Offset),
-			Key:       msg.Key,
-			Value:     msg.Value,
-			Timestamp: msg.Timestamp.UnixNano(),
-		}
+	highWaterMark := int64(partition.log.HighWaterMark())
+	lastStableOffset := partition.LastStableOffset()
+
+	// read_uncommitted may see anything up to the high water mark;
+	// read_committed must stop at the last stable offset instead, so it
+	// never returns a record from a transaction still in flight.
+	readLimit := highWaterMark
+	if payload.IsolationLevel == protocol.IsolationReadCommitted {
+		readLimit = lastStableOffset
 	}
+
+	messages, nextOffset := visibleMessages(storageMessages, payload.Offset, readLimit)
 
 	resp := &protocol.Response{
 		Header: protocol.ResponseHeader{
@@ -212,14 +222,54 @@ func (h *Handler) handleFetch(req *protocol.Request) *protocol.Response {
 			ErrorCode: protocol.ErrNone,
 		},
 		Payload: &protocol.FetchResponse{
-			Topic:         payload.Topic,
-			PartitionID:   payload.PartitionID,
-			HighWaterMark: int64(partition.log.HighWaterMark()),
-			Messages:      messages,
+			Topic:            payload.Topic,
+			PartitionID:      payload.PartitionID,
+			HighWaterMark:    highWaterMark,
+			LastStableOffset: lastStableOffset,
+			Messages:         messages,
+			NextOffset:       nextOffset,
 		},
 	}
 
 	return resp
+}
+
+// visibleMessages turns a raw log read into what a fetch response may
+// actually return to a consumer.
+//
+// Two things are filtered out here rather than left to the client: control
+// records (transaction markers) are never returned regardless of isolation
+// level, and nothing at or past readLimit is returned (the caller has
+// already picked readLimit according to the request's isolation level).
+//
+// nextOffset is not simply "the last returned message's offset + 1" - a
+// fetch window that contained only a filtered record returns zero messages,
+// but the client must still be told to resume past it, or it would re-fetch
+// the same apparently-empty window forever.
+func visibleMessages(storageMessages []*storage.Message, startOffset, readLimit int64) ([]protocol.Message, int64) {
+	messages := make([]protocol.Message, 0, len(storageMessages))
+	nextOffset := startOffset
+
+	for _, msg := range storageMessages {
+		offset := int64(msg.Offset)
+		if offset >= readLimit {
+			break
+		}
+		nextOffset = offset + 1
+
+		if protocol.IsControlRecord(msg.Headers) {
+			continue
+		}
+
+		messages = append(messages, protocol.Message{
+			Offset:    offset,
+			Key:       msg.Key,
+			Value:     msg.Value,
+			Timestamp: msg.Timestamp.UnixNano(),
+		})
+	}
+
+	return messages, nextOffset
 }
 
 // handleGetOffset handles a get offset request

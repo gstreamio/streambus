@@ -266,6 +266,24 @@ func (c *Codec) DecodeResponsePayload(resp *Response, reqType RequestType) error
 		for i := uint32(0); i < numMessages; i++ {
 			payload.Messages[i], offset = c.decodeMessage(data, offset)
 		}
+		// LastStableOffset and NextOffset were added after the initial
+		// layout; a response from an older server simply ends before them.
+		// Defaulting LastStableOffset to HighWaterMark says "no additional
+		// constraint" rather than the alarming "everything is in flight" a
+		// bare zero would imply. Defaulting NextOffset to -1 is a sentinel
+		// telling the caller to fall back to its pre-filtering rule
+		// (last message's offset + 1), which was correct against a server
+		// that never filtered control records out of Messages.
+		payload.LastStableOffset = payload.HighWaterMark
+		payload.NextOffset = -1
+		if len(data)-offset >= 8 {
+			payload.LastStableOffset = int64(binary.BigEndian.Uint64(data[offset:])) // #nosec G115 -- wire round-trip of a fixed-width field's bits, not a value-narrowing conversion
+			offset += 8
+			if len(data)-offset >= 8 {
+				payload.NextOffset = int64(binary.BigEndian.Uint64(data[offset:])) // #nosec G115 -- wire round-trip of a fixed-width field's bits, not a value-narrowing conversion
+				// offset += 8 // Not needed, returning immediately
+			}
+		}
 		resp.Payload = payload
 		return nil
 
@@ -342,6 +360,23 @@ func (c *Codec) DecodeResponsePayload(resp *Response, reqType RequestType) error
 
 // Helper methods for calculating sizes
 
+// checkedPayloadSize converts an accumulated payload size - built by summing
+// topic/message/string lengths, so in principle unbounded - into the uint32
+// the wire format carries it as, without silently wrapping a value that
+// doesn't fit.
+//
+// A payload these encoders can actually build never produces a size outside
+// this range (EncodeRequest/EncodeResponse already reject anything over
+// MaxMessageSize once the header is added), so the error path here is
+// unreachable in practice; it exists so an invariant violation would surface
+// as an error instead of a wrapped-around length that corrupts the wire.
+func checkedPayloadSize(size int) (uint32, error) {
+	if size < 0 || size > MaxMessageSize {
+		return 0, fmt.Errorf("payload size %d out of range (max %d)", size, MaxMessageSize)
+	}
+	return uint32(size), nil
+}
+
 func (c *Codec) calculateRequestPayloadSize(req *Request) (uint32, error) {
 	// Coordination and transaction payloads measure themselves, using the
 	// same encodePayload that writes them.
@@ -357,27 +392,29 @@ func (c *Codec) calculateRequestPayloadSize(req *Request) (uint32, error) {
 		for _, msg := range payload.Messages {
 			size += msg.Size()
 		}
-		return uint32(size), nil
+		size += 8 + 2 // ProducerID + ProducerEpoch
+		return checkedPayloadSize(size)
 
 	case RequestTypeFetch:
 		payload := req.Payload.(*FetchRequest)
 		size := 4 + len(payload.Topic) + 4 + 8 + 4 // TopicLen + Topic + PartitionID + Offset + MaxBytes
-		return uint32(size), nil
+		size++                                     // IsolationLevel
+		return checkedPayloadSize(size)
 
 	case RequestTypeGetOffset:
 		payload := req.Payload.(*GetOffsetRequest)
 		size := 4 + len(payload.Topic) + 4 // TopicLen + Topic + PartitionID
-		return uint32(size), nil
+		return checkedPayloadSize(size)
 
 	case RequestTypeCreateTopic:
 		payload := req.Payload.(*CreateTopicRequest)
 		size := 4 + len(payload.Topic) + 4 + 2 // TopicLen + Topic + NumPartitions + ReplicationFactor
-		return uint32(size), nil
+		return checkedPayloadSize(size)
 
 	case RequestTypeDeleteTopic:
 		payload := req.Payload.(*DeleteTopicRequest)
 		size := 4 + len(payload.Topic) // TopicLen + Topic
-		return uint32(size), nil
+		return checkedPayloadSize(size)
 
 	case RequestTypeListTopics, RequestTypeHealthCheck:
 		return 0, nil
@@ -390,7 +427,7 @@ func (c *Codec) calculateRequestPayloadSize(req *Request) (uint32, error) {
 func (c *Codec) calculateResponsePayloadSize(resp *Response) (uint32, error) {
 	if resp.Header.Status != StatusOK {
 		errorResp := resp.Payload.(*ErrorResponse)
-		return uint32(4 + len(errorResp.Message)), nil // MsgLen + Message
+		return checkedPayloadSize(4 + len(errorResp.Message)) // MsgLen + Message
 	}
 
 	// Coordination and transaction responses measure themselves.
@@ -404,33 +441,34 @@ func (c *Codec) calculateResponsePayloadSize(resp *Response) (uint32, error) {
 		return 8 + 4 + 8, nil // BaseOffset + NumMessages + HighWaterMark
 
 	case *FetchResponse:
-		size := uint32(8 + 4) // HighWaterMark + NumMessages
+		size := 8 + 4 // HighWaterMark + NumMessages
 		for _, msg := range payload.Messages {
-			size += uint32(msg.Size())
+			size += msg.Size()
 		}
-		return size, nil
+		size += 8 + 8 // LastStableOffset + NextOffset
+		return checkedPayloadSize(size)
 
 	case *GetOffsetResponse:
-		return uint32(4 + len(payload.Topic) + 4 + 8 + 8 + 8), nil // TopicLen + Topic + PartitionID + StartOffset + EndOffset + HighWaterMark
+		return checkedPayloadSize(4 + len(payload.Topic) + 4 + 8 + 8 + 8) // TopicLen + Topic + PartitionID + StartOffset + EndOffset + HighWaterMark
 
 	case *CreateTopicResponse:
-		return uint32(4 + len(payload.Topic) + 1), nil // TopicLen + Topic + Created
+		return checkedPayloadSize(4 + len(payload.Topic) + 1) // TopicLen + Topic + Created
 
 	case *DeleteTopicResponse:
-		return uint32(4 + len(payload.Topic) + 1), nil // TopicLen + Topic + Deleted
+		return checkedPayloadSize(4 + len(payload.Topic) + 1) // TopicLen + Topic + Deleted
 
 	case *ListTopicsResponse:
-		size := uint32(4) // NumTopics
+		size := 4 // NumTopics
 		for _, topic := range payload.Topics {
-			size += uint32(4 + len(topic.Name) + 4) // NameLen + Name + NumPartitions
+			size += 4 + len(topic.Name) + 4 // NameLen + Name + NumPartitions
 		}
-		return size, nil
+		return checkedPayloadSize(size)
 
 	case *HealthCheckResponse:
-		return uint32(4 + len(payload.Status) + 8), nil // StatusLen + Status + Uptime
+		return checkedPayloadSize(4 + len(payload.Status) + 8) // StatusLen + Status + Uptime
 
 	case []byte:
-		return uint32(len(payload)), nil
+		return checkedPayloadSize(len(payload))
 
 	default:
 		return 0, nil
@@ -461,6 +499,13 @@ func (c *Codec) encodeRequestPayload(buf []byte, offset int, req *Request) (int,
 		for _, msg := range payload.Messages {
 			offset = c.encodeMessage(buf, offset, &msg)
 		}
+		// ProducerID + ProducerEpoch: always written by this codec version,
+		// even for a non-transactional batch (they are simply zero), so an
+		// older decoder never has to guess whether they are present.
+		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.ProducerID)) // #nosec G115 -- wire round-trip of a fixed-width field's bits, not a value-narrowing conversion
+		offset += 8
+		binary.BigEndian.PutUint16(buf[offset:], uint16(payload.ProducerEpoch)) // #nosec G115 -- wire round-trip of a fixed-width field's bits, not a value-narrowing conversion
+		offset += 2
 		return offset, nil
 
 	case RequestTypeFetch:
@@ -479,6 +524,9 @@ func (c *Codec) encodeRequestPayload(buf []byte, offset int, req *Request) (int,
 		// MaxBytes
 		binary.BigEndian.PutUint32(buf[offset:], payload.MaxBytes)
 		offset += 4
+		// IsolationLevel
+		buf[offset] = byte(payload.IsolationLevel) // #nosec G115 -- wire round-trip of a fixed-width field's bits, not a value-narrowing conversion
+		offset++
 		return offset, nil
 
 	case RequestTypeGetOffset:
@@ -554,10 +602,26 @@ func (c *Codec) decodeRequestPayload(buf []byte, reqType RequestType) (interface
 			messages[i] = msg
 			offset = newOffset
 		}
+		// ProducerID + ProducerEpoch were added after the initial layout; a
+		// request from an older client simply ends before them, and both
+		// zero-value defaults describe a non-transactional batch, which is
+		// exactly what such a client always sends.
+		var producerID int64
+		var producerEpoch int16
+		if len(buf)-offset >= 8 {
+			producerID = int64(binary.BigEndian.Uint64(buf[offset:])) // #nosec G115 -- wire round-trip of a fixed-width field's bits, not a value-narrowing conversion
+			offset += 8
+			if len(buf)-offset >= 2 {
+				producerEpoch = int16(binary.BigEndian.Uint16(buf[offset:])) // #nosec G115 -- wire round-trip of a fixed-width field's bits, not a value-narrowing conversion
+				// offset += 2 // Not needed, returning immediately
+			}
+		}
 		return &ProduceRequest{
-			Topic:       topic,
-			PartitionID: partitionID,
-			Messages:    messages,
+			Topic:         topic,
+			PartitionID:   partitionID,
+			Messages:      messages,
+			ProducerID:    producerID,
+			ProducerEpoch: producerEpoch,
 		}, nil
 
 	case RequestTypeFetch:
@@ -574,11 +638,20 @@ func (c *Codec) decodeRequestPayload(buf []byte, reqType RequestType) (interface
 		offset += 8
 		// MaxBytes
 		maxBytes := binary.BigEndian.Uint32(buf[offset:])
+		offset += 4
+		// IsolationLevel was added after the initial layout; a request from
+		// an older client ends before it, and IsolationReadUncommitted (the
+		// zero value) is exactly what such a client always meant.
+		isolationLevel := IsolationReadUncommitted
+		if len(buf)-offset >= 1 {
+			isolationLevel = IsolationLevel(int8(buf[offset])) // #nosec G115 -- wire round-trip of a fixed-width field's bits, not a value-narrowing conversion
+		}
 		return &FetchRequest{
-			Topic:       topic,
-			PartitionID: partitionID,
-			Offset:      fetchOffset,
-			MaxBytes:    maxBytes,
+			Topic:          topic,
+			PartitionID:    partitionID,
+			Offset:         fetchOffset,
+			MaxBytes:       maxBytes,
+			IsolationLevel: isolationLevel,
 		}, nil
 
 	case RequestTypeGetOffset:
@@ -665,6 +738,10 @@ func (c *Codec) encodeResponsePayload(buf []byte, offset int, resp *Response) (i
 		for _, msg := range payload.Messages {
 			offset = c.encodeMessage(buf, offset, &msg)
 		}
+		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.LastStableOffset)) // #nosec G115 -- wire round-trip of a fixed-width field's bits, not a value-narrowing conversion
+		offset += 8
+		binary.BigEndian.PutUint64(buf[offset:], uint64(payload.NextOffset)) // #nosec G115 -- wire round-trip of a fixed-width field's bits, not a value-narrowing conversion
+		offset += 8
 		return offset, nil
 
 	case *GetOffsetResponse:

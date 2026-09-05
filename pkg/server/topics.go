@@ -32,6 +32,22 @@ type Topic struct {
 type Partition struct {
 	id  uint32
 	log storage.Log
+
+	// txnMu protects openTxns, which backs LastStableOffset. It is its own
+	// lock rather than piggybacking on the topic/topic-manager locks because
+	// it is written on every transactional produce and read on every
+	// read-committed fetch - both far hotter paths than topic management.
+	txnMu    sync.Mutex
+	openTxns map[producerKey]int64
+}
+
+// producerKey identifies one producer epoch for open-transaction tracking on
+// a partition. The epoch is part of the key, not just the ID, so a fenced
+// producer's stale entry (should it ever fail to reach EndTxn) does not get
+// confused with - or torn down by - the next producer instance's transaction.
+type producerKey struct {
+	producerID    int64
+	producerEpoch int16
 }
 
 // NewTopicManager creates a new topic manager
@@ -324,6 +340,64 @@ func (p *Partition) ID() uint32 {
 // Log returns the partition's underlying log.
 func (p *Partition) Log() storage.Log {
 	return p.log
+}
+
+// BeginTransaction records that a transactional produce landed on this
+// partition, if this producer epoch does not already have one tracked.
+//
+// Only the first call for a given (producerID, producerEpoch) has any
+// effect: it is the offset of the *first* record of an open transaction that
+// matters for LastStableOffset, so later records from the same transaction
+// must not move the barrier forward. producerID 0 is the sentinel for a
+// non-transactional batch and is silently ignored, so ordinary produce
+// traffic never touches this bookkeeping.
+func (p *Partition) BeginTransaction(producerID int64, producerEpoch int16, firstOffset int64) {
+	if producerID == 0 {
+		return
+	}
+
+	key := producerKey{producerID: producerID, producerEpoch: producerEpoch}
+
+	p.txnMu.Lock()
+	defer p.txnMu.Unlock()
+	if p.openTxns == nil {
+		p.openTxns = make(map[producerKey]int64)
+	}
+	if _, tracked := p.openTxns[key]; !tracked {
+		p.openTxns[key] = firstOffset
+	}
+}
+
+// EndTransaction clears a producer epoch's open-transaction entry once its
+// marker has been written, whether the transaction committed or aborted:
+// either way it is resolved, and LastStableOffset must stop treating its
+// start offset as a barrier. Clearing an epoch with nothing tracked is a
+// no-op, not an error - that is the normal case for a non-transactional
+// producer's marker-less path, and for any partition a transaction never
+// actually produced to.
+func (p *Partition) EndTransaction(producerID int64, producerEpoch int16) {
+	key := producerKey{producerID: producerID, producerEpoch: producerEpoch}
+
+	p.txnMu.Lock()
+	defer p.txnMu.Unlock()
+	delete(p.openTxns, key)
+}
+
+// LastStableOffset returns the offset a read-committed fetch must not read
+// past: the earliest start offset among this partition's still-open
+// transactions, or the high water mark if none are open. It is always
+// <= HighWaterMark, since a transaction cannot start beyond it.
+func (p *Partition) LastStableOffset() int64 {
+	p.txnMu.Lock()
+	defer p.txnMu.Unlock()
+
+	lso := int64(p.log.HighWaterMark())
+	for _, firstOffset := range p.openTxns {
+		if firstOffset < lso {
+			lso = firstOffset
+		}
+	}
+	return lso
 }
 
 // PartitionOffsets returns the start offset, end offset and high water mark
