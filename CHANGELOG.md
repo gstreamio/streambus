@@ -5,6 +5,23 @@ All notable changes to StreamBus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0](https://github.com/gstreamio/streambus/compare/v2.0.1...v2.1.0) (2026-09-05)
+
+
+### Features
+
+* **cli,mirror-maker:** report real broker state instead of fabricated output ([#54](https://github.com/gstreamio/streambus/issues/54)) ([085b5fb](https://github.com/gstreamio/streambus/commit/085b5fbdff539b0e0616dbefcc56bb8b4d9db77c))
+* **replication:** implement the cross-cluster data plane and stop faking health ([#60](https://github.com/gstreamio/streambus/issues/60)) ([627a5e0](https://github.com/gstreamio/streambus/commit/627a5e0b18c1633a84e837bfd4ec985ad12bb4fb))
+* **storage,server:** hide aborted transactions from read_committed fetches ([#58](https://github.com/gstreamio/streambus/issues/58)) ([9343ad0](https://github.com/gstreamio/streambus/commit/9343ad0f7bf5b723f259049ad4cba3e1405c5c27))
+
+
+### Bug Fixes
+
+* **bench:** repair the benchmark module and the runner that never invoked it ([#62](https://github.com/gstreamio/streambus/issues/62)) ([4a8a9b6](https://github.com/gstreamio/streambus/commit/4a8a9b6a00f82390ac88566244dace0a0c5d12fd))
+* **operator:** converge StatefulSet and Service spec changes instead of reporting success ([#59](https://github.com/gstreamio/streambus/issues/59)) ([c0ef585](https://github.com/gstreamio/streambus/commit/c0ef5856d35588a5933f47c37d9e98db8046e499))
+* **ui:** migrate to ESLint 9 flat config to repair npm ci on main ([#53](https://github.com/gstreamio/streambus/issues/53)) ([3a3dbb8](https://github.com/gstreamio/streambus/commit/3a3dbb8a8a60003e1797c9a4fb775fbf0f5ceff9))
+* **ui:** read cluster fields from the endpoints that actually serve them ([#61](https://github.com/gstreamio/streambus/issues/61)) ([ea0c912](https://github.com/gstreamio/streambus/commit/ea0c912599d2366c85a1df8868bc777ac588b066))
+
 ## [2.0.1](https://github.com/gstreamio/streambus/compare/v2.0.0...v2.0.1) (2026-09-05)
 
 
