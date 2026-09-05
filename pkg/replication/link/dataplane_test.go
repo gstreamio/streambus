@@ -134,10 +134,16 @@ func TestDataPlane_MessageReplicatesToTarget(t *testing.T) {
 	}
 
 	// Metrics must reflect the real replication, not a fabricated number.
-	handler.WithStats(func(metrics *ReplicationMetrics, health *ReplicationHealth) {
-		if metrics.TotalMessagesReplicated < 1 {
-			t.Errorf("expected TotalMessagesReplicated >= 1, got %d", metrics.TotalMessagesReplicated)
-		}
+	// This is polled rather than checked once: a message becomes visible on
+	// the target as soon as CommitTransaction's flushMessages writes it -
+	// see commitBatch - which is a moment before the worker goroutine that
+	// produced it finishes CommitTransaction's remaining round trip and
+	// updates its own metrics. That gap did not exist for the old
+	// non-transactional produce path this test used to exercise, so a
+	// same-instant check would be racy against it now.
+	waitForMetric(t, handler, func(m *ReplicationMetrics) bool { return m.TotalMessagesReplicated >= 1 }, 5*time.Second)
+
+	handler.WithStats(func(_ *ReplicationMetrics, health *ReplicationHealth) {
 		if health.Status != "healthy" && health.Status != "unverified" {
 			// Either is acceptable depending on whether performHealthCheck's
 			// 30s ticker has run yet; what matters is it is never a lie.
@@ -146,10 +152,37 @@ func TestDataPlane_MessageReplicatesToTarget(t *testing.T) {
 	})
 }
 
+// waitForMetric polls handler's metrics until ready reports true, failing the
+// test if timeout elapses first.
+func waitForMetric(t *testing.T, handler *StreamHandler, ready func(*ReplicationMetrics) bool, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for {
+		done := false
+		handler.WithStats(func(metrics *ReplicationMetrics, _ *ReplicationHealth) {
+			done = ready(metrics)
+		})
+		if done {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for metrics to reflect replication")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // TestDataPlane_ResumesFromCheckpointWithoutDuplicating covers restart
 // semantics: after a link is stopped and a fresh handler restarts it (the
-// same thing StartLink does on the manager), replication must continue from
-// the checkpoint rather than replaying everything from offset zero.
+// same thing StartLink does on the manager), replication must continue
+// without loss or duplication. Despite the name, this no longer resumes from
+// a local checkpoint at all - recoverSourceOffset reads the position back
+// from the target cluster's committed offset instead (see stream.go) - so a
+// pass here is exercising the exactly-once redesign end to end: if recovery
+// still trusted local checkpoint storage, or if a produce and its offset
+// commit were not one atomic transaction, this would either replay messages
+// already on the target or skip ones never actually committed there.
 func TestDataPlane_ResumesFromCheckpointWithoutDuplicating(t *testing.T) {
 	sourceAddr := startTestStreamBusBroker(t)
 	targetAddr := startTestStreamBusBroker(t)

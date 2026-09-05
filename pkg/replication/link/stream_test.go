@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gstreamio/streambus/pkg/client"
+	"github.com/gstreamio/streambus/pkg/consumer/group"
 	"github.com/gstreamio/streambus/pkg/protocol"
 )
 
@@ -185,7 +186,19 @@ func TestStreamHandler_StartTopicReplication(t *testing.T) {
 	worker.cancel()
 }
 
-func TestStreamHandler_StartTopicReplication_WithCheckpoint(t *testing.T) {
+// TestStreamHandler_StartTopicReplication_IgnoresLocalCheckpointForResume
+// covers the requirement that recovery trusts the target cluster's committed
+// offset, never the local checkpoint, for sourceOffset: a stale-looking local
+// checkpoint here must NOT be where the worker resumes from, precisely
+// because the local checkpoint is not part of the same atomic commit as the
+// records already produced (see recoverSourceOffset). The target has no
+// committed offset for this link at all, so the worker must start fresh at
+// startOffsetForNewLink (0), not at the checkpoint's SourceOffset (100).
+//
+// The checkpoint's TargetOffset still seeds the best-effort observability
+// estimate (see partitionWorker's field comment) - that part of local
+// checkpoint state was never claimed to be authoritative.
+func TestStreamHandler_StartTopicReplication_IgnoresLocalCheckpointForResume(t *testing.T) {
 	link := createTestLink("checkpoint-test", "Checkpoint Test")
 	link.SourceCluster.Brokers = []string{startTestStreamBusBroker(t)}
 	link.TargetCluster.Brokers = []string{startTestStreamBusBroker(t)}
@@ -197,7 +210,6 @@ func TestStreamHandler_StartTopicReplication_WithCheckpoint(t *testing.T) {
 	}
 	defer func() { _ = handler.Stop() }()
 
-	// Save a checkpoint first
 	checkpoint := &Checkpoint{
 		LinkID:       link.ID,
 		Topic:        "test-topic",
@@ -207,8 +219,7 @@ func TestStreamHandler_StartTopicReplication_WithCheckpoint(t *testing.T) {
 		Timestamp:    time.Now(),
 		Metadata:     make(map[string]string),
 	}
-	err = storage.SaveCheckpoint(checkpoint)
-	if err != nil {
+	if err := storage.SaveCheckpoint(checkpoint); err != nil {
 		t.Fatalf("SaveCheckpoint failed: %v", err)
 	}
 
@@ -219,14 +230,59 @@ func TestStreamHandler_StartTopicReplication_WithCheckpoint(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	// Verify worker loaded checkpoint
 	workerKey := "test-topic-0"
 	worker := handler.partitionWorkers[workerKey]
-	if worker.sourceOffset != 100 {
-		t.Errorf("Expected source offset 100, got %d", worker.sourceOffset)
+	if worker.sourceOffset != startOffsetForNewLink {
+		t.Errorf("expected resume to ignore the local checkpoint's SourceOffset and start at %d, got %d",
+			startOffsetForNewLink, worker.sourceOffset)
 	}
+	// Only the best-effort estimate comes from the local checkpoint.
 	if worker.targetOffset != 95 {
-		t.Errorf("Expected target offset 95, got %d", worker.targetOffset)
+		t.Errorf("expected the local checkpoint's TargetOffset (95) to seed the observability estimate, got %d",
+			worker.targetOffset)
+	}
+}
+
+// TestStreamHandler_StartTopicReplication_ResumesFromTargetCommittedOffset
+// covers the other half of the same requirement: when the target cluster
+// does hold a committed offset for this link's group id - exactly what a
+// prior commitBatch would have left behind - the worker resumes from that,
+// not from zero and not from any local checkpoint.
+func TestStreamHandler_StartTopicReplication_ResumesFromTargetCommittedOffset(t *testing.T) {
+	link := createTestLink("checkpoint-resume-test", "Checkpoint Resume Test")
+	link.SourceCluster.Brokers = []string{startTestStreamBusBroker(t)}
+	target := startTestTransactionalBroker(t)
+	link.TargetCluster.Brokers = []string{target.Addr}
+
+	// Simulate what a prior commitBatch would have committed for this exact
+	// (link, topic, partition): the offset a real transaction would have
+	// recorded via SendOffsetsToTransaction, committed here directly against
+	// the group coordinator rather than through a whole produce/commit cycle,
+	// since only the recovery read (recoverSourceOffset) is under test.
+	groupID := replicationGroupID(link.ID, "test-topic", 0)
+	if _, err := target.GroupCoordinator.HandleOffsetCommit(&group.OffsetCommitRequest{
+		GroupID:      groupID,
+		GenerationID: -1,
+		Offsets: map[string]map[int32]group.OffsetCommitData{
+			"test-topic": {0: {Offset: 100}},
+		},
+	}); err != nil {
+		t.Fatalf("seeding a committed offset on the target failed: %v", err)
+	}
+
+	handler, err := NewStreamHandler(link, NewMemoryStorage())
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+	defer func() { _ = handler.Stop() }()
+
+	if err := handler.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	worker := handler.partitionWorkers["test-topic-0"]
+	if worker.sourceOffset != 100 {
+		t.Errorf("expected resume from the target's committed offset (100), got %d", worker.sourceOffset)
 	}
 }
 
@@ -827,9 +883,7 @@ func TestPartitionWorker_ReplicateBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect target failed: %v", err)
 	}
-	handler.targetProducer = client.NewProducerWithConfig(handler.targetClient, client.ProducerConfig{RequireAck: true})
 	defer func() {
-		_ = handler.targetProducer.Close()
 		_ = handler.sourceClient.Close()
 		_ = handler.targetClient.Close()
 	}()
@@ -840,9 +894,204 @@ func TestPartitionWorker_ReplicateBatch(t *testing.T) {
 
 	// The source topic is empty (auto-created on first fetch), so this
 	// exercises the "caught up" path: a zero-message fetch is success, not
-	// an error.
+	// an error. Nothing to produce means replicateBatch never touches
+	// worker.producer, which is why this case needs no transactional
+	// producer wired up at all (see TestPartitionWorker_CommitBatch for the
+	// transactional path).
 	if err := worker.replicateBatch(); err != nil {
 		t.Errorf("replicateBatch on an empty topic should not error, got: %v", err)
+	}
+}
+
+// TestPartitionWorker_CommitBatch covers the happy path of the transactional
+// commit itself: a batch produced through commitBatch must both land on the
+// target partition and advance the committed source offset the target holds
+// for this worker's group id - the same pairing recoverSourceOffset reads
+// back on a restart.
+func TestPartitionWorker_CommitBatch(t *testing.T) {
+	link := createTestLink("commit-batch-test", "Commit Batch Test")
+	link.SourceCluster.Brokers = []string{startTestStreamBusBroker(t)}
+	target := startTestTransactionalBroker(t)
+	link.TargetCluster.Brokers = []string{target.Addr}
+
+	handler, err := NewStreamHandler(link, NewMemoryStorage())
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+
+	handler.sourceClient, err = handler.connectToCluster(&link.SourceCluster)
+	if err != nil {
+		t.Fatalf("connect source failed: %v", err)
+	}
+	handler.targetClient, err = handler.connectToCluster(&link.TargetCluster)
+	if err != nil {
+		t.Fatalf("connect target failed: %v", err)
+	}
+	defer func() {
+		_ = handler.sourceClient.Close()
+		_ = handler.targetClient.Close()
+	}()
+
+	groupID := replicationGroupID(link.ID, "test-topic", 0)
+	producer, err := client.NewTransactionalProducer(handler.targetClient, client.TransactionalProducerConfig{
+		TransactionID: replicationTransactionID(link.ID, "test-topic", 0),
+	})
+	if err != nil {
+		t.Fatalf("NewTransactionalProducer failed: %v", err)
+	}
+	defer func() { _ = producer.Close() }()
+
+	worker := &partitionWorker{
+		topic: "test-topic", targetTopic: "test-topic", partition: 0,
+		handler: handler, groupID: groupID, producer: producer,
+	}
+	worker.ctx, worker.cancel = context.WithCancel(context.Background())
+	defer worker.cancel()
+
+	messages := []protocol.Message{
+		{Key: []byte("k1"), Value: []byte("v1")},
+		{Key: []byte("k2"), Value: []byte("v2")},
+	}
+	if err := worker.commitBatch(messages, 5); err != nil {
+		t.Fatalf("commitBatch failed: %v", err)
+	}
+
+	msgs := waitForMessageCount(t, target.Addr, "test-topic", 2, 5*time.Second)
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages on target, got %d", len(msgs))
+	}
+
+	resp, err := handler.targetClient.FetchOffsets(context.Background(), &protocol.OffsetFetchRequest{
+		GroupID: groupID,
+		Topics:  []protocol.OffsetFetchTopic{{Topic: "test-topic", Partitions: []int32{0}}},
+	})
+	if err != nil {
+		t.Fatalf("FetchOffsets failed: %v", err)
+	}
+	got := int64(protocol.OffsetNoCommittedValue)
+	for _, topic := range resp.Topics {
+		for _, p := range topic.Partitions {
+			got = p.Offset
+		}
+	}
+	if got != 5 {
+		t.Errorf("expected the committed source offset to be 5 (from commitBatch's nextSourceOffset), got %d", got)
+	}
+}
+
+// TestPartitionWorker_CommitBatch_AbortsOnFailure covers the other half:
+// commitBatch must abort - leaving nothing visible on the target and nothing
+// committed for its group id - when any step of the transaction fails after
+// records were already staged. An empty group id fails
+// SendOffsetsToTransaction deliberately here, standing in for any mid-batch
+// failure (a broker restart, a network error) that would leave a
+// transaction open if it were not aborted; what this test actually verifies
+// is the state on both sides of that failure, which is the same regardless
+// of what caused it.
+//
+// This does not exercise the producer-id tagging fix in
+// pkg/client/transactional_producer.go (see commitBatch's own doc comment):
+// every path commitBatch can actually abort through fails before
+// CommitTransaction ever runs, and Send only buffers messages in memory -
+// the record itself is never written to the target log until
+// CommitTransaction's flushMessages runs. So "nothing visible" here is true
+// because nothing was ever produced, independent of whether the write would
+// have been tagged correctly. The tests in pkg/client/transactional_producer_test.go
+// (TestTransactionalProducer_ReadCommittedVisibilityFollowsCommit and
+// TestProducer_UnresolvedTransactionalWriteHiddenFromReadCommitted) are what
+// actually pin that mechanism down.
+func TestPartitionWorker_CommitBatch_AbortsOnFailure(t *testing.T) {
+	link := createTestLink("commit-batch-abort-test", "Commit Batch Abort Test")
+	link.SourceCluster.Brokers = []string{startTestStreamBusBroker(t)}
+	target := startTestTransactionalBroker(t)
+	link.TargetCluster.Brokers = []string{target.Addr}
+
+	handler, err := NewStreamHandler(link, NewMemoryStorage())
+	if err != nil {
+		t.Fatalf("NewStreamHandler failed: %v", err)
+	}
+
+	handler.sourceClient, err = handler.connectToCluster(&link.SourceCluster)
+	if err != nil {
+		t.Fatalf("connect source failed: %v", err)
+	}
+	handler.targetClient, err = handler.connectToCluster(&link.TargetCluster)
+	if err != nil {
+		t.Fatalf("connect target failed: %v", err)
+	}
+	defer func() {
+		_ = handler.sourceClient.Close()
+		_ = handler.targetClient.Close()
+	}()
+
+	// A real worker never reaches commitBatch before ensureTargetTopic has
+	// already created this topic on the target - match that precondition so
+	// the abort marker write below exercises the real path instead of a
+	// missing-topic error this test isn't about.
+	if err := handler.targetClient.CreateTopic(context.Background(), "test-topic", 1, 1); err != nil {
+		t.Fatalf("pre-create target topic failed: %v", err)
+	}
+
+	producer, err := client.NewTransactionalProducer(handler.targetClient, client.TransactionalProducerConfig{
+		TransactionID: replicationTransactionID(link.ID, "test-topic", 0),
+	})
+	if err != nil {
+		t.Fatalf("NewTransactionalProducer failed: %v", err)
+	}
+	defer func() { _ = producer.Close() }()
+
+	worker := &partitionWorker{
+		topic: "test-topic", targetTopic: "test-topic", partition: 0,
+		handler: handler, groupID: "", // empty: SendOffsetsToTransaction rejects this
+		producer: producer,
+	}
+	worker.ctx, worker.cancel = context.WithCancel(context.Background())
+	defer worker.cancel()
+
+	messages := []protocol.Message{{Key: []byte("k1"), Value: []byte("v1")}}
+	if err := worker.commitBatch(messages, 5); err == nil {
+		t.Fatal("expected commitBatch to fail with an empty group id")
+	}
+
+	// The producer must be back to Ready, not stuck mid-transaction -
+	// Stop()'s no-dangling-transaction guarantee (closeProducer) depends on
+	// abort actually resolving the transaction, not merely reporting it did.
+	if state := producer.Stats().State; state != client.ProducerStateReady {
+		t.Errorf("expected producer state Ready after an aborted commit, got %v", state)
+	}
+
+	// The staged-but-aborted record must never reach a read_committed
+	// consumer - the operational requirement this whole design depends on
+	// (see commitBatch's doc comment).
+	fetchResp, err := handler.targetClient.Fetch(context.Background(), &client.FetchRequest{
+		Topic:          "test-topic",
+		Partition:      0,
+		Offset:         0,
+		MaxBytes:       1 << 20,
+		IsolationLevel: protocol.IsolationReadCommitted,
+	})
+	if err != nil {
+		t.Fatalf("Fetch failed: %v", err)
+	}
+	if len(fetchResp.Messages) != 0 {
+		t.Errorf("expected no read_committed-visible messages after an aborted transaction, got %d", len(fetchResp.Messages))
+	}
+
+	// Nothing must have been committed for this group id either - the
+	// records and the position are one all-or-nothing unit.
+	offsetResp, err := handler.targetClient.FetchOffsets(context.Background(), &protocol.OffsetFetchRequest{
+		GroupID: replicationGroupID(link.ID, "test-topic", 0),
+		Topics:  []protocol.OffsetFetchTopic{{Topic: "test-topic", Partitions: []int32{0}}},
+	})
+	if err != nil {
+		t.Fatalf("FetchOffsets failed: %v", err)
+	}
+	for _, topic := range offsetResp.Topics {
+		for _, p := range topic.Partitions {
+			if p.Offset != protocol.OffsetNoCommittedValue {
+				t.Errorf("expected no committed offset after an aborted transaction, got %d", p.Offset)
+			}
+		}
 	}
 }
 
@@ -986,8 +1235,6 @@ func TestStreamHandler_Stop_WithRunningWorkers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect target failed: %v", err)
 	}
-	handler.targetProducer = client.NewProducerWithConfig(handler.targetClient, client.ProducerConfig{RequireAck: true})
-
 	// Create a partition worker manually
 	err = handler.startTopicReplication("test-topic")
 	if err != nil {

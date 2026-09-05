@@ -31,11 +31,6 @@ type StreamHandler struct {
 	// targetClient is the client for the target cluster
 	targetClient *client.Client
 
-	// targetProducer sends replicated messages to the target cluster.
-	// Batching is deliberately disabled (see Start): a produce must actually
-	// reach the broker before it is checkpointed.
-	targetProducer *client.Producer
-
 	// partitionWorkers tracks running partition workers
 	partitionWorkers map[string]*partitionWorker
 
@@ -113,10 +108,28 @@ type partitionWorker struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	// Current offsets. Source and target offsets are unrelated sequences -
-	// the target partition has its own offset numbering - so these are
-	// tracked and checkpointed independently; see recordOffsetMappings for
-	// how the two are tied together.
+	// groupID identifies this worker to the target cluster's consumer-group
+	// offset store (see replicationGroupID): the (group, topic, partition)
+	// key under which commitBatch records this worker's source progress,
+	// atomically with the records that progress corresponds to.
+	//
+	// producer is this worker's own transactional producer against the
+	// target cluster, holding its own transactional id (see
+	// replicationTransactionID) - never shared with another worker, so no
+	// two worker goroutines ever contend over the same transaction.
+	groupID  string
+	producer *client.TransactionalProducer
+
+	// Current offsets. sourceOffset is authoritative recovery state: it is
+	// exactly what was last committed to the target cluster inside the same
+	// transaction as the records produced for it (see commitBatch and
+	// recoverSourceOffset) - not merely a local field that happens to track
+	// progress. targetOffset, by contrast, is an inferred, best-effort
+	// estimate kept only for metrics and the local checkpoint
+	// (recordBatchReplicated, saveCheckpoint): SendMessagesToPartition never
+	// reports the offsets it actually assigned on the target, so this
+	// number must never be treated as ground truth or used to make a
+	// resume decision - only sourceOffset is used for that.
 	sourceOffset int64
 	targetOffset int64
 
@@ -125,8 +138,46 @@ type partitionWorker struct {
 	// pendingMappings accumulates source->target offset translations for
 	// messages produced since the last flush. It is written out alongside
 	// the periodic/final checkpoint in saveCheckpoint rather than on every
-	// batch, to keep offset-mapping persistence off the hot path.
+	// batch, to keep offset-mapping persistence off the hot path. Like
+	// targetOffset above, this is observability only, kept for the
+	// failover/failback event data manager.go already builds from it - it is
+	// not part of how this link resumes after a restart.
 	pendingMappings map[int64]int64
+}
+
+// startOffsetForNewLink is where a partition worker begins replicating when
+// the target cluster has no offset committed for it yet (see
+// recoverSourceOffset): a brand-new link, or a groupID that has genuinely
+// never had a transaction commit under it. This mirrors the topic from its
+// beginning - a deliberate choice, not the int64 zero value silently making
+// it for us. A link that instead wants to start from the current tail on
+// first run would need a different, explicit policy; this package does not
+// offer one.
+const startOffsetForNewLink int64 = 0
+
+// replicationGroupID returns the identifier a partition worker uses to
+// record its consumed source position in the target cluster's consumer-group
+// offsets, via SendOffsetsToTransaction and FetchOffsets (see commitBatch and
+// recoverSourceOffset).
+//
+// Nothing ever joins this "group" in the ordinary consumer sense - it exists
+// purely as the (group, topic, partition) key the target's group coordinator
+// uses to store one committed number on this link's behalf - but it still
+// must be unique per link and partition, so two links, or two partitions of
+// the same link, can never overwrite each other's recorded position.
+func replicationGroupID(linkID, topic string, partition int32) string {
+	return fmt.Sprintf("__replication__%s__%s__%d", linkID, topic, partition)
+}
+
+// replicationTransactionID returns the transactional id a partition worker
+// claims from the target cluster's transaction coordinator, derived the same
+// way as replicationGroupID and deliberately stable across restarts:
+// reclaiming it after a crash bumps the producer epoch (see
+// client.TransactionalProducer / InitProducerID), fencing off any earlier
+// instance of this same worker that might still be alive somewhere, rather
+// than letting two producers write under overlapping identities.
+func replicationTransactionID(linkID, topic string, partition int32) string {
+	return fmt.Sprintf("replication-%s-%s-%d", linkID, topic, partition)
 }
 
 // NewStreamHandler creates a new stream handler for a replication link
@@ -193,17 +244,12 @@ func (h *StreamHandler) Start() error {
 	}
 	h.targetClient = targetClient
 
-	// Batching is disabled here: replication only advances its in-memory
-	// offsets (and checkpoints them, see saveCheckpoint) after
-	// SendMessagesToPartition reports success, so that call must mean "the
-	// broker has it," not "it is queued." With the Producer's default
-	// batching, a "successful" call could just mean enqueued, and a crash
-	// before the batch flushed would silently drop messages this link
-	// believes it already replicated.
-	h.targetProducer = client.NewProducerWithConfig(h.targetClient, client.ProducerConfig{
-		RequireAck:          true,
-		MaxInFlightRequests: 5,
-	})
+	// There is no handler-wide producer to configure here: each partition
+	// worker owns its own client.TransactionalProducer (created in
+	// startPartitionWorker), and CommitTransaction's flushMessages already
+	// calls FlushAll before EndTxn - so "the broker actually has it, not
+	// just enqueued" is guaranteed by the transactional path itself, not by
+	// a batching setting this handler has to get right.
 
 	// Get topics to replicate
 	topics, err := h.getTopicsToReplicate()
@@ -270,16 +316,17 @@ func (h *StreamHandler) stopLocked() {
 		}
 	}
 
-	// Wait for all workers to finish
+	// Wait for all workers to finish. Each worker closes its own
+	// TransactionalProducer as part of its own shutdown (see run's defer)
+	// before this returns - aborting, through a fresh background context,
+	// any transaction a failure left open - so no transaction is left
+	// dangling against the target cluster by the time clients close below.
 	h.wg.Wait()
 
-	// Close the producer before the client it produces through, and close
-	// clients last. A close error here has no recovery path - the stream is
-	// stopping either way - so it is dropped deliberately rather than
-	// masking the caller's own result.
-	if h.targetProducer != nil {
-		_ = h.targetProducer.Close()
-	}
+	// Close clients last, after everything that produces or fetches through
+	// them has already stopped. A close error here has no recovery path -
+	// the stream is stopping either way - so it is dropped deliberately
+	// rather than masking the caller's own result.
 	if h.sourceClient != nil {
 		_ = h.sourceClient.Close()
 	}
@@ -416,7 +463,9 @@ func (h *StreamHandler) startTopicReplication(topic string) error {
 	workerPartitions := h.ensureTargetTopic(topic, targetTopic, sourcePartitions)
 
 	for partition := int32(0); partition < workerPartitions; partition++ {
-		h.startPartitionWorker(topic, targetTopic, partition)
+		if err := h.startPartitionWorker(topic, targetTopic, partition); err != nil {
+			return fmt.Errorf("start worker for %s/%d: %w", topic, partition, err)
+		}
 	}
 
 	return nil
@@ -504,23 +553,45 @@ func (h *StreamHandler) ensureTargetTopic(sourceTopic, targetTopic string, sourc
 }
 
 // startPartitionWorker creates and runs the worker for one partition,
-// resuming from its last checkpoint when one exists.
-func (h *StreamHandler) startPartitionWorker(topic, targetTopic string, partition int32) {
+// resuming from the source offset already committed for it on the target
+// cluster (see recoverSourceOffset) - never from local checkpoint storage,
+// which this design deliberately no longer trusts for resume (see
+// partitionWorker's sourceOffset/targetOffset field comment).
+func (h *StreamHandler) startPartitionWorker(topic, targetTopic string, partition int32) error {
 	workerKey := fmt.Sprintf("%s-%d", topic, partition)
+	groupID := replicationGroupID(h.link.ID, topic, partition)
+
+	producer, err := client.NewTransactionalProducer(h.targetClient, client.TransactionalProducerConfig{
+		TransactionID: replicationTransactionID(h.link.ID, topic, partition),
+	})
+	if err != nil {
+		return fmt.Errorf("create transactional producer: %w", err)
+	}
 
 	worker := &partitionWorker{
 		topic:       topic,
 		targetTopic: targetTopic,
 		partition:   partition,
 		handler:     h,
+		groupID:     groupID,
+		producer:    producer,
 	}
-
 	worker.ctx, worker.cancel = context.WithCancel(h.ctx)
 
+	sourceOffset, err := h.recoverSourceOffset(worker.ctx, topic, partition, groupID)
+	if err != nil {
+		worker.cancel()
+		_ = producer.Close()
+		return fmt.Errorf("recover resume offset from target: %w", err)
+	}
+	worker.sourceOffset = sourceOffset
+
+	// The local checkpoint's TargetOffset, if one exists, seeds only the
+	// best-effort target-offset estimate used for metrics and future
+	// checkpoints (see the field comment) - it plays no part in deciding
+	// where replication resumes; recoverSourceOffset alone does that.
 	if h.checkpointStore != nil {
-		checkpoint, err := h.checkpointStore.LoadCheckpoint(h.link.ID, topic, partition)
-		if err == nil {
-			worker.sourceOffset = checkpoint.SourceOffset
+		if checkpoint, err := h.checkpointStore.LoadCheckpoint(h.link.ID, topic, partition); err == nil {
 			worker.targetOffset = checkpoint.TargetOffset
 		}
 	}
@@ -529,6 +600,56 @@ func (h *StreamHandler) startPartitionWorker(topic, targetTopic string, partitio
 
 	h.wg.Add(1)
 	go worker.run()
+	return nil
+}
+
+// recoverSourceOffset resumes a partition worker's position from the offset
+// committed to groupID on the target cluster - the same offset commitBatch
+// records, inside the same transaction as the records that offset
+// corresponds to (via SendOffsetsToTransaction). That shared transaction is
+// what makes this exactly-once: the produced records and the consumed
+// position either both took effect or neither did, so recovering from
+// whatever the target reports is always consistent with what the target
+// actually has. Recovering from a local checkpoint instead could be ahead of
+// that (if a periodic checkpoint save raced a crash) or behind it - either
+// one reopens the gap this design exists to close - which is why this
+// package no longer does that for sourceOffset.
+//
+// An OffsetNoCommittedValue result means no transaction has ever committed
+// under groupID - a fresh link, or a fresh partition - and resumes from
+// startOffsetForNewLink instead.
+func (h *StreamHandler) recoverSourceOffset(ctx context.Context, topic string, partition int32, groupID string) (int64, error) {
+	resp, err := h.targetClient.FetchOffsets(ctx, &protocol.OffsetFetchRequest{
+		GroupID: groupID,
+		Topics:  []protocol.OffsetFetchTopic{{Topic: topic, Partitions: []int32{partition}}},
+	})
+	if err != nil {
+		return 0, fmt.Errorf("fetch committed offset from target: %w", err)
+	}
+
+	for _, t := range resp.Topics {
+		if t.Topic != topic {
+			continue
+		}
+		for _, p := range t.Partitions {
+			if p.Partition != partition {
+				continue
+			}
+			if p.ErrorCode != protocol.ErrNone {
+				return 0, fmt.Errorf("target reported error fetching committed offset: %s", p.ErrorCode)
+			}
+			if p.Offset == protocol.OffsetNoCommittedValue {
+				return startOffsetForNewLink, nil
+			}
+			return p.Offset, nil
+		}
+	}
+
+	// The target answered but said nothing about this exact topic/partition.
+	// FetchOffsets responses are only obligated to cover what was asked for,
+	// so treat that the same as "no committed offset" rather than as an
+	// error.
+	return startOffsetForNewLink, nil
 }
 
 // run is the main loop for a partition worker
@@ -539,6 +660,13 @@ func (w *partitionWorker) run() {
 	// handler's context for the handler's whole lifetime, which leaks for a
 	// handler that starts replication for topics repeatedly.
 	defer w.cancel()
+	// Close this worker's transactional producer before wg.Done() lets Stop()
+	// return. If a failure left a transaction open against the target (most
+	// likely because the abort attempt in commitBatch itself raced this same
+	// shutdown), Close aborts it through a fresh background context - see
+	// client.TransactionalProducer.Close - so Stop() never returns with a
+	// transaction still hanging open on the target cluster.
+	defer w.closeProducer()
 
 	ticker := time.NewTicker(time.Duration(w.handler.link.Config.CheckpointIntervalMs) * time.Millisecond)
 	defer ticker.Stop()
@@ -576,12 +704,26 @@ func (w *partitionWorker) run() {
 // target. It returns nil for an empty fetch - catching up to an idle source
 // partition is the normal steady state, not a failure.
 //
-// Offsets only advance here, in memory, after a produce this function
-// confirms succeeded; saveCheckpoint (on its own ticker, and on shutdown)
-// persists whatever the offsets currently are. That gap is deliberate: this
-// link gives at-least-once delivery, not exactly-once. A crash between a
-// successful produce and the next periodic checkpoint save resumes from the
-// older checkpoint and replays the messages already produced.
+// When there is anything to produce, commitBatch writes it to the target and
+// records this worker's new source position with it, both inside one
+// transaction (see commitBatch) - so this link's own recovery decision (see
+// recoverSourceOffset) never observes the position without the records
+// having committed, or vice versa: a crash before EndTxn resolves leaves no
+// committed offset to resume past, so the batch is retried in full, not
+// half-replayed. That is what makes recovery exactly-once rather than
+// at-least-once. Consumers reading the target MUST use read_committed
+// isolation for that to reach them: a read_uncommitted consumer can observe
+// a batch that later aborts, or one whose transaction has not resolved yet
+// at all. See commitBatch's doc comment for the one narrower case (a marker
+// write failing partway through EndTxn) this package still cannot recover
+// from on its own.
+//
+// A batch left with nothing to produce (every message filtered out) still
+// needs no transaction: nothing lands on the target for it, so replaying it
+// after a restart is harmless (the same messages get filtered again), and
+// sourceOffset simply advances in memory - saveCheckpoint's local checkpoint
+// of that advance is an observability aid only (see its own comment), not
+// something recovery depends on.
 func (w *partitionWorker) replicateBatch() error {
 	fetched, err := w.fetchFromSource()
 	if err != nil {
@@ -599,8 +741,8 @@ func (w *partitionWorker) replicateBatch() error {
 
 	toProduce, bytes := w.prepareMessages(fetched.Messages)
 	if len(toProduce) > 0 {
-		if err := w.produceToTarget(toProduce); err != nil {
-			return fmt.Errorf("produce to target %s/%d: %w", w.targetTopic, w.partition, err)
+		if err := w.commitBatch(toProduce, fetched.NextOffset); err != nil {
+			return fmt.Errorf("commit batch to target %s/%d: %w", w.targetTopic, w.partition, err)
 		}
 
 		startTarget := w.targetOffset
@@ -652,14 +794,113 @@ func (w *partitionWorker) prepareMessages(fetched []protocol.Message) ([]protoco
 	return out, bytes
 }
 
-// produceToTarget writes a batch to the target partition, at the same
-// partition index as the source (see ensureTargetTopic: no hash-based
-// repartitioning, a straight 1:1 mapping).
-func (w *partitionWorker) produceToTarget(messages []protocol.Message) error {
+// commitBatch produces messages to the target partition (at the same
+// partition index as the source - see ensureTargetTopic: no hash-based
+// repartitioning, a straight 1:1 mapping) and records nextSourceOffset as
+// this worker's consumed position, both inside one transaction against the
+// target cluster.
+//
+// Either both take effect - the records land on the target and the position
+// advances - or neither does, because CommitTransaction resolves them
+// together. A failure at any point aborts whatever was staged so far (see
+// abortAndReturn), and recoverSourceOffset is what a restart reads back to
+// decide where this worker resumes - never nextSourceOffset having been
+// applied locally, since it might not have committed at all.
+//
+// CommitTransaction writes the batch to the target log and then calls EndTxn
+// to write the resolving marker, as two separate round trips inside one call
+// (client.TransactionalProducer.CommitTransaction / flushMessages). A crash
+// in the gap between them leaves those exact records durably on the target
+// log with no marker ever written for them yet. That gap is invisible to a
+// read_committed fetch: flushMessages tags its writes with this
+// transaction's real producer id/epoch (client.newTransactionalInternalProducer),
+// so Partition.BeginTransaction on the broker registers them as an open
+// transaction, and a read_committed fetch gates on the marker exactly as
+// commitBatch's callers depend on. (This did not always hold - flushMessages
+// used to write through a plain, untagged client.Producer, which put
+// everything under producer id 0, the broker's "not transactional" sentinel,
+// making every such write visible under every isolation level the instant
+// it landed. Fixed alongside this package; see
+// pkg/client/transactional_producer.go and pkg/client/producer.go.)
+//
+// One narrower caveat remains, outside this package: if EndTxn's own marker
+// write fails partway - the target partition briefly unreachable during
+// commit, say, not merely a slow or dropped response - the coordinator
+// leaves the transaction in an intermediate prepare state that neither a
+// client retry, the coordinator's own expiry sweep, nor reclaiming a new
+// producer epoch on restart currently resolves (see
+// pkg/transaction/coordinator.go's EndTxn/checkExpiredTransactions/
+// InitProducerID). This worker's replicationTransactionID is deterministic
+// and never changes, so that specific failure wedges this partition's
+// commitBatch calls indefinitely rather than self-healing on retry or
+// restart. An ordinary crash-and-restart, at any other point, recovers
+// cleanly - recoverSourceOffset simply resumes the retried batch from the
+// last offset the target actually has.
+func (w *partitionWorker) commitBatch(toProduce []protocol.Message, nextSourceOffset int64) error {
+	ctx := w.ctx
+
+	if err := w.producer.BeginTransaction(ctx); err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+
+	if err := w.sendToTarget(ctx, toProduce); err != nil {
+		return w.abortAndReturn(ctx, fmt.Errorf("produce to target %s/%d: %w", w.targetTopic, w.partition, err))
+	}
+
+	offsets := map[string]map[int32]int64{w.topic: {w.partition: nextSourceOffset}}
+	if err := w.producer.SendOffsetsToTransaction(ctx, w.groupID, offsets); err != nil {
+		return w.abortAndReturn(ctx, fmt.Errorf("record source offset: %w", err))
+	}
+
+	if err := w.producer.CommitTransaction(ctx); err != nil {
+		// CommitTransaction documents this outcome as genuinely unknown when
+		// EndTxn itself fails - the records may already be flushed. Aborting
+		// on top of an uncertain commit could report failure for a
+		// transaction that actually landed, so this is surfaced as-is rather
+		// than compounded with an abort attempt; BeginTransaction on the next
+		// batch fails loudly if a transaction is somehow still open.
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// sendToTarget stages messages in the current transaction, one at a time -
+// TransactionalProducer.Send has no batch form - addressed to this worker's
+// target partition.
+func (w *partitionWorker) sendToTarget(ctx context.Context, messages []protocol.Message) error {
 	if w.partition < 0 {
 		return fmt.Errorf("invalid negative partition %d for topic %s", w.partition, w.targetTopic)
 	}
-	return w.handler.targetProducer.SendMessagesToPartition(w.ctx, w.targetTopic, uint32(w.partition), messages)
+	for _, msg := range messages {
+		if err := w.producer.Send(ctx, w.targetTopic, w.partition, msg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// abortAndReturn aborts the worker's current transaction and returns cause -
+// what actually failed the batch - folding in the abort's own error only
+// when it adds information, so a caller never loses the original failure
+// behind a secondary one.
+func (w *partitionWorker) abortAndReturn(ctx context.Context, cause error) error {
+	if err := w.producer.AbortTransaction(ctx); err != nil {
+		return fmt.Errorf("%w (and abort failed: %v)", cause, err) //nolint:errorlint // cause is already wrapped; err is reported for its message, not to be matched on
+	}
+	return cause
+}
+
+// closeProducer releases this worker's transactional producer. See run's
+// defer for why every worker calls this on the way out, regardless of how
+// the loop exited.
+func (w *partitionWorker) closeProducer() {
+	if w.producer == nil {
+		return
+	}
+	if err := w.producer.Close(); err != nil {
+		w.errors++
+	}
 }
 
 // waitForNextPoll backs off before the next fetch of an idle partition,
@@ -685,15 +926,21 @@ func (h *StreamHandler) fetchBackoff() time.Duration {
 }
 
 // recordOffsetMappings queues source->target offset translations for a
-// produced batch; flushOffsetMappings persists them.
+// produced batch; flushOffsetMappings persists them. This is observability
+// only - the failover/failback event data manager.go builds from
+// OffsetMapping - and is not part of how this link recovers after a restart
+// (see recoverSourceOffset).
 //
 // Target offsets are inferred, not read back from the broker:
-// SendMessagesToPartition does not return the offsets it assigned. This
-// assumes the worker is the exclusive writer to the target partition - the
-// normal replication topology, since a mirrored topic is meant to be
-// read-only at the target - so offsets are assigned contiguously starting
-// at startTarget. A producer other than this link writing to the target
-// partition concurrently would make this mapping wrong.
+// SendMessagesToPartition does not return the offsets it assigned, and
+// committing a transaction does not change that (see
+// TransactionalProducer.flushMessages). This assumes the worker is the
+// exclusive writer to the target partition - the normal replication
+// topology, since a mirrored topic is meant to be read-only at the target -
+// so offsets are assigned contiguously starting at startTarget. A producer
+// other than this link writing to the target partition concurrently would
+// make this mapping wrong; it would not, however, make replication itself
+// any less exactly-once, since nothing here depends on it being right.
 func (w *partitionWorker) recordOffsetMappings(produced []protocol.Message, startTarget int64) {
 	if w.pendingMappings == nil {
 		w.pendingMappings = make(map[int64]int64, len(produced))
@@ -735,7 +982,11 @@ func (w *partitionWorker) flushOffsetMappings() {
 }
 
 // saveCheckpoint saves the current offset checkpoint and flushes any
-// pending offset mappings alongside it.
+// pending offset mappings alongside it. This is an observability aid -
+// something to inspect from outside the link, and what manager.go's
+// GetCheckpoint/failover event data reads - not this link's recovery
+// mechanism: a restart resumes from recoverSourceOffset's read of the target
+// cluster's committed offset, not from what is saved here.
 func (w *partitionWorker) saveCheckpoint() {
 	if w.handler.checkpointStore == nil {
 		return

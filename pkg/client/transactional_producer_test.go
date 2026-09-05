@@ -26,18 +26,27 @@ func newTestTransactionalProducer(t *testing.T, c *Client, txnID string) *Transa
 	return tp
 }
 
-// readPartition reads every message currently in a partition.
+// readPartition reads every message currently in a partition under
+// read_uncommitted isolation (the FetchRequest zero value).
 func readPartition(t *testing.T, c *Client, topic string, partition int32) []protocol.Message {
+	t.Helper()
+	return readPartitionIsolation(t, c, topic, partition, protocol.IsolationReadUncommitted)
+}
+
+// readPartitionIsolation reads every message currently in a partition under
+// the given isolation level.
+func readPartitionIsolation(t *testing.T, c *Client, topic string, partition int32, level protocol.IsolationLevel) []protocol.Message {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	resp, err := c.Fetch(ctx, &FetchRequest{
-		Topic:     topic,
-		Partition: partition,
-		Offset:    0,
-		MaxBytes:  1024 * 1024,
+		Topic:          topic,
+		Partition:      partition,
+		Offset:         0,
+		MaxBytes:       1024 * 1024,
+		IsolationLevel: level,
 	})
 	require.NoError(t, err)
 	return resp.Messages
@@ -169,6 +178,126 @@ func TestTransactionalProducer_AbortDiscardsMessages(t *testing.T) {
 	markers := broker.Markers.Markers()
 	require.Len(t, markers, 1)
 	assert.False(t, markers[0].Marker.Commit, "expected an abort marker")
+}
+
+// TestTransactionalProducer_ReadCommittedVisibilityFollowsCommit covers the
+// isolation property this whole design rests on, through the real
+// TransactionalProducer/CommitTransaction path: a read_committed fetch must
+// not see a transaction's records before it commits, and must see them once
+// it has.
+//
+// This does not, by itself, prove the records were ever gated on anything -
+// Send buffers messages in memory only, and flushMessages (which actually
+// writes them) runs immediately before EndTxn inside the same
+// CommitTransaction call, so "before" here is trivially empty regardless of
+// whether the write was tagged correctly. See
+// TestProducer_UnresolvedTransactionalWriteHiddenFromReadCommitted below for
+// the test that actually pins down the tagging mechanism this property
+// depends on.
+func TestTransactionalProducer_ReadCommittedVisibilityFollowsCommit(t *testing.T) {
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
+	createTestTopic(t, client, "orders", 1)
+
+	tp := newTestTransactionalProducer(t, client, "txn-read-committed")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	require.NoError(t, tp.BeginTransaction(ctx))
+	require.NoError(t, tp.Send(ctx, "orders", 0, protocol.Message{Value: []byte("staged")}))
+
+	assert.Empty(t, readPartitionIsolation(t, client, "orders", 0, protocol.IsolationReadCommitted),
+		"a read_committed fetch must not see records staged before commit")
+
+	require.NoError(t, tp.CommitTransaction(ctx))
+
+	committed := readPartitionIsolation(t, client, "orders", 0, protocol.IsolationReadCommitted)
+	require.Len(t, committed, 1)
+	assert.Equal(t, []byte("staged"), committed[0].Value)
+}
+
+// TestTransactionalProducer_AbortHiddenFromReadCommittedFetch extends
+// TestTransactionalProducer_AbortDiscardsMessages with an explicit
+// read_committed fetch, rather than relying on the (also true, but weaker)
+// read_uncommitted check that test already makes.
+func TestTransactionalProducer_AbortHiddenFromReadCommittedFetch(t *testing.T) {
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
+	createTestTopic(t, client, "orders", 1)
+
+	tp := newTestTransactionalProducer(t, client, "txn-abort-read-committed")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	require.NoError(t, tp.BeginTransaction(ctx))
+	require.NoError(t, tp.Send(ctx, "orders", 0, protocol.Message{Value: []byte("never")}))
+	require.NoError(t, tp.AbortTransaction(ctx))
+
+	for _, msg := range readPartitionIsolation(t, client, "orders", 0, protocol.IsolationReadCommitted) {
+		assert.NotEqual(t, []byte("never"), msg.Value,
+			"an aborted transaction's messages must not be visible under read_committed either")
+	}
+	assert.NotEmpty(t, broker.Markers.Markers(), "the abort marker should still have been written")
+}
+
+// TestProducer_UnresolvedTransactionalWriteHiddenFromReadCommitted is the
+// test that actually pins down the mechanism
+// TestTransactionalProducer_ReadCommittedVisibilityFollowsCommit cannot
+// reach: a write tagged with a producer id/epoch that never gets an EndTxn
+// at all - standing in for the real crash window between flushMessages
+// succeeding and EndTxn resolving that CommitTransaction cannot avoid (see
+// its own internal structure, and pkg/replication/link's commitBatch doc
+// comment, which names this exact risk) - must stay hidden from
+// read_committed indefinitely, while remaining fully visible under
+// read_uncommitted (the write genuinely reached the log; it is only gated,
+// not withheld).
+//
+// This writes through newTransactionalInternalProducer directly rather than
+// through a whole TransactionalProducer, because Send/CommitTransaction give
+// no way to stop between the write and the marker - that gap is exactly
+// what this test needs to hold open.
+func TestProducer_UnresolvedTransactionalWriteHiddenFromReadCommitted(t *testing.T) {
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
+	createTestTopic(t, client, "orders", 1)
+
+	producer := newTransactionalInternalProducer(client, 9001, 1)
+	defer func() { _ = producer.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, producer.SendMessagesToPartition(ctx, "orders", 0,
+		[]protocol.Message{{Value: []byte("in-flight")}}))
+	require.NoError(t, producer.FlushAll(ctx))
+
+	assert.Len(t, readPartitionIsolation(t, client, "orders", 0, protocol.IsolationReadUncommitted), 1,
+		"the write genuinely reached the log")
+	assert.Empty(t, readPartitionIsolation(t, client, "orders", 0, protocol.IsolationReadCommitted),
+		"a write tagged as transactional but never resolved by EndTxn must stay hidden from read_committed")
+}
+
+// TestProducer_PlainWriteUnaffectedByTagging is the control for the fix
+// above: NewProducer/NewProducerWithConfig must keep sending producer id 0 -
+// the broker's sentinel for "not transactional" - so ordinary, non-
+// transactional traffic is visible under every isolation level exactly as
+// before this change.
+func TestProducer_PlainWriteUnaffectedByTagging(t *testing.T) {
+	broker := startTestBroker(t)
+	client := newTestClient(t, broker)
+	createTestTopic(t, client, "orders", 1)
+
+	producer := NewProducer(client)
+	defer func() { _ = producer.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, producer.Send(ctx, "orders", nil, []byte("plain")))
+	require.NoError(t, producer.FlushAll(ctx)) // the default client config batches; force it out now
+
+	assert.Len(t, readPartitionIsolation(t, client, "orders", 0, protocol.IsolationReadCommitted), 1,
+		"a plain, non-transactional write must remain visible under read_committed immediately")
 }
 
 func TestTransactionalProducer_MultipleTransactions(t *testing.T) {

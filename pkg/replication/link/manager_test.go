@@ -3,11 +3,17 @@ package link
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gstreamio/streambus/pkg/consumer/group"
+	"github.com/gstreamio/streambus/pkg/logging"
+	"github.com/gstreamio/streambus/pkg/protocol"
 	"github.com/gstreamio/streambus/pkg/server"
+	"github.com/gstreamio/streambus/pkg/storage"
+	"github.com/gstreamio/streambus/pkg/transaction"
 )
 
 func createTestLink(id, name string) *ReplicationLink {
@@ -631,7 +637,27 @@ func TestManager_StartLink_AlreadyActive(t *testing.T) {
 
 // startTestStreamBusBroker starts a real StreamBus broker on an ephemeral port
 // and returns its address.
-func startTestStreamBusBroker(t *testing.T) string {
+// testTransactionalBroker is a real StreamBus broker running in-process,
+// wired with a consumer group coordinator and a transaction coordinator on
+// top of the plain wire-protocol handler - everything replication links need
+// to run client.TransactionalProducer/FetchOffsets against it exactly as a
+// production broker would.
+//
+// This mirrors pkg/client/testbroker_test.go's testBroker rather than
+// pkg/broker.Broker: pkg/broker imports this package (pkg/replication/link),
+// so a test file here importing pkg/broker back would be a cyclic import.
+// Building the handful of pieces pkg/broker itself wires together is the
+// only way to get the real thing without that cycle.
+type testTransactionalBroker struct {
+	Addr             string
+	GroupCoordinator *group.GroupCoordinator
+	TopicManager     *server.TopicManager
+}
+
+// startTestTransactionalBroker starts a StreamBus broker on an ephemeral
+// port, with consumer-group and transaction coordination fully wired, and
+// stops it when the test ends.
+func startTestTransactionalBroker(t *testing.T) *testTransactionalBroker {
 	t.Helper()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -643,10 +669,33 @@ func startTestStreamBusBroker(t *testing.T) string {
 		t.Fatalf("Failed to release reserved port: %v", err)
 	}
 
+	logger := logging.New(&logging.Config{Level: logging.LevelError, Component: "test"})
+
+	topicManager := server.NewTopicManager(t.TempDir())
+	t.Cleanup(func() { _ = topicManager.Close() })
+
+	groupCoordinator := group.NewGroupCoordinator(
+		group.NewMemoryOffsetStorage(), group.DefaultCoordinatorConfig())
+	t.Cleanup(func() { _ = groupCoordinator.Stop() })
+
+	// Markers go to the real partition logs, exactly as pkg/broker wires
+	// them in production: anything less would never call
+	// Partition.EndTransaction/AbortTransaction, so a read_committed fetch
+	// in a test would keep seeing a resolved transaction's barrier forever.
+	txnCoordinator := transaction.NewTransactionCoordinator(
+		transaction.NewMemoryTransactionLog(), transaction.DefaultCoordinatorConfig(), logger)
+	txnCoordinator.SetMarkerWriter(&replicationTestMarkerWriter{topicManager: topicManager})
+	txnCoordinator.SetOffsetCommitter(&replicationTestOffsetCommitter{coordinator: groupCoordinator})
+	t.Cleanup(txnCoordinator.Stop)
+
+	var handler server.RequestHandler = server.NewHandlerWithTopicManager(topicManager)
+	handler = server.NewCoordinationHandler(handler, groupCoordinator, newReplicationTestLocator(addr))
+	handler = server.NewTransactionHandler(handler, txnCoordinator)
+
 	config := server.DefaultConfig()
 	config.Address = addr
 
-	srv, err := server.New(config, server.NewHandlerWithDataDir(t.TempDir()))
+	srv, err := server.New(config, handler)
 	if err != nil {
 		t.Fatalf("Failed to create StreamBus server: %v", err)
 	}
@@ -655,7 +704,121 @@ func startTestStreamBusBroker(t *testing.T) string {
 	}
 	t.Cleanup(func() { _ = srv.Stop() })
 
-	return addr
+	return &testTransactionalBroker{
+		Addr:             addr,
+		GroupCoordinator: groupCoordinator,
+		TopicManager:     topicManager,
+	}
+}
+
+// startTestStreamBusBroker starts a real, fully transactional StreamBus
+// broker (see startTestTransactionalBroker) and returns its address. Kept as
+// the address-only entry point every existing test in this package already
+// uses; tests that need to inspect the broker's committed offsets directly
+// call startTestTransactionalBroker instead.
+func startTestStreamBusBroker(t *testing.T) string {
+	t.Helper()
+	return startTestTransactionalBroker(t).Addr
+}
+
+// replicationTestLocator answers every FindCoordinator request with the one
+// broker this harness runs, mirroring a real single-node cluster where every
+// key is necessarily coordinated by that same broker.
+type replicationTestLocator struct {
+	host string
+	port int32
+}
+
+// newReplicationTestLocator builds a locator over a "host:port" address.
+func newReplicationTestLocator(addr string) *replicationTestLocator {
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		// addr comes from a net.Listener this file just created, so a
+		// malformed address means the harness itself is broken.
+		panic("replicationTestLocator: invalid broker address " + addr + ": " + err.Error())
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		panic("replicationTestLocator: invalid broker port in " + addr + ": " + err.Error())
+	}
+	return &replicationTestLocator{host: host, port: int32(port)} //nolint:gosec // port comes from a real listener, within int32
+}
+
+func (l *replicationTestLocator) FindCoordinator(_ protocol.CoordinatorKeyType, _ string) (int32, string, int32, protocol.ErrorCode) {
+	return 0, l.host, l.port, protocol.ErrNone
+}
+
+// replicationTestMarkerWriter writes transaction markers to real partition
+// logs, the same way pkg/broker's (unexported) logMarkerWriter does in
+// production.
+type replicationTestMarkerWriter struct {
+	topicManager *server.TopicManager
+}
+
+func (w *replicationTestMarkerWriter) WriteMarker(topic string, partitionID int32, marker *transaction.TransactionMarker) error {
+	if partitionID < 0 {
+		return fmt.Errorf("invalid partition %d for topic %s", partitionID, topic)
+	}
+	//nolint:gosec // partitionID is checked non-negative above
+	partition, err := w.topicManager.GetPartition(topic, uint32(partitionID))
+	if err != nil {
+		return err
+	}
+
+	timestamp := time.Unix(0, marker.Timestamp)
+	if marker.Timestamp == 0 {
+		timestamp = time.Now()
+	}
+
+	log := partition.Log()
+	offsets, err := log.Append(&storage.MessageBatch{
+		Messages: []storage.Message{{
+			Timestamp: timestamp,
+			Headers:   protocol.TransactionMarkerHeaders(int64(marker.ProducerID), int16(marker.ProducerEpoch), marker.Commit),
+		}},
+		Timestamp:     timestamp,
+		ProducerID:    int64(marker.ProducerID),
+		ProducerEpoch: int16(marker.ProducerEpoch),
+	})
+	if err != nil {
+		return err
+	}
+	if err := log.Flush(); err != nil {
+		return err
+	}
+
+	if marker.Commit {
+		partition.EndTransaction(int64(marker.ProducerID), int16(marker.ProducerEpoch))
+	} else {
+		partition.AbortTransaction(int64(marker.ProducerID), int16(marker.ProducerEpoch), int64(offsets[0]))
+	}
+
+	return nil
+}
+
+// replicationTestOffsetCommitter publishes transactional offsets into a
+// group coordinator, the same way pkg/broker's (unexported)
+// groupOffsetCommitter does in production.
+type replicationTestOffsetCommitter struct {
+	coordinator *group.GroupCoordinator
+}
+
+func (c *replicationTestOffsetCommitter) CommitOffsets(groupID string, offsets map[string]map[int32]transaction.OffsetMetadata) error {
+	converted := make(map[string]map[int32]group.OffsetCommitData, len(offsets))
+	for topic, byPartition := range offsets {
+		partitions := make(map[int32]group.OffsetCommitData, len(byPartition))
+		for partition, offset := range byPartition {
+			partitions[partition] = group.OffsetCommitData{Offset: offset.Offset, Metadata: offset.Metadata}
+		}
+		converted[topic] = partitions
+	}
+
+	_, err := c.coordinator.HandleOffsetCommit(&group.OffsetCommitRequest{
+		GroupID:      groupID,
+		GenerationID: -1,
+		Offsets:      converted,
+	})
+	return err
 }
 
 // TestManager_StartLink_ConnectionFailure tests StartLink with connection failure

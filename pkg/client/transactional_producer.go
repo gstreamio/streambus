@@ -521,7 +521,12 @@ func (tp *TransactionalProducer) flushMessages(ctx context.Context, txn *Transac
 		batches[key] = append(batches[key], pending.Message)
 	}
 
-	producer := NewProducer(tp.client)
+	// Tagged with this transaction's producer id/epoch (see
+	// newTransactionalInternalProducer) so the broker registers these writes
+	// as belonging to an open transaction: without that tag, a
+	// read-committed fetch would see them the instant they land, gated on
+	// nothing, regardless of whether EndTxn ever resolves the transaction.
+	producer := newTransactionalInternalProducer(tp.client, int64(tp.producerID), int16(tp.producerEpoch))
 	defer func() { _ = producer.Close() }()
 
 	for _, key := range order {

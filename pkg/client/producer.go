@@ -15,6 +15,22 @@ type Producer struct {
 	client *Client
 	config ProducerConfig
 
+	// txnProducerID and txnProducerEpoch tag every ProduceRequest this
+	// producer sends as belonging to an open transaction, so
+	// Partition.BeginTransaction on the broker registers the write and a
+	// read-committed fetch gates on its resolving marker instead of treating
+	// it as an ordinary, immediately-visible write (see
+	// protocol.ProduceRequest's doc on these fields).
+	//
+	// Zero - the default for every Producer created through NewProducer or
+	// NewProducerWithConfig - means "not transactional", which is
+	// load-bearing on the wire: it is how the broker tells a plain write
+	// from a transactional one apart, and it is also what an idempotent-only
+	// producer is supposed to send. Only newTransactionalInternalProducer
+	// sets these away from zero; nothing outside this package may.
+	txnProducerID    int64
+	txnProducerEpoch int16
+
 	// Batching
 	mu          sync.Mutex
 	batches     map[string]*messageBatch // topic+partition -> batch
@@ -65,6 +81,19 @@ func NewProducerWithConfig(client *Client, config ProducerConfig) *Producer {
 		go p.batchFlusher()
 	}
 
+	return p
+}
+
+// newTransactionalInternalProducer creates a plain Producer whose writes are
+// tagged with a transaction's producer id/epoch (see the Producer.txnProducerID
+// field comment), so the broker recognizes them as belonging to that open
+// transaction instead of as ordinary writes visible under every isolation
+// level the instant they land. This is TransactionalProducer.flushMessages'
+// own internal producer, not something any other caller should construct.
+func newTransactionalInternalProducer(client *Client, producerID int64, producerEpoch int16) *Producer {
+	p := NewProducer(client)
+	p.txnProducerID = producerID
+	p.txnProducerEpoch = producerEpoch
 	return p
 }
 
@@ -199,9 +228,11 @@ func (p *Producer) sendMessage(ctx context.Context, topic string, partitionID ui
 			Flags:   flags,
 		},
 		Payload: &protocol.ProduceRequest{
-			Topic:       topic,
-			PartitionID: partitionID,
-			Messages:    messages,
+			Topic:         topic,
+			PartitionID:   partitionID,
+			Messages:      messages,
+			ProducerID:    p.txnProducerID,
+			ProducerEpoch: p.txnProducerEpoch,
 		},
 	}
 
