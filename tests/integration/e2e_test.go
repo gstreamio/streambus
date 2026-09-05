@@ -131,11 +131,26 @@ func TestEndToEndIntegration(t *testing.T) {
 			t.Logf("Registered broker %d", i)
 		}
 
-		// Wait for replication
-		time.Sleep(1 * time.Second)
+		// Wait for replication to reach every node.
+		//
+		// A fixed sleep here was flaky: one second is usually enough for the
+		// leader to replicate three registrations, but not on a loaded CI
+		// runner, where the follower that was still catching up reported zero
+		// brokers. Polling for the condition keeps the fast path fast and
+		// only spends the longer budget when replication is actually slow.
+		t.Log("Verifying broker replication across all nodes...")
+		require.Eventually(t, func() bool {
+			for _, adapter := range adapters {
+				brokers, err := adapter.ListBrokers(ctx)
+				if err != nil || len(brokers) != 3 {
+					return false
+				}
+			}
+			return true
+		}, 30*time.Second, 50*time.Millisecond,
+			"brokers did not replicate to every node")
 
 		// Verify all nodes have the brokers
-		t.Log("Verifying broker replication across all nodes...")
 		for i, adapter := range adapters {
 			brokers, err := adapter.ListBrokers(ctx)
 			require.NoError(t, err, "node %d failed to list brokers", i+1)
