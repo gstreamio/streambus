@@ -3,10 +3,11 @@
 import json
 import logging
 import socket
-import struct
 import time
-import zlib
-from typing import Optional, Any, Dict, List
+from typing import Any, Dict, List, Optional
+
+from . import _wire
+from ._wire import BrokerError, ProduceResult, ProtocolError, WireMessage
 
 logger = logging.getLogger(__name__)
 
@@ -18,16 +19,18 @@ class Producer:
     Provides simplified methods for sending messages to StreamBus topics.
     """
 
-    def __init__(self, broker: str, port: int):
+    def __init__(self, broker: str, port: int, connect_timeout: float = 10.0):
         """
         Initialize producer.
 
         Args:
             broker: StreamBus broker address
             port: StreamBus broker port
+            connect_timeout: Socket timeout in seconds
         """
         self.broker = broker
         self.port = port
+        self.connect_timeout = connect_timeout
         self._socket: Optional[socket.socket] = None
         self._connected = False
         self._request_id = 1
@@ -41,6 +44,7 @@ class Producer:
 
         try:
             self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._socket.settimeout(self.connect_timeout)
             self._socket.connect((self.broker, self.port))
             self._connected = True
             logger.info(f"Producer connected to {self.broker}:{self.port}")
@@ -48,158 +52,122 @@ class Producer:
             logger.error(f"Failed to connect: {e}")
             raise ConnectionError(f"Failed to connect to {self.broker}:{self.port}: {e}")
 
-    def send(self, topic: str, key: bytes, value: bytes) -> int:
+    def _next_request_id(self) -> int:
+        request_id = self._request_id
+        self._request_id += 1
+        return request_id
+
+    def send(
+        self,
+        topic: str,
+        key: Optional[bytes],
+        value: bytes,
+        partition: int = 0,
+        headers: Optional[Dict[str, bytes]] = None,
+    ) -> int:
         """
         Send a message to a topic.
 
         Args:
             topic: Topic name
-            key: Message key
+            key: Message key (may be None)
             value: Message value
+            partition: Partition to write to (default: 0)
+            headers: Optional message headers
 
         Returns:
-            int: Message offset
+            int: Offset assigned to the message
 
         Example:
             >>> producer.send("orders", b"order-1", b'{"amount": 100}')
         """
+        result = self.send_batch(
+            topic,
+            [{"key": key, "value": value, "headers": headers}],
+            partition=partition,
+        )
+        return result.base_offset
+
+    def send_batch(
+        self,
+        topic: str,
+        messages: List[Dict[str, Any]],
+        partition: int = 0,
+    ) -> ProduceResult:
+        """
+        Send several messages to one partition in a single request.
+
+        Args:
+            topic: Topic name
+            messages: Dicts with 'value' and optionally 'key', 'headers',
+                'timestamp' (nanoseconds since the epoch)
+            partition: Partition to write to (default: 0)
+
+        Returns:
+            ProduceResult: base offset, count written, and high water mark
+        """
+        if not messages:
+            raise ValueError("send_batch requires at least one message")
+
         if not self._connected:
             self.connect()
 
-        # Build message
-        timestamp = int(time.time() * 1_000_000_000)  # nanoseconds
-        message = {
-            'key': key or b'',
-            'value': value,
-            'timestamp': timestamp
-        }
+        now = time.time_ns()
+        wire_messages = [
+            WireMessage(
+                # Server-assigned; the field must still occupy its 8 bytes.
+                offset=0,
+                timestamp=msg.get("timestamp") or now,
+                key=msg.get("key") or b"",
+                value=msg.get("value") or b"",
+                headers=msg.get("headers") or {},
+            )
+            for msg in messages
+        ]
 
-        # Encode produce request
-        request_data = self._encode_produce_request(topic, 0, [message])
+        request = _wire.encode_produce_request(
+            self._next_request_id(), topic, partition, wire_messages
+        )
 
-        # Send request
-        self._socket.sendall(request_data)
+        try:
+            self._socket.sendall(request)
+            _, payload = _wire.read_response(self._recv_exactly)
+        except (BrokerError, ProtocolError):
+            # The broker answered; the connection is still usable.
+            raise
+        except (socket.error, ConnectionError):
+            # Framing state is unknown after a transport failure - a later
+            # request would read this one's leftover bytes.
+            self.close()
+            raise
 
-        # Receive response
-        response = self._recv_response()
+        return _wire.decode_produce_response(payload)
 
-        # Parse response to get offset
-        if len(response) >= 14:
-            # Skip partition_id (4 bytes)
-            offset = struct.unpack('>Q', response[4:12])[0]
-            return offset
-
-        return -1
-
-    def send_json(self, topic: str, key: str, value: Any) -> int:
+    def send_json(
+        self,
+        topic: str,
+        key: Optional[str],
+        value: Any,
+        partition: int = 0,
+    ) -> int:
         """
         Send a JSON message to a topic.
 
         Args:
             topic: Topic name
-            key: Message key (will be encoded as UTF-8)
+            key: Message key (encoded as UTF-8)
             value: Python object to serialize as JSON
+            partition: Partition to write to (default: 0)
 
         Returns:
-            int: Message offset
+            int: Offset assigned to the message
 
         Example:
-            >>> producer.send_json("orders", "order-1", {"amount": 100, "status": "pending"})
+            >>> producer.send_json("orders", "order-1", {"amount": 100})
         """
-        key_bytes = key.encode('utf-8') if key else b''
-        value_bytes = json.dumps(value).encode('utf-8')
-        return self.send(topic, key_bytes, value_bytes)
-
-    def _encode_produce_request(self, topic: str, partition_id: int, messages: List[Dict]) -> bytes:
-        """Encode a produce request."""
-        # Encode payload
-        payload = bytearray()
-
-        # Topic (length-prefixed string)
-        topic_bytes = topic.encode('utf-8')
-        payload.extend(struct.pack('>I', len(topic_bytes)))
-        payload.extend(topic_bytes)
-
-        # Partition ID
-        payload.extend(struct.pack('>I', partition_id))
-
-        # Message count
-        payload.extend(struct.pack('>I', len(messages)))
-
-        # Messages
-        for msg in messages:
-            # Key
-            key = msg.get('key', b'')
-            payload.extend(struct.pack('>I', len(key)))
-            if key:
-                payload.extend(key)
-
-            # Value
-            value = msg.get('value', b'')
-            payload.extend(struct.pack('>I', len(value)))
-            if value:
-                payload.extend(value)
-
-            # Timestamp
-            payload.extend(struct.pack('>Q', msg['timestamp']))
-
-            # Headers count (always 0 for now)
-            payload.extend(struct.pack('>I', 0))
-
-        # Build header
-        request_id = self._request_id
-        self._request_id += 1
-
-        total_length = 8 + 1 + 1 + 2 + len(payload) + 4
-
-        header = struct.pack(
-            '>IQBBH',
-            total_length,
-            request_id,
-            0x01,  # PRODUCE request type
-            1,     # Protocol version
-            0      # Flags
-        )
-
-        # Calculate CRC32
-        crc_data = header[4:] + payload
-        crc32 = zlib.crc32(crc_data)
-
-        return header + payload + struct.pack('>I', crc32)
-
-    def _recv_response(self) -> bytes:
-        """Receive response from broker."""
-        # Receive header (16 bytes)
-        header_data = self._recv_exactly(16)
-
-        # Parse header
-        length, request_id, status, version, flags = struct.unpack('>IQBBH', header_data)
-
-        # Receive rest of message
-        remaining_length = length - 12
-        if remaining_length > 4:
-            rest_data = self._recv_exactly(remaining_length)
-            payload_data = rest_data[:-4]
-            received_crc = struct.unpack('>I', rest_data[-4:])[0]
-
-            # Verify CRC32
-            crc_data = header_data[4:] + payload_data
-            calculated_crc = zlib.crc32(crc_data)
-            if received_crc != calculated_crc:
-                raise ValueError(f"CRC mismatch: expected {calculated_crc}, got {received_crc}")
-
-            # Check status
-            if status != 0:  # StatusCode.OK
-                error_msg = "Unknown error"
-                if len(payload_data) >= 4:
-                    msg_len = struct.unpack('>I', payload_data[:4])[0]
-                    if len(payload_data) >= 4 + msg_len:
-                        error_msg = payload_data[4:4+msg_len].decode('utf-8', errors='replace')
-                raise RuntimeError(f"Produce request failed: {error_msg}")
-
-            return payload_data
-
-        return b''
+        key_bytes = key.encode("utf-8") if key else b""
+        value_bytes = json.dumps(value).encode("utf-8")
+        return self.send(topic, key_bytes, value_bytes, partition=partition)
 
     def _recv_exactly(self, n: int) -> bytes:
         """Receive exactly n bytes."""
@@ -216,7 +184,7 @@ class Producer:
         if self._socket:
             try:
                 self._socket.close()
-            except Exception as e:
+            except OSError as e:
                 logger.error(f"Error closing socket: {e}")
             finally:
                 self._socket = None

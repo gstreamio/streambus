@@ -105,8 +105,13 @@ func (h *Handler) handleProduce(req *protocol.Request) *protocol.Response {
 	storageMessages := make([]storage.Message, len(payload.Messages))
 	for i, msg := range payload.Messages {
 		storageMessages[i] = storage.Message{
-			Key:       msg.Key,
-			Value:     msg.Value,
+			Key:   msg.Key,
+			Value: msg.Value,
+			// Headers must be carried through: the record format has held
+			// them since the v2 format, the tenancy handler reads tenant_id
+			// out of them, and transaction markers are identified by them.
+			// Dropping them here discarded every header a producer set.
+			Headers:   msg.Headers,
 			Timestamp: time.Unix(0, msg.Timestamp),
 		}
 	}
@@ -279,9 +284,12 @@ func visibleMessages(storageMessages []*storage.Message, startOffset, readLimit 
 		}
 
 		messages = append(messages, protocol.Message{
-			Offset:    offset,
-			Key:       msg.Key,
-			Value:     msg.Value,
+			Offset: offset,
+			Key:    msg.Key,
+			Value:  msg.Value,
+			// Return the headers the producer set. Control records are
+			// already filtered out above, so nothing internal leaks here.
+			Headers:   msg.Headers,
 			Timestamp: msg.Timestamp.UnixNano(),
 		})
 	}

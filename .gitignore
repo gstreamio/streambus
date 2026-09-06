@@ -90,3 +90,10 @@ docs/_build/
 
 # Project planning (kept local, not checked into GitHub)
 project-plan/
+
+# Python bytecode and build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
