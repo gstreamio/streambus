@@ -5,6 +5,13 @@ All notable changes to StreamBus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1](https://github.com/gstreamio/streambus/compare/v2.2.0...v2.2.1) (2026-09-06)
+
+
+### Bug Fixes
+
+* **server,sdk:** stop discarding message headers, and repair the Python SDK wire format ([#77](https://github.com/gstreamio/streambus/issues/77)) ([758b94a](https://github.com/gstreamio/streambus/commit/758b94aac2cdc49bda49d6e1410e2e0e22ab85d6))
+
 ## [2.2.0](https://github.com/gstreamio/streambus/compare/v2.1.0...v2.2.0) (2026-09-05)
 
 
