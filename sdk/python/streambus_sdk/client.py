@@ -3,6 +3,7 @@
 import logging
 from typing import Optional
 
+from ._wire import ISOLATION_READ_COMMITTED, ISOLATION_READ_UNCOMMITTED
 from .producer import Producer
 from .consumer import Consumer
 
@@ -39,7 +40,13 @@ class StreamBusClient:
         """
         return Producer(self.broker, self.port)
 
-    def new_consumer(self, topic: str, partition: int = 0, start_offset: int = 0) -> Consumer:
+    def new_consumer(
+        self,
+        topic: str,
+        partition: int = 0,
+        start_offset: int = 0,
+        isolation_level: int = ISOLATION_READ_UNCOMMITTED,
+    ) -> Consumer:
         """
         Create a new consumer.
 
@@ -47,6 +54,8 @@ class StreamBusClient:
             topic: Topic to consume from
             partition: Partition ID (default: 0)
             start_offset: Starting offset (default: 0)
+            isolation_level: ISOLATION_READ_UNCOMMITTED (default) or
+                ISOLATION_READ_COMMITTED to hide uncommitted transactions
 
         Returns:
             Consumer: A new consumer instance
@@ -56,7 +65,8 @@ class StreamBusClient:
             port=self.port,
             topic=topic,
             partition=partition,
-            start_offset=start_offset
+            start_offset=start_offset,
+            isolation_level=isolation_level,
         )
 
     def close(self):

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Dict
+from typing import Dict, Optional
 
 
 @dataclass
@@ -15,7 +15,8 @@ class Message:
     key: Optional[bytes]
     value: bytes
     timestamp: datetime
-    headers: Optional[Dict[str, str]] = None
+    # Header values are bytes on the wire (Go's map[string][]byte), not text.
+    headers: Optional[Dict[str, bytes]] = None
 
     def value_as_str(self, encoding: str = 'utf-8', errors: str = 'replace') -> str:
         """Get value as string."""
@@ -26,6 +27,17 @@ class Message:
         if self.key:
             return self.key.decode(encoding, errors=errors)
         return None
+
+    def header_as_str(
+        self,
+        name: str,
+        encoding: str = 'utf-8',
+        errors: str = 'replace',
+    ) -> Optional[str]:
+        """Get a single header value as a string, or None if absent."""
+        if not self.headers or name not in self.headers:
+            return None
+        return self.headers[name].decode(encoding, errors=errors)
 
     def __repr__(self) -> str:
         return (
