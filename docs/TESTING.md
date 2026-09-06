@@ -2,7 +2,7 @@
 
 This document describes the comprehensive testing strategy for StreamBus, including how to run tests, write new tests, and understand test coverage.
 
-**Current Status**: 87.1% core library coverage (pkg/ packages) | 550+ tests passing
+**Current Status**: 87.0% core library coverage (pkg/ packages) | 550+ tests passing
 
 ## Table of Contents
 
@@ -678,17 +678,17 @@ go test -race ./...
 
 ## Coverage Improvement Roadmap
 
-StreamBus ships with **87.1% core library coverage** (pkg/ packages).
+StreamBus ships with **87.0% core library coverage** (pkg/ packages).
 
 ## Summary
 
 StreamBus employs a comprehensive testing strategy with:
 
-- **87.1% current coverage** (core library)
+- **87.0% current coverage** (core library)
 - **Multi-layered approach**: unit, integration, chaos, performance
 - **Automated CI/CD** with matrix testing
 - **Chaos engineering** for resilience validation
 - **Performance benchmarks** for regression detection
 - **Security scanning** with Gosec and CodeQL
 
-StreamBus is production-ready with solid test coverage (87.1% core library).
+StreamBus is production-ready with solid test coverage (87.0% core library).

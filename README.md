@@ -8,7 +8,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/gstreamio/streambus.svg)](https://pkg.go.dev/github.com/gstreamio/streambus)
 [![CI](https://github.com/gstreamio/streambus/actions/workflows/ci.yml/badge.svg)](https://github.com/gstreamio/streambus/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Test Coverage](https://img.shields.io/badge/Coverage-87.1%25-brightgreen)](docs/TESTING.md)
+[![Test Coverage](https://img.shields.io/badge/Coverage-87.0%25-brightgreen)](docs/TESTING.md)
 [![Production Ready](https://img.shields.io/badge/Status-Beta-blue)](docs/PRODUCTION_READINESS.md)
 
 [Features](#key-capabilities) • [Performance](#performance) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Community](#community)
