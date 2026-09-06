@@ -5,6 +5,24 @@ All notable changes to StreamBus will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0](https://github.com/gstreamio/streambus/compare/v2.1.0...v2.2.0) (2026-09-05)
+
+
+### Features
+
+* **cli,broker:** complete the admin tooling and stop getTopic fabricating offsets ([#72](https://github.com/gstreamio/streambus/issues/72)) ([fca9bb1](https://github.com/gstreamio/streambus/commit/fca9bb14a9c4c7727356850627a2a3d1ca74d590))
+* **operator,broker:** make spec.security take effect ([#66](https://github.com/gstreamio/streambus/issues/66)) ([d281ee3](https://github.com/gstreamio/streambus/commit/d281ee3bbfe6cc6d9e8999d58612dc599aa9255b))
+* **operator:** wire pullSecrets, version and ServiceMonitor ([#68](https://github.com/gstreamio/streambus/issues/68)) ([364a10e](https://github.com/gstreamio/streambus/commit/364a10e0502a5635ad419b6a4f5c2658b6669620))
+* **replication,client:** exactly-once cross-cluster replication ([#73](https://github.com/gstreamio/streambus/issues/73)) ([e186b1a](https://github.com/gstreamio/streambus/commit/e186b1ae86c929cc81768dcd2100d7da23c37554))
+* **replication:** implement TLS for cross-cluster links ([#69](https://github.com/gstreamio/streambus/issues/69)) ([d236dfe](https://github.com/gstreamio/streambus/commit/d236dfe6a78d54206ee0e8b403b27a7653dc1696))
+* **storage,broker:** make the record write format configurable ([#71](https://github.com/gstreamio/streambus/issues/71)) ([30d68b1](https://github.com/gstreamio/streambus/commit/30d68b1f5ac2eb4e5342311fd7d0d52dae448e7f))
+
+
+### Bug Fixes
+
+* **ci:** repair the broker replication tests and the coverage badge push ([#76](https://github.com/gstreamio/streambus/issues/76)) ([7b75fbc](https://github.com/gstreamio/streambus/commit/7b75fbcb594c44162578cfeb0f78ccfeca61316e))
+* **transaction:** resolve transactions stuck after a failed marker write ([#74](https://github.com/gstreamio/streambus/issues/74)) ([0fff81c](https://github.com/gstreamio/streambus/commit/0fff81c20c787a7ce408afeb1443593df5b265fe))
+
 ## [2.1.0](https://github.com/gstreamio/streambus/compare/v2.0.1...v2.1.0) (2026-09-05)
 
 
